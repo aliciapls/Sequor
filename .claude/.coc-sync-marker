@@ -1,0 +1,11 @@
+last_synced: "2026-04-15T12:39:16Z"
+loom_version: "2.8.7"
+template_version: "3.5.0"
+sync_direction: "loom 2.8.7 + Python 3.14 support"
+scope: "Python 3.14 classifier + catch up loom 2.8.7 cross-SDK globals (testing.md Delegating Primitives + impossibility-surface skill)"
+files:
+  - pyproject.toml
+  - .claude/VERSION
+  - .claude/rules/testing.md
+  - .claude/skills/12-testing-strategies/impossibility-surface.md
+  - .claude/.coc-sync-marker
