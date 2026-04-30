@@ -13,6 +13,10 @@ Requirements:
     - .env file with required API keys
 """
 
+import pytest
+
+pytestmark = pytest.mark.skip(reason="Standalone script — run directly, not via pytest")
+
 import os
 import sys
 
