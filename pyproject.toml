@@ -53,6 +53,9 @@ dependencies = [
     "structlog>=23.1.0",
     "pydantic[email]>=2.0.0",
     "pydantic-settings>=2.0.0",
+    "fastapi>=0.135.3",
+    "uvicorn>=0.43.0",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
