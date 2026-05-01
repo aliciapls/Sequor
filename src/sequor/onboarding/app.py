@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from sequor.onboarding.api import handle_signup
+from sequor.dns.service import generate_dns_records, verify_dns_records
 from sequor.schemas import OnboardingRequest
 
 app = FastAPI(title="Sequor Onboarding", version="0.1.0")
@@ -37,3 +38,21 @@ async def create_account(request: Request):
         return JSONResponse(status_code=422, content={"detail": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"detail": str(e)})
+
+
+@app.get("/api/v1/dns/records")
+async def dns_records(domain: str):
+    """Return DNS records needed for the given domain."""
+    if not domain or "." not in domain:
+        return JSONResponse(status_code=422, content={"detail": "Valid domain required"})
+    records = generate_dns_records(domain)
+    return JSONResponse(content={"domain": domain, "records": records})
+
+
+@app.get("/api/v1/dns/verify")
+async def dns_verify(domain: str):
+    """Check whether DNS records are in place for the given domain."""
+    if not domain or "." not in domain:
+        return JSONResponse(status_code=422, content={"detail": "Valid domain required"})
+    result = verify_dns_records(domain)
+    return JSONResponse(content=result)
