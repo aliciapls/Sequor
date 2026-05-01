@@ -11,8 +11,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from sequor.onboarding.api import handle_signup
+from sequor.billing.service import handle_webhook as handle_stripe_webhook
 from sequor.dns.service import generate_dns_records, verify_dns_records
-from sequor.schemas import OnboardingRequest
+from sequor.schemas import OnboardingRequest, StripeWebhookEvent
 
 app = FastAPI(title="Sequor Onboarding", version="0.1.0")
 
@@ -56,3 +57,24 @@ async def dns_verify(domain: str):
         return JSONResponse(status_code=422, content={"detail": "Valid domain required"})
     result = verify_dns_records(domain)
     return JSONResponse(content=result)
+
+
+@app.post("/api/v1/billing/webhook")
+async def stripe_webhook(request: Request):
+    """Process Stripe webhook events."""
+    body = await request.json()
+
+    try:
+        event = StripeWebhookEvent(**body)
+        from sequor.db.database import get_engine
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        engine = get_engine()
+        async with AsyncSession(engine) as session:
+            await handle_stripe_webhook(session, event)
+
+        return JSONResponse(status_code=200, content={"status": "ok"})
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"detail": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
