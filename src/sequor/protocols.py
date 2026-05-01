@@ -7,10 +7,11 @@ needs so it can develop and test independently.
 At merge time, swap in the real implementations from the other branches.
 """
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 
+@runtime_checkable
 class EmailSender(Protocol):
     """Branch 1 provides — sends an email and returns a message ID."""
 
