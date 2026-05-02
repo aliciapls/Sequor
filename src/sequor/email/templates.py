@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Email template functions for all notification types.
 
 Pure functions that accept TypedDict data and return (html, text) tuples.
@@ -79,7 +81,12 @@ class ReturnSummaryData(TypedDict):
 
 
 def _html_escape(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    import html
+    return html.escape(s, quote=True)
+
+
+def _sanitize_header(value: str) -> str:
+    return "".join(c for c in value if ord(c) > 0x1F and ord(c) != 0x7F)
 
 
 def _html_wrapper(subject: str, body_html: str, org_name: str) -> str:
@@ -109,7 +116,7 @@ def _format_confidence(score: float) -> str:
 
 def build_escalation_subject(data: EscalationEmailData) -> str:
     short_id = data["escalation_id"][:8]
-    return f"[UNRESOLVED] {data['one_line_summary']} (Ref: {short_id})"
+    return _sanitize_header(f"[UNRESOLVED] {data['one_line_summary']} (Ref: {short_id})")
 
 
 def build_escalation_email(data: EscalationEmailData) -> tuple[str, str]:
@@ -181,7 +188,7 @@ def build_escalation_email(data: EscalationEmailData) -> tuple[str, str]:
 
 
 def build_digest_subject(data: DigestEmailData) -> str:
-    return f"[COVERAGE DIGEST] {data['date']} — {data['account_name']}"
+    return _sanitize_header(f"[COVERAGE DIGEST] {data['date']} — {data['account_name']}")
 
 
 def build_digest_email(data: DigestEmailData) -> tuple[str, str]:
@@ -254,7 +261,7 @@ def build_digest_email(data: DigestEmailData) -> tuple[str, str]:
 
 
 def build_weekly_recap_subject(data: WeeklyRecapData) -> str:
-    return f"[WEEKLY RECAP] {data['date_range']} — {data['account_name']}"
+    return _sanitize_header(f"[WEEKLY RECAP] {data['date_range']} — {data['account_name']}")
 
 
 def build_weekly_recap_email(data: WeeklyRecapData) -> tuple[str, str]:
@@ -320,7 +327,7 @@ def build_weekly_recap_email(data: WeeklyRecapData) -> tuple[str, str]:
 
 
 def build_return_summary_subject(data: ReturnSummaryData) -> str:
-    return f"[OOO COMPLETE] {data['date_range']} — {data['account_name']}"
+    return _sanitize_header(f"[OOO COMPLETE] {data['date_range']} — {data['account_name']}")
 
 
 def build_return_summary_email(data: ReturnSummaryData) -> tuple[str, str]:

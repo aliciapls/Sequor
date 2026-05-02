@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """SLA deadline calculation and breach detection."""
 
 from datetime import datetime, timedelta, timezone

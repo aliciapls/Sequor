@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Protocol interfaces for cross-branch dependencies.
 
 Branch 3 (onboarding, operations) depends on features from Branch 1 (email)

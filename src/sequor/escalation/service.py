@@ -16,6 +16,7 @@ from sequor.db.models import (
 )
 from sequor.email.templates import (
     EscalationEmailData,
+    _sanitize_header,
     build_escalation_email,
     build_escalation_subject,
 )
@@ -264,7 +265,7 @@ class EscalationService:
             org_name=org_name,
             one_line_summary=original.get("ai_summary", "Escalated"),
         )
-        subject = f"[ESCALATED] {build_escalation_subject(_escalation_email_data)}"
+        subject = _sanitize_header(f"[ESCALATED] {build_escalation_subject(_escalation_email_data)}")
 
         await self._email_sender.send_escalation_email(
             to=second_tier_backup["email"],
@@ -331,9 +332,8 @@ class EscalationService:
     ) -> list[dict[str, Any]]:
         """Find all pending escalations past their SLA deadline.
 
-        For each pending escalation, resolves the account via BackupContact
-        to determine the SLA hours, then checks whether assigned_at + SLA
-        has passed. Returns the list of breached escalations.
+        Fetches BackupContacts and Accounts in bulk to avoid N+2 queries.
+        Returns the list of breached escalations.
 
         Used by the scheduler to trigger reminders and second-tier escalation.
         """
@@ -342,14 +342,27 @@ class EscalationService:
             {"tenant_id": str(tenant_id), "status": EscalationStatus.pending.value},
         )
 
+        if not pending:
+            return []
+
+        backup_ids = list({esc["backup_contact_id"] for esc in pending})
+        all_backups = await self._db.list("BackupContact", {})
+        backup_map: dict[str, dict] = {b["id"]: b for b in all_backups}
+
+        account_ids = list({
+            b["account_id"] for b in backup_map.values() if b.get("account_id")
+        })
+        all_accounts = await self._db.list("Account", {}) if account_ids else []
+        account_map: dict[str, dict] = {a["id"]: a for a in all_accounts}
+
         breached = []
         now = datetime.now(timezone.utc)
         for esc in pending:
-            backup = await self._db.read("BackupContact", str(esc["backup_contact_id"]))
+            backup = backup_map.get(str(esc["backup_contact_id"]))
             account_id = backup.get("account_id") if backup else None
             sla_hours = self._default_sla
             if account_id:
-                account = await self._db.read("Account", str(account_id))
+                account = account_map.get(str(account_id))
                 if account:
                     sla_hours = account.get("escalation_sla_hours", self._default_sla)
 
@@ -365,6 +378,101 @@ class EscalationService:
             )
 
         return breached
+
+    async def process_breached_escalation(
+        self,
+        escalation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Process a single breached escalation.
+
+        For tier-1: escalate to second tier, send reminder, mark expired.
+        For tier-2: mark expired (end of chain).
+        Skips if no longer pending (race condition guard).
+
+        Status is set to expired BEFORE side effects (emails, tier-2
+        escalation) to narrow the TOCTOU window — another worker or
+        scheduler tick that reads the escalation after the update will
+        see expired and skip it.
+        """
+        escalation_id = escalation["id"]
+        tier = escalation.get("tier", 1)
+
+        current = await self._db.read("Escalation", str(escalation_id))
+        if current is None or current.get("status") != EscalationStatus.pending.value:
+            logger.info(
+                "escalation.breach_skipped",
+                escalation_id=escalation_id,
+                reason="not pending",
+            )
+            return {"escalation_id": escalation_id, "status": "skipped"}
+
+        now = datetime.now(timezone.utc)
+        summary = (
+            f"SLA breached at tier {tier}. "
+            + ("Escalated to tier 2." if tier == 1 else "No further escalation available.")
+        )
+        await self._db.update(
+            "Escalation",
+            str(escalation_id),
+            {
+                "status": EscalationStatus.expired.value,
+                "resolved_at": now,
+                "resolution_summary": summary,
+            },
+        )
+
+        result: dict[str, Any] = {
+            "escalation_id": escalation_id,
+            "new_status": EscalationStatus.expired.value,
+            "tier_2_id": None,
+        }
+
+        if tier == 1:
+            try:
+                tier2 = await self.escalate_to_second_tier(uuid.UUID(escalation_id))
+                result["tier_2_id"] = tier2["id"]
+            except BackupNotFoundError:
+                logger.warning(
+                    "escalation.no_second_tier",
+                    escalation_id=escalation_id,
+                )
+
+            try:
+                backup = await self._db.read(
+                    "BackupContact", str(escalation["backup_contact_id"])
+                )
+                if backup and backup.get("email"):
+                    short_id = escalation_id[:8]
+                    await self._email_sender.send_escalation_email(
+                        to=backup["email"],
+                        escalation_id=escalation_id,
+                        subject=_sanitize_header(f"[SLA BREACHED] Escalation {short_id} requires attention"),
+                        body_html=(
+                            "<p>The escalation for message "
+                            f"{escalation.get('message_id', 'unknown')[:8]} "
+                            "has not been acknowledged within the SLA window "
+                            "and has been escalated.</p>"
+                        ),
+                        body_text=(
+                            "The escalation for message "
+                            f"{escalation.get('message_id', 'unknown')[:8]} "
+                            "has not been acknowledged within the SLA window "
+                            "and has been escalated."
+                        ),
+                    )
+            except Exception:
+                logger.exception(
+                    "escalation.reminder_failed",
+                    escalation_id=escalation_id,
+                )
+
+        logger.info(
+            "escalation.processed_breach",
+            escalation_id=escalation_id,
+            tier=tier,
+            new_status=EscalationStatus.expired.value,
+        )
+        return result
 
     async def check_contradiction(
         self,

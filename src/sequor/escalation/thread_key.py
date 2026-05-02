@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Thread key derivation for escalation deduplication.
 
 The thread key is a stable SHA256 hash of the contact identity + topic.

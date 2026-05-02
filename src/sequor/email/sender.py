@@ -24,7 +24,10 @@ class SendGridAPIError(Exception):
     def __init__(self, status_code: int, body: str) -> None:
         self.status_code = status_code
         self.body = body
-        super().__init__(f"SendGrid API error {status_code}: {body[:200]}")
+        body_fingerprint = hex(hash(body) & 0xFFFF)[2:]
+        super().__init__(
+            f"SendGrid API error {status_code} (body_fingerprint={body_fingerprint})"
+        )
 
 
 class SendGridEmailSender:

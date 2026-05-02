@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests for EscalationService — mocked DataFlow + email sender."""
 
 import uuid
