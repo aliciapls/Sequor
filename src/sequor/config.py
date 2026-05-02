@@ -1,12 +1,13 @@
 """Application configuration loaded from .env."""
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # Application
     app_env: str = "development"
-    debug: bool = True
+    debug: bool = False
     log_level: str = "INFO"
 
     # Database
@@ -30,6 +31,17 @@ class Settings(BaseSettings):
     # Escalation defaults
     default_escalation_sla_hours: int = 4
     default_confidence_threshold: float = 0.90
+
+    # SLA Scheduler
+    scheduler_interval_seconds: int = 300
+    scheduler_enabled: bool = True
+
+    @field_validator("scheduler_interval_seconds")
+    @classmethod
+    def _validate_scheduler_interval(cls, v: int) -> int:
+        if v < 10:
+            raise ValueError("scheduler_interval_seconds must be >= 10")
+        return v
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
