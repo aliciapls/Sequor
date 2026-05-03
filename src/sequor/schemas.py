@@ -8,7 +8,6 @@ import re
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-
 # Pattern to detect HTML tags in string inputs
 _HTML_RE = re.compile(r"<[^>]+>")
 

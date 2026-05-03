@@ -1,9 +1,7 @@
 from logging.config import fileConfig
 
-from sqlalchemy import pool
-from sqlalchemy import engine_from_config
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 from sequor.config import settings
 
@@ -14,8 +12,8 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("postgresql://", "postgresql+psycopg://"))
 
-from sequor.db.base import Base  # noqa: E402
 from sequor.db import models  # noqa: F401, E402 — register all models
+from sequor.db.base import Base  # noqa: E402
 
 target_metadata = Base.metadata
 
