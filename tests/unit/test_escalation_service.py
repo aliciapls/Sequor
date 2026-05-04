@@ -364,6 +364,7 @@ class TestEscalateToSecondTier:
                 "tenant_id": TENANT_ID,
                 "backup_contact_id": BACKUP_ID,
                 "priority": EscalationPriority.high.value,
+                "status": EscalationStatus.expired.value,
             }
         }
         # Remove second tier

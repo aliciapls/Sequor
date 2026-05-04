@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
 import structlog
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -12,6 +14,7 @@ from sendgrid.helpers.mail import CustomArg, Header, Mail, ReplyTo
 
 from sequor.config import settings
 from sequor.email.rate_limiter import EmailRateLimiter, RateLimitExceededError
+from sequor.email.templates import _sanitize_header
 
 logger = structlog.get_logger()
 
@@ -24,7 +27,7 @@ class SendGridAPIError(Exception):
     def __init__(self, status_code: int, body: str) -> None:
         self.status_code = status_code
         self.body = body
-        body_fingerprint = hex(hash(body) & 0xFFFF)[2:]
+        body_fingerprint = hashlib.sha256(body.encode()).hexdigest()[:8]
         super().__init__(
             f"SendGrid API error {status_code} (body_fingerprint={body_fingerprint})"
         )
@@ -140,24 +143,29 @@ class SendGridEmailSender:
         escalation_id: str | None = None,
     ) -> Mail:
         from_email = f"coverage@{self._from_domain}"
+        safe_to = _validate_email(to)
+        safe_subject = _sanitize_header(subject)
         mail = Mail(
             from_email=from_email,
-            to_emails=to,
-            subject=subject,
+            to_emails=safe_to,
+            subject=safe_subject,
             html_content=body_html,
             plain_text_content=body_text,
         )
 
         if reply_to:
-            mail.reply_to = ReplyTo(reply_to)
+            safe_reply_to = _validate_email(reply_to)
+            mail.reply_to = ReplyTo(safe_reply_to)
 
         if in_reply_to:
-            mail.add_header(Header("In-Reply-To", in_reply_to))
-            mail.add_header(Header("References", in_reply_to))
+            safe_irt = _sanitize_header(in_reply_to)
+            mail.add_header(Header("In-Reply-To", safe_irt))
+            mail.add_header(Header("References", safe_irt))
 
         if escalation_id:
-            mail.add_header(Header("X-Sequor-Escalation-Id", escalation_id))
-            mail.add_custom_arg(CustomArg("escalation_id", escalation_id))
+            safe_esc_id = _sanitize_header(escalation_id)
+            mail.add_header(Header("X-Sequor-Escalation-Id", safe_esc_id))
+            mail.add_custom_arg(CustomArg("escalation_id", safe_esc_id))
 
         return mail
 
@@ -178,3 +186,15 @@ def _extract_message_id(headers: dict | Any) -> str:
     if isinstance(headers, dict):
         return headers.get("X-Message-Id", "")
     return getattr(headers, "get", lambda k, d="": d)("X-Message-Id", "")
+
+
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
+def _validate_email(email: str) -> str:
+    """Sanitize and validate an email address for use in SMTP headers."""
+    clean = _sanitize_header(email.strip())
+    clean = clean.replace("\r", "").replace("\n", "")
+    if not _EMAIL_RE.match(clean):
+        raise ValueError(f"Invalid email address (fingerprint={hashlib.sha256(email.encode()).hexdigest()[:8]})")
+    return clean

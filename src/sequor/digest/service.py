@@ -163,6 +163,13 @@ class DigestService:
             if r.get("was_auto_sent") and _after_cutoff(r.get("sent_at"), cutoff)
         ]
 
+        rag_responses = [
+            r for r in auto_responses
+            if r.get("rag_retrieval_id") is not None
+        ]
+
+        learned_response_ids = {la["source_escalation_id"] for la in recent_learned if la.get("source_escalation_id")}
+
         recent_esc = [
             e for e in escalations
             if _after_cutoff(e.get("assigned_at"), cutoff)
@@ -193,8 +200,8 @@ class DigestService:
             account_name=account_name,
             date=now.strftime("%Y-%m-%d"),
             ai_handled_count=len(auto_responses),
-            rag_resolved_count=len(auto_responses),
-            learned_answers_count=len(auto_responses),
+            rag_resolved_count=len(rag_responses),
+            learned_answers_count=len(recent_learned),
             pending_count=len(pending_esc),
             oldest_unresolved_hours=oldest_hours,
             escalated_count=len(recent_esc),

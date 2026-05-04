@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # Email (SendGrid)
     sendgrid_api_key: str = ""
+    sendgrid_webhook_verification_key: str = ""
     email_from_domain: str = "localhost"
     email_rate_limit_per_minute: int = 60
 
@@ -41,6 +42,13 @@ class Settings(BaseSettings):
     def _validate_scheduler_interval(cls, v: int) -> int:
         if v < 10:
             raise ValueError("scheduler_interval_seconds must be >= 10")
+        return v
+
+    @field_validator("default_confidence_threshold")
+    @classmethod
+    def _validate_confidence_threshold(cls, v: float) -> float:
+        if not (0.0 <= v <= 1.0):
+            raise ValueError("default_confidence_threshold must be between 0.0 and 1.0")
         return v
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

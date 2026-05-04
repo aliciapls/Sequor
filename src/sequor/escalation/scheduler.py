@@ -45,9 +45,11 @@ class SLAScheduler:
             return
         self._task.cancel()
         try:
-            await self._task
+            await asyncio.wait_for(self._task, timeout=10)
         except asyncio.CancelledError:
             pass
+        except asyncio.TimeoutError:
+            logger.warning("scheduler.stop_timeout")
         self._task = None
         logger.info("scheduler.stopped")
 

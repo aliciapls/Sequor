@@ -7,7 +7,7 @@ Pgvector embedding columns are included on DocumentChunk and LearnedAnswer.
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
@@ -183,7 +183,7 @@ def _uuid() -> uuid.UUID:
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

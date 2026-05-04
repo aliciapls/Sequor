@@ -27,6 +27,15 @@ class EmailSender(Protocol):
         in_reply_to: str | None = None,
     ) -> str: ...
 
+    async def send_escalation_email(
+        self,
+        to: str,
+        escalation_id: str,
+        subject: str,
+        body_html: str,
+        body_text: str,
+    ) -> str: ...
+
 
 class MessageFetcher(Protocol):
     """Branch 1 provides — queries messages from the database."""

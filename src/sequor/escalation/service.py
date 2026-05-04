@@ -197,6 +197,14 @@ class EscalationService:
         if original is None:
             raise EscalationNotFoundError(f"Escalation {escalation_id} not found")
 
+        # Only escalate escalations that are expired (breached) or pending
+        allowed = {EscalationStatus.pending.value, EscalationStatus.expired.value}
+        if original.get("status") not in allowed:
+            raise EscalationError(
+                f"Cannot escalate from status '{original.get('status')}' "
+                f"(expected pending or expired)"
+            )
+
         backup = await self._db.read("BackupContact", str(original["backup_contact_id"]))
         account_id = backup["account_id"] if backup else None
 
@@ -313,7 +321,13 @@ class EscalationService:
         """Mark an escalation as acknowledged (backup opened/viewed it).
 
         Sets status=acknowledged and acknowledged_at=now.
+
+        Raises:
+            EscalationNotFoundError: if the escalation does not exist.
         """
+        existing = await self._db.read("Escalation", str(escalation_id))
+        if existing is None:
+            raise EscalationNotFoundError(f"Escalation {escalation_id} not found")
         now = datetime.now(timezone.utc)
         updated = await self._db.update(
             "Escalation",
@@ -346,14 +360,20 @@ class EscalationService:
             return []
 
         backup_ids = list({esc["backup_contact_id"] for esc in pending})
-        all_backups = await self._db.list("BackupContact", {})
-        backup_map: dict[str, dict] = {b["id"]: b for b in all_backups}
+        backup_map: dict[str, dict] = {}
+        for bid in backup_ids:
+            b = await self._db.read("BackupContact", str(bid))
+            if b:
+                backup_map[str(bid)] = b
 
         account_ids = list({
             b["account_id"] for b in backup_map.values() if b.get("account_id")
         })
-        all_accounts = await self._db.list("Account", {}) if account_ids else []
-        account_map: dict[str, dict] = {a["id"]: a for a in all_accounts}
+        account_map: dict[str, dict] = {}
+        for aid in account_ids:
+            a = await self._db.read("Account", str(aid))
+            if a:
+                account_map[str(aid)] = a
 
         breached = []
         now = datetime.now(timezone.utc)
@@ -411,7 +431,7 @@ class EscalationService:
             f"SLA breached at tier {tier}. "
             + ("Escalated to tier 2." if tier == 1 else "No further escalation available.")
         )
-        await self._db.update(
+        updated = await self._db.update(
             "Escalation",
             str(escalation_id),
             {
@@ -420,6 +440,25 @@ class EscalationService:
                 "resolution_summary": summary,
             },
         )
+
+        # Guard against TOCTOU race: if another worker already changed the status,
+        # the update may have overwritten it. Verify the update was legitimate.
+        if updated is None:
+            logger.info(
+                "escalation.breach_skipped",
+                escalation_id=escalation_id,
+                reason="update returned None",
+            )
+            return {"escalation_id": escalation_id, "status": "skipped"}
+
+        # Re-read to confirm no concurrent modification
+        verify = await self._db.read("Escalation", str(escalation_id))
+        if verify and verify.get("resolution_summary") != summary:
+            logger.warning(
+                "escalation.concurrent_modification",
+                escalation_id=escalation_id,
+            )
+            return {"escalation_id": escalation_id, "status": "skipped"}
 
         result: dict[str, Any] = {
             "escalation_id": escalation_id,

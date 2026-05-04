@@ -7,6 +7,7 @@ processing (Message record creation, thread linking).
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from email import policy
@@ -18,6 +19,22 @@ from typing import Any
 import structlog
 
 logger = structlog.get_logger()
+
+
+def _sanitize_filename(name: str) -> str:
+    """Strip path components and dangerous characters from attachment filenames."""
+    safe = os.path.basename(name)
+    safe = safe.replace("\x00", "").replace("\r", "").replace("\n", "")
+    if ".." in safe or not safe:
+        return "unnamed"
+    return safe
+
+
+def _sanitize_header_value(value: str | None) -> str | None:
+    """Strip null bytes and control characters from parsed header values."""
+    if value is None:
+        return None
+    return value.replace("\x00", "").replace("\r", "").replace("\n", "")
 
 
 @dataclass
@@ -82,9 +99,9 @@ def parse_sendgrid_payload(payload: dict[str, Any]) -> InboundEmail:
 
     subject = payload.get("subject", "") or _extract_header(headers_raw, "Subject") or ""
 
-    message_id = _extract_header(headers_raw, "Message-Id") or _extract_header(headers_raw, "Message-ID") or ""
-    in_reply_to = _extract_header(headers_raw, "In-Reply-To")
-    references = _extract_header(headers_raw, "References")
+    message_id = _sanitize_header_value(_extract_header(headers_raw, "Message-Id") or _extract_header(headers_raw, "Message-ID")) or ""
+    in_reply_to = _sanitize_header_value(_extract_header(headers_raw, "In-Reply-To"))
+    references = _sanitize_header_value(_extract_header(headers_raw, "References"))
 
     attachments = _extract_attachments(payload)
 
@@ -123,7 +140,7 @@ def parse_raw_email(raw_bytes: bytes) -> InboundEmail:
     for part in msg.walk():
         cd = part.get("Content-Disposition", "")
         if "attachment" in cd:
-            fname = part.get_filename() or "unnamed"
+            fname = _sanitize_filename(part.get_filename() or "unnamed")
             content = part.get_payload(decode=True) or b""
             attachments.append(InboundAttachment(
                 filename=fname,
@@ -136,9 +153,9 @@ def parse_raw_email(raw_bytes: bytes) -> InboundEmail:
         from_name=from_name,
         to_email=to_email,
         subject=msg.get("Subject", ""),
-        message_id=msg.get("Message-ID", ""),
-        in_reply_to=msg.get("In-Reply-To"),
-        references=msg.get("References"),
+        message_id=_sanitize_header_value(msg.get("Message-ID", "")) or "",
+        in_reply_to=_sanitize_header_value(msg.get("In-Reply-To")),
+        references=_sanitize_header_value(msg.get("References")),
         body_text=body_text,
         body_html=body_html,
         attachments=attachments,
@@ -247,11 +264,12 @@ def _extract_attachments(payload: dict[str, Any]) -> list[InboundAttachment]:
         filename = payload.get(f"attachment{i}")
         if filename is None:
             break
+        safe_name = _sanitize_filename(filename if isinstance(filename, str) else "unnamed")
         content_type = payload.get(f"attachment{i}_type", "application/octet-stream")
         content_str = payload.get(f"attachment{i}", "")
         content = content_str.encode("utf-8") if isinstance(content_str, str) else content_str
         attachments.append(InboundAttachment(
-            filename=filename,
+            filename=safe_name,
             content_type=content_type,
             content=content,
         ))

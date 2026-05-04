@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import structlog
 
+from sequor.config import settings
 from sequor.db.models import MessageChannel, MessageDirection
 from sequor.email.parser import InboundEmail, parse_sendgrid_payload
 
@@ -28,11 +31,23 @@ class InboundEmailProcessor:
     async def process_sendgrid_payload(
         self,
         payload: dict[str, Any],
+        raw_body: str | None = None,
+        signature: str | None = None,
     ) -> dict[str, Any]:
         """Process a SendGrid Inbound Parse webhook payload.
 
+        Args:
+            payload: The parsed form fields from SendGrid.
+            raw_body: The raw request body (for signature verification).
+            signature: The X-Twilio-Email-Event-Webhook-Signature header.
+
         Returns the created Message record.
         """
+        if raw_body is not None and signature is not None:
+            if not _verify_sendgrid_signature(raw_body, signature):
+                logger.warning("inbound.signature_invalid")
+                return {"status": "rejected", "reason": "invalid_signature"}
+
         inbound = parse_sendgrid_payload(payload)
 
         masked_from = _mask_email(inbound.from_email)
@@ -101,13 +116,13 @@ class InboundEmailProcessor:
         }
 
     async def _resolve_account(self, to_email: str) -> dict | None:
-        accounts = await self._db.list("Account", {})
-        for account in accounts:
-            if account.get("email_address", "").lower() == to_email.lower():
-                return account
-            owner = account.get("owner_email", "").lower()
-            if owner == to_email.lower():
-                return account
+        lower = to_email.lower()
+        by_email = await self._db.list("Account", {"email_address": lower})
+        if by_email:
+            return by_email[0]
+        by_owner = await self._db.list("Account", {"owner_email": lower})
+        if by_owner:
+            return by_owner[0]
         return None
 
     async def _resolve_or_create_contact(
@@ -172,3 +187,24 @@ def _mask_email(email: str) -> str:
     if len(local) <= 2:
         return f"***@{domain}"
     return f"{local[0]}***@{domain}"
+
+
+def _verify_sendgrid_signature(raw_body: str, signature: str) -> bool:
+    """Verify SendGrid Inbound Parse webhook signature using HMAC-SHA256.
+
+    The public key is configured via SENDGRID_WEBHOOK_VERIFICATION_KEY in .env.
+    If the key is not configured, verification is skipped (logged as warning).
+    """
+    public_key = settings.sendgrid_webhook_verification_key
+    if not public_key:
+        logger.warning("inbound.webhook_key_not_configured")
+        return True  # skip verification if key not configured
+
+    import base64
+    try:
+        key_bytes = base64.b64decode(public_key)
+        expected = hmac.new(key_bytes, raw_body.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, signature)
+    except Exception:
+        logger.exception("inbound.signature_verification_error")
+        return False
