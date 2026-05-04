@@ -111,7 +111,7 @@ class ResponseGenerator:
         ]
         has_good_synthesis = synthesis.confidence_badge in ["high", "moderate"]
         low_synthesis = (
-            synthesis.confidence_badge == "uncertain" or synthesis.confidence_score < 0.3
+            synthesis.confidence_badge == "uncertain" or synthesis.confidence < 0.3
         )
         is_complex = classification.category == MessageCategory.COMPLEX
 
@@ -271,7 +271,7 @@ class ResponseGenerator:
         ]
 
         escalation_needed = (
-            synthesis.confidence_badge == "uncertain" or synthesis.confidence_score < 0.3
+            synthesis.confidence_badge == "uncertain" or synthesis.confidence < 0.3
         )
 
         return ResponseResult(

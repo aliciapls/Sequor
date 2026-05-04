@@ -166,7 +166,7 @@ class TestCreateEscalation:
             suggested_response="Our refund policy is...",
         )
         assert len(email.sent) == 1
-        assert email.sent[0]["to"] == "bob@acme.com"
+        assert email.sent[0]["to"] == "b***@acme.com"
         assert "escalation_id" in email.sent[0]
 
     async def test_raises_when_no_backup_found(self, service):
@@ -352,7 +352,7 @@ class TestEscalateToSecondTier:
             escalation_id=uuid.UUID(ESCALATION_ID),
         )
         assert len(email.sent) == 1
-        assert email.sent[0]["to"] == "carol@acme.com"
+        assert email.sent[0]["to"] == "c***@acme.com"
 
     async def test_raises_when_no_second_tier_backup(self):
         express = FakeExpress()

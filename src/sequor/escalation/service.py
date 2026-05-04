@@ -9,6 +9,15 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from sequor.config import settings
+
+
+def _mask_email(email: str) -> str:
+    if "@" not in email:
+        return "***"
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        return f"***@{domain}"
+    return f"{local[0]}***@{domain}"
 from sequor.db.models import (
     ContactTier,
     EscalationPriority,
@@ -163,7 +172,7 @@ class EscalationService:
 
         try:
             await self._email_sender.send_escalation_email(
-                to=backup["email"],
+                to=_mask_email(backup["email"]),
                 escalation_id=escalation_record["id"],
                 subject=subject,
                 body_html=body_html,
@@ -172,13 +181,13 @@ class EscalationService:
             logger.info(
                 "escalation.email_sent",
                 escalation_id=escalation_record["id"],
-                to=backup["email"],
+                to=_mask_email(backup["email"]),
             )
         except Exception as e:
             logger.warning(
                 "escalation.email_failed_notification_pending",
                 escalation_id=escalation_record["id"],
-                to=backup["email"],
+                to=_mask_email(backup["email"]),
                 error=str(e),
             )
             await self._db.update(
@@ -290,7 +299,7 @@ class EscalationService:
 
         try:
             await self._email_sender.send_escalation_email(
-                to=second_tier_backup["email"],
+                to=_mask_email(second_tier_backup["email"]),
                 escalation_id=new_escalation["id"],
                 subject=subject,
                 body_html=body_html,
@@ -300,7 +309,7 @@ class EscalationService:
             logger.warning(
                 "escalation.second_tier_email_failed_notification_pending",
                 escalation_id=new_escalation["id"],
-                to=second_tier_backup["email"],
+                to=_mask_email(second_tier_backup["email"]),
                 error=str(e),
             )
             await self._db.update(
@@ -510,7 +519,7 @@ class EscalationService:
                 if backup and backup.get("email"):
                     short_id = escalation_id[:8]
                     await self._email_sender.send_escalation_email(
-                        to=backup["email"],
+                        to=_mask_email(backup["email"]),
                         escalation_id=escalation_id,
                         subject=_sanitize_header(f"[SLA BREACHED] Escalation {short_id} requires attention"),
                         body_html=(

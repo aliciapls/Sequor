@@ -135,15 +135,18 @@ class LearningLoop:
 
         from sequor.db.models import SourceType
 
+        from sqlalchemy import text
+
         async with AsyncSession(self._engine) as session:
-            await session.execute(
-                """
+            result = await session.execute(
+                text("""
                 INSERT INTO learned_answers
                 (id, tenant_id, account_id, question_text, answer_text, source_type,
                  source_escalation_id, embedding, created_at)
                 VALUES (gen_random_uuid(), :tenant_id, :account_id, :question_text, :answer_text,
                         :source_type, :source_escalation_id, :embedding, NOW())
-                """,
+                RETURNING id
+                """),
                 {
                     "tenant_id": tenant_id,
                     "account_id": account_id,
@@ -154,13 +157,8 @@ class LearningLoop:
                     "embedding": embedding,
                 },
             )
-            await session.commit()
-
-            result = await session.execute(
-                "SELECT id FROM learned_answers WHERE tenant_id = :tenant_id ORDER BY created_at DESC LIMIT 1",
-                {"tenant_id": tenant_id},
-            )
             row = result.fetchone()
+            await session.commit()
             return row[0] if row else tenant_id
 
     async def search_learned_answers(

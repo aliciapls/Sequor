@@ -20,8 +20,17 @@ from sequor.ai.classifier import ClassificationResult, MessageClassifier
 from sequor.ai.learning import LearningLoop
 from sequor.ai.rag_pipeline import RAGPipeline
 from sequor.ai.response import ResponseGenerator, ResponseResult
-from sequor.email.sender import EmailSenderImpl, get_email_sender
+from sequor.email.sender import SendGridEmailSender
 from sequor.protocols import EmailSender
+
+
+def _mask_email(email: str) -> str:
+    if "@" not in email:
+        return "***"
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        return f"***@{domain}"
+    return f"{local[0]}***@{domain}"
 
 logger = structlog.get_logger()
 
@@ -235,7 +244,9 @@ class AutoReplyService:
         from sequor.db.database import get_engine
         from sequor.db.models import ConfidenceBadge
 
-        now = datetime.utcnow()
+        from datetime import timezone
+
+        now = datetime.now(timezone.utc)
         badge = ConfidenceBadge(response_result.confidence_badge)
 
         async with AsyncSession(get_engine()) as session:
@@ -348,23 +359,29 @@ class AutoReplyService:
         Returns:
             True if email was sent successfully
         """
-        if not isinstance(self._email, EmailSenderImpl):
+        if not isinstance(self._email, (SendGridEmailSender, EmailSender)):
             logger.warning("auto_reply.email_sender_incompatible")
             return False
 
         try:
-            await self._email.send_auto_reply(
-                to=context.contact_email,
-                original_subject=context.subject or "(No Subject)",
+            from sequor.email.templates import build_auto_reply_email
+
+            html, text = build_auto_reply_email(
                 response_content=response_result.content,
                 confidence_badge=response_result.confidence_badge,
+            )
+            await self._email.send_email(
+                to=context.contact_email,
+                subject=f"Re: {context.subject or '(No Subject)'}",
+                body_html=html,
+                body_text=text,
                 in_reply_to=context.external_message_id,
             )
             return True
         except Exception as e:
             logger.error(
                 "auto_reply.send_failed",
-                to=context.contact_email,
+                to=_mask_email(context.contact_email),
                 error=str(e),
             )
             return False
@@ -386,8 +403,8 @@ def get_auto_reply_service() -> AutoReplyService:
         vector_store = VectorStore(engine)
         rag = RAGPipeline(vector_store=vector_store, llm_client=llm)
         classifier = MessageClassifier(llm_client=llm)
-        learning = LearningLoop(llm_client=llm, db_pool=engine)
-        email_sender = get_email_sender()
+        learning = LearningLoop(llm_client=llm, engine=engine)
+        email_sender = SendGridEmailSender()
 
         _auto_reply_service = AutoReplyService(
             classifier=classifier,

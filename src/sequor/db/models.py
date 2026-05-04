@@ -19,6 +19,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    UniqueConstraint,
     Integer,
     String,
     Text,
@@ -513,6 +514,7 @@ class DocumentChunk(Base):
     __table_args__ = (
         Index("ix_document_chunks_tenant_id", "tenant_id"),
         Index("ix_document_chunks_document_id", "document_id"),
+        UniqueConstraint("tenant_id", "document_id", "chunk_index", name="uq_document_chunks_tenant_doc_idx"),
     )
 
     def __repr__(self) -> str:

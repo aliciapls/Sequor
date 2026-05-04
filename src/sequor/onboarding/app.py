@@ -4,6 +4,8 @@ Uses FastAPI (lightweight, async, Pydantic integration). Runs with:
     uvicorn sequor.onboarding.app:app --reload
 """
 
+import json as _json
+import structlog
 from pathlib import Path
 from uuid import UUID
 
@@ -12,9 +14,16 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from sequor.onboarding.api import handle_signup
+from sequor.onboarding.rate_limiter import IPRateLimiter, get_client_ip, _mask_ip
 from sequor.billing.service import handle_webhook as handle_stripe_webhook
 from sequor.dns.service import generate_dns_records, verify_dns_records
 from sequor.schemas import DocumentUploadRequest, OnboardingRequest, StripeWebhookEvent
+
+_logger = structlog.get_logger()
+
+# In-memory rate limiters (per-process; sufficient for single-instance uvicorn)
+_signup_limiter = IPRateLimiter(max_requests=5, window_seconds=3600)
+_upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
 
 app = FastAPI(title="Sequor Onboarding", version="0.1.0")
 
@@ -31,6 +40,21 @@ async def signup_page():
 @app.post("/api/v1/onboarding")
 async def create_account(request: Request):
     """Process signup form submission."""
+    client_ip = get_client_ip(request)
+    if not _signup_limiter.is_allowed(client_ip):
+        _logger.warning(
+            "onboarding.signup.rate_limited",
+            client_ip=_mask_ip(client_ip),
+        )
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": (
+                    "Too many signup attempts. Please try again later."
+                ),
+            },
+        )
+
     body = await request.json()
 
     try:
@@ -39,17 +63,34 @@ async def create_account(request: Request):
     except ValueError as e:
         return JSONResponse(status_code=422, content={"detail": str(e)})
     except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
+        _logger.exception("onboarding.signup.error")
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.post("/api/v1/onboarding/upload")
 async def upload_document(
+    request: Request,
     tenant_id: str = Form(...),
     account_id: str = Form(...),
     document_type: str = Form(...),
     file: UploadFile = File(...),
 ):
     """Upload a document during onboarding."""
+    client_ip = get_client_ip(request)
+    if not _upload_limiter.is_allowed(client_ip):
+        _logger.warning(
+            "onboarding.upload.rate_limited",
+            client_ip=_mask_ip(client_ip),
+        )
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": (
+                    "Too many upload attempts. Please try again later."
+                ),
+            },
+        )
+
     try:
         req = DocumentUploadRequest(
             document_type=document_type,
@@ -69,15 +110,18 @@ async def upload_document(
 
     try:
         content = await file.read()
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"detail": f"Failed to read file: {e}"})
+    except Exception:
+        _logger.exception("onboarding.upload.read_failed")
+        return JSONResponse(status_code=400, content={"detail": "Failed to read file"})
 
     try:
         from sequor.ai.ingestion import DocumentIngester
         from sequor.ai.vector_store import VectorStore
         from sequor.ai.client import get_ollama_client
+        from sequor.db.database import get_engine
 
-        vector_store = VectorStore()
+        engine = get_engine()
+        vector_store = VectorStore(engine)
         ingester = DocumentIngester(
             vector_store=vector_store,
             llm_client=get_ollama_client(),
@@ -100,8 +144,9 @@ async def upload_document(
         )
     except ValueError as e:
         return JSONResponse(status_code=422, content={"detail": str(e)})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
+    except Exception:
+        _logger.exception("onboarding.upload.error")
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/api/v1/dns/records")
@@ -135,7 +180,7 @@ async def stripe_webhook(request: Request):
         return JSONResponse(status_code=400, content={"detail": str(e)})
 
     try:
-        parsed = await request.json()
+        parsed = _json.loads(body)
         event = StripeWebhookEvent(**parsed)
         from sequor.db.database import get_engine
         from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,5 +192,6 @@ async def stripe_webhook(request: Request):
         return JSONResponse(status_code=200, content={"status": "ok"})
     except ValueError as e:
         return JSONResponse(status_code=422, content={"detail": str(e)})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
+    except Exception:
+        _logger.exception("billing.webhook.error")
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})

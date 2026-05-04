@@ -8,7 +8,7 @@ from sequor.config import Settings
 def test_settings_loads_defaults():
     s = Settings(_env_file=None, database_url="postgresql://localhost/test")
     assert s.app_env == "development"
-    assert s.debug is True
+    assert s.debug is False
     assert s.log_level == "INFO"
     assert s.default_escalation_sla_hours == 4
     assert s.default_confidence_threshold == 0.90

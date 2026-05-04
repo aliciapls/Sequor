@@ -66,18 +66,19 @@ class VectorStore:
         Returns:
             Number of chunks stored
         """
+        from sqlalchemy import text
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(self._engine) as session:
             for chunk_index, chunk_text, embedding in chunks:
                 await session.execute(
-                    """
+                    text("""
                     INSERT INTO document_chunks
                     (id, tenant_id, document_id, chunk_text, chunk_index, embedding, created_at)
                     VALUES (gen_random_uuid(), :tenant_id, :document_id, :chunk_text, :chunk_index, :embedding, NOW())
                     ON CONFLICT (tenant_id, document_id, chunk_index)
                     DO UPDATE SET chunk_text = :chunk_text, embedding = :embedding
-                    """,
+                    """),
                     {
                         "tenant_id": tenant_id,
                         "document_id": document_id,

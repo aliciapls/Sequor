@@ -10,8 +10,9 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client():
-    from sequor.onboarding.app import app
+    from sequor.onboarding.app import app, _signup_limiter
 
+    _signup_limiter._windows.clear()
     return TestClient(app)
 
 

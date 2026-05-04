@@ -5,7 +5,7 @@ This is the "brain" that determines routing and response strategy.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -124,7 +124,7 @@ class MessageClassifier:
                 confidence=float(result["confidence"]),
                 reasoning=result["reasoning"],
                 classifier_version=self.CLASSIFIER_VERSION,
-                classified_at=datetime.utcnow(),
+                classified_at=datetime.now(timezone.utc),
             )
 
             logger.info(
@@ -149,7 +149,7 @@ class MessageClassifier:
                 confidence=0.0,
                 reasoning=f"Classification failed: {str(e)}. Defaulting to semi_routine/medium.",
                 classifier_version=self.CLASSIFIER_VERSION,
-                classified_at=datetime.utcnow(),
+                classified_at=datetime.now(timezone.utc),
             )
 
     def _build_classification_prompt(

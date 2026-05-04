@@ -29,7 +29,7 @@ def _webhook(event_type: str, tenant_id: str = None, **extra) -> StripeWebhookEv
         data["object"]["metadata"]["tenant_id"] = tenant_id
     data["object"].update(extra)
     return StripeWebhookEvent(
-        id="evt_test_123",
+        id=f"evt_test_{uuid4().hex[:12]}",
         type=event_type,
         data=data,
     )

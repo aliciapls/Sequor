@@ -278,7 +278,7 @@ Please answer based on the passages above. Cite your sources using [Source: doc_
             1.0 if hallucination_result["passed"] else 0.5
         )
 
-        if overall_confidence >= 0.8:
+        if overall_confidence >= 0.9:
             badge = "high"
         elif overall_confidence >= 0.6:
             badge = "moderate"
@@ -360,7 +360,7 @@ Focus on factual claims, not the answer's framing or structure."""
 
         except (json.JSONDecodeError, Exception) as e:
             logger.warning("rag.hallucination.check_failed", error=str(e))
-            return {"passed": True, "uncited_claims": 0}
+            return {"passed": False, "uncited_claims": 0}
 
     async def query(
         self,

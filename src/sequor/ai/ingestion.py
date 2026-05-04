@@ -11,7 +11,7 @@ Orchestrates document upload through:
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -291,7 +291,7 @@ class DocumentIngester:
         """
         from sequor.db.models import DocumentType
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         doc_type = DocumentType(document_type)
 
@@ -324,9 +324,10 @@ class DocumentIngester:
             if row:
                 doc_id = row[0]
             else:
-                from uuid import uuid4
-
-                doc_id = uuid4()
+                raise RuntimeError(
+                    "INSERT INTO documents with RETURNING id returned no row — "
+                    "this should not happen with PostgreSQL"
+                )
             await session.commit()
 
         return doc_id
@@ -347,7 +348,7 @@ class DocumentIngester:
 
         from sequor.db.database import get_engine
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         status_value = status.value if hasattr(status, "value") else status
 
         async with AsyncSession(get_engine()) as session:

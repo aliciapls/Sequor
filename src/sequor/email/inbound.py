@@ -198,7 +198,7 @@ def _verify_sendgrid_signature(raw_body: str, signature: str) -> bool:
     public_key = settings.sendgrid_webhook_verification_key
     if not public_key:
         logger.warning("inbound.webhook_key_not_configured")
-        return True  # skip verification if key not configured
+        return False
 
     import base64
     try:

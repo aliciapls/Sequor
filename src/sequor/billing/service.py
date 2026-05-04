@@ -18,11 +18,11 @@ from sequor.schemas import StripeWebhookEvent
 
 logger = structlog.get_logger()
 
-STARTER_PRICE_ID = "price_starter_monthly"
 STARTER_PRICE_SGD = 20
 
 _processed_event_ids: dict[str, datetime] = {}
 _EVENT_ID_TTL_HOURS = 72
+_MAX_EVENT_ID_ENTRIES = 10_000
 
 
 def _cleanup_old_event_ids() -> None:
@@ -30,6 +30,9 @@ def _cleanup_old_event_ids() -> None:
     expired = [eid for eid, ts in _processed_event_ids.items() if ts < cutoff]
     for eid in expired:
         del _processed_event_ids[eid]
+    while len(_processed_event_ids) > _MAX_EVENT_ID_ENTRIES:
+        oldest = min(_processed_event_ids, key=_processed_event_ids.get)  # type: ignore[arg-type]
+        del _processed_event_ids[oldest]
 
 
 def verify_webhook_signature(payload: bytes, signature_header: str) -> dict:
@@ -47,7 +50,7 @@ def verify_webhook_signature(payload: bytes, signature_header: str) -> dict:
         return event
     except stripe.error.SignatureVerificationError as e:
         logger.warning("billing.webhook.signature_invalid", error=str(e))
-        raise ValueError(f"Webhook signature verification failed: {e}") from e
+        raise ValueError("Webhook signature verification failed") from e
 
 
 def is_event_processed(event_id: str) -> bool:

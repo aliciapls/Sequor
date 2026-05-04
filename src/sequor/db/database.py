@@ -44,7 +44,12 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def drop_all() -> None:
+async def drop_all(*, force: bool = False) -> None:
+    if not force:
+        raise RuntimeError(
+            "drop_all() refused — pass force=True to acknowledge "
+            "data loss is irreversible"
+        )
     from sequor.db.base import Base
     from sequor.db.models import (  # noqa: F401
         Account,
