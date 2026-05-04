@@ -6,12 +6,13 @@ webhook events from Stripe.
 """
 
 import structlog
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sequor.config import settings
 from sequor.db.models import Tenant, TenantPlan
 from sequor.schemas import StripeWebhookEvent
 
@@ -19,6 +20,45 @@ logger = structlog.get_logger()
 
 STARTER_PRICE_ID = "price_starter_monthly"
 STARTER_PRICE_SGD = 20
+
+_processed_event_ids: dict[str, datetime] = {}
+_EVENT_ID_TTL_HOURS = 72
+
+
+def _cleanup_old_event_ids() -> None:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_EVENT_ID_TTL_HOURS)
+    expired = [eid for eid, ts in _processed_event_ids.items() if ts < cutoff]
+    for eid in expired:
+        del _processed_event_ids[eid]
+
+
+def verify_webhook_signature(payload: bytes, signature_header: str) -> dict:
+    if not settings.stripe_webhook_secret:
+        logger.warning("billing.webhook.no_secret_configured")
+        raise ValueError("STRIPE_WEBHOOK_SECRET is not configured")
+
+    import stripe
+    try:
+        event = stripe.Webhook.construct_event(
+            payload,
+            signature_header,
+            settings.stripe_webhook_secret,
+        )
+        return event
+    except stripe.error.SignatureVerificationError as e:
+        logger.warning("billing.webhook.signature_invalid", error=str(e))
+        raise ValueError(f"Webhook signature verification failed: {e}") from e
+
+
+def is_event_processed(event_id: str) -> bool:
+    _cleanup_old_event_ids()
+    return event_id in _processed_event_ids
+
+
+def mark_event_processed(event_id: str) -> None:
+    _cleanup_old_event_ids()
+    _processed_event_ids[event_id] = datetime.now(timezone.utc)
+    logger.info("billing.webhook.event_processed", event_id=event_id)
 
 
 async def create_checkout_session(
@@ -62,8 +102,14 @@ async def handle_webhook(session: AsyncSession, event: StripeWebhookEvent) -> No
     Handles: checkout.session.completed, customer.subscription.updated,
     customer.subscription.deleted, invoice.payment_failed.
     """
+    event_id = event.id
+
+    if is_event_processed(event_id):
+        logger.info("billing.webhook.duplicate_skipped", event_id=event_id)
+        return
+
     event_type = event.type
-    logger.info("billing.webhook.received", type=event_type, event_id=event.id)
+    logger.info("billing.webhook.received", type=event_type, event_id=event_id)
 
     if event_type == "checkout.session.completed":
         await _handle_checkout_completed(session, event)
@@ -75,6 +121,8 @@ async def handle_webhook(session: AsyncSession, event: StripeWebhookEvent) -> No
         await _handle_payment_failed(session, event)
     else:
         logger.info("billing.webhook.ignored", type=event_type)
+
+    mark_event_processed(event_id)
 
 
 async def _get_tenant_from_metadata(session: AsyncSession, event: StripeWebhookEvent) -> Tenant | None:

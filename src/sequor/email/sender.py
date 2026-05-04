@@ -113,24 +113,57 @@ class SendGridEmailSender:
         masked_to = _mask_email(to)
         logger.info("email.send.start", to=masked_to, subject=subject[:80])
 
-        loop = asyncio.get_running_loop()
-        try:
-            response = await loop.run_in_executor(
-                self._executor, self._post, mail
-            )
-        except Exception as exc:
-            logger.exception("email.send.error", to=masked_to, error=str(exc))
-            raise
+        backoff_delays = _get_backoff_delays()
+        max_attempts = min(len(backoff_delays), _get_max_retry_attempts())
 
-        status = response.status_code
-        if status != 202:
-            body = response.body.decode() if isinstance(response.body, bytes) else str(response.body)
-            logger.error("email.send.error", to=masked_to, status_code=status)
-            raise SendGridAPIError(status, body)
+        last_exception: Exception | None = None
 
-        message_id = _extract_message_id(response.headers)
-        logger.info("email.send.ok", to=masked_to, message_id=message_id)
-        return message_id
+        for attempt in range(max_attempts):
+            try:
+                loop = asyncio.get_running_loop()
+                response = await loop.run_in_executor(
+                    self._executor, self._post, mail
+                )
+
+                status = response.status_code
+                if status != 202:
+                    body = response.body.decode() if isinstance(response.body, bytes) else str(response.body)
+                    raise SendGridAPIError(status, body)
+
+                message_id = _extract_message_id(response.headers)
+                logger.info(
+                    "email.send.ok",
+                    to=masked_to,
+                    message_id=message_id,
+                    attempt=attempt + 1,
+                )
+                return message_id
+
+            except Exception as exc:
+                last_exception = exc
+                delay = backoff_delays[attempt] if attempt < len(backoff_delays) else backoff_delays[-1]
+
+                if attempt < max_attempts - 1:
+                    logger.warning(
+                        "email.send.retry",
+                        to=masked_to,
+                        attempt=attempt + 1,
+                        max_attempts=max_attempts,
+                        delay_seconds=delay,
+                        error=str(exc),
+                    )
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "email.send.exhausted",
+                        to=masked_to,
+                        attempts=max_attempts,
+                        error=str(exc),
+                    )
+                    raise last_exception from None
+
+        raise last_exception from None  # type: ignore[misc]
 
     def _build_mail(
         self,
@@ -171,6 +204,18 @@ class SendGridEmailSender:
 
     def _post(self, mail: Mail) -> Any:
         return self._client.client.mail.send.post(request_body=mail.get())
+
+
+def _get_backoff_delays() -> list[float]:
+    raw = settings.email_retry_backoff_seconds
+    try:
+        return [float(s.strip()) for s in raw.split(",")]
+    except (ValueError, AttributeError):
+        return [0.0, 300.0, 1800.0]
+
+
+def _get_max_retry_attempts() -> int:
+    return settings.email_retry_max_attempts
 
 
 def _mask_email(email: str) -> str:

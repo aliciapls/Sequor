@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     default_escalation_sla_hours: int = 4
     default_confidence_threshold: float = 0.90
 
+    # Email retry
+    email_retry_max_attempts: int = 3
+    email_retry_backoff_seconds: str = "0,300,1800"
+
     # SLA Scheduler
     scheduler_interval_seconds: int = 300
     scheduler_enabled: bool = True

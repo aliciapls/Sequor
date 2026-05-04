@@ -161,19 +161,32 @@ class EscalationService:
             )
         )
 
-        await self._email_sender.send_escalation_email(
-            to=backup["email"],
-            escalation_id=escalation_record["id"],
-            subject=subject,
-            body_html=body_html,
-            body_text=body_text,
-        )
-
-        logger.info(
-            "escalation.email_sent",
-            escalation_id=escalation_record["id"],
-            to=backup["email"],
-        )
+        try:
+            await self._email_sender.send_escalation_email(
+                to=backup["email"],
+                escalation_id=escalation_record["id"],
+                subject=subject,
+                body_html=body_html,
+                body_text=body_text,
+            )
+            logger.info(
+                "escalation.email_sent",
+                escalation_id=escalation_record["id"],
+                to=backup["email"],
+            )
+        except Exception as e:
+            logger.warning(
+                "escalation.email_failed_notification_pending",
+                escalation_id=escalation_record["id"],
+                to=backup["email"],
+                error=str(e),
+            )
+            await self._db.update(
+                "Escalation",
+                escalation_record["id"],
+                {"status": EscalationStatus.notification_pending.value},
+            )
+            escalation_record["status"] = EscalationStatus.notification_pending.value
 
         return escalation_record
 
@@ -275,13 +288,27 @@ class EscalationService:
         )
         subject = _sanitize_header(f"[ESCALATED] {build_escalation_subject(_escalation_email_data)}")
 
-        await self._email_sender.send_escalation_email(
-            to=second_tier_backup["email"],
-            escalation_id=new_escalation["id"],
-            subject=subject,
-            body_html=body_html,
-            body_text=body_text,
-        )
+        try:
+            await self._email_sender.send_escalation_email(
+                to=second_tier_backup["email"],
+                escalation_id=new_escalation["id"],
+                subject=subject,
+                body_html=body_html,
+                body_text=body_text,
+            )
+        except Exception as e:
+            logger.warning(
+                "escalation.second_tier_email_failed_notification_pending",
+                escalation_id=new_escalation["id"],
+                to=second_tier_backup["email"],
+                error=str(e),
+            )
+            await self._db.update(
+                "Escalation",
+                new_escalation["id"],
+                {"status": EscalationStatus.notification_pending.value},
+            )
+            new_escalation["status"] = EscalationStatus.notification_pending.value
 
         return new_escalation
 

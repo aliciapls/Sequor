@@ -143,6 +143,7 @@ class EscalationStatus(str, enum.Enum):
     acknowledged = "acknowledged"
     resolved = "resolved"
     expired = "expired"
+    notification_pending = "notification_pending"
 
 
 class EscalationPriority(str, enum.Enum):

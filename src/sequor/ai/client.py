@@ -1,5 +1,10 @@
 """Ollama client for local LLM and embedding generation."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Coroutine
+
 import httpx
 import structlog
 
@@ -169,3 +174,48 @@ def get_ollama_client() -> OllamaClient:
     if _ollama_client is None:
         _ollama_client = OllamaClient()
     return _ollama_client
+
+
+@dataclass
+class LLMResult:
+    """Result from LLM generation with escalation routing signal."""
+
+    content: str
+    should_escalate: bool
+    error: str | None = None
+
+
+async def safe_generate(
+    client: OllamaClient,
+    prompt: str,
+    system: str | None = None,
+    temperature: float = 0.3,
+    max_tokens: int = 2048,
+) -> LLMResult:
+    """Generate text with graceful fallback to escalation on LLM failure.
+
+    Returns an LLMResult with should_escalate=True when the LLM fails,
+    allowing callers to route to escalation without try/except at every call site.
+    """
+    try:
+        content = await client.generate(
+            prompt=prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return LLMResult(content=content, should_escalate=False)
+    except (RuntimeError, httpx.HTTPStatusError, httpx.ConnectError) as e:
+        logger.warning(
+            "llm.generate.failed_routing_to_escalation",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return LLMResult(content="", should_escalate=True, error=str(e))
+    except Exception as e:
+        logger.error(
+            "llm.generate.unexpected_error_routing_to_escalation",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return LLMResult(content="", should_escalate=True, error=str(e))
