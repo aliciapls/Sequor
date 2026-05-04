@@ -7,7 +7,8 @@ Pgvector embedding columns are included on DocumentChunk and LearnedAnswer.
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -21,6 +22,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Unicode,
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -28,86 +30,87 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sequor.db.base import Base
 
+
 # ---------------------------------------------------------------------------
 # Enum definitions
 # ---------------------------------------------------------------------------
 
 
-class TenantPlan(enum.StrEnum):
+class TenantPlan(str, enum.Enum):
     free = "free"
     starter = "starter"
     professional = "professional"
     enterprise = "enterprise"
 
 
-class OwnershipType(enum.StrEnum):
+class OwnershipType(str, enum.Enum):
     individual = "individual"
     department = "department"
 
 
-class AccountChannel(enum.StrEnum):
+class AccountChannel(str, enum.Enum):
     email = "email"
     whatsapp = "whatsapp"
 
 
-class AccountStatus(enum.StrEnum):
+class AccountStatus(str, enum.Enum):
     active = "active"
     inactive = "inactive"
 
 
-class ContactTier(enum.StrEnum):
+class ContactTier(str, enum.Enum):
     primary = "primary"
     second_tier = "second_tier"
 
 
-class ChannelPreference(enum.StrEnum):
+class ChannelPreference(str, enum.Enum):
     whatsapp = "whatsapp"
     email = "email"
     either = "either"
 
 
-class ConsentChannel(enum.StrEnum):
+class ConsentChannel(str, enum.Enum):
     whatsapp = "whatsapp"
     email = "email"
 
 
-class OptInMethod(enum.StrEnum):
+class OptInMethod(str, enum.Enum):
     first_contact_notice = "first_contact_notice"
     explicit_checkbox = "explicit_checkbox"
     verbal = "verbal"
 
 
-class WithdrawalMethod(enum.StrEnum):
+class WithdrawalMethod(str, enum.Enum):
     replied_human = "replied_human"
     replied_stop = "replied_stop"
     settings_change = "settings_change"
 
 
-class MessageDirection(enum.StrEnum):
+class MessageDirection(str, enum.Enum):
     inbound = "inbound"
     outbound = "outbound"
 
 
-class MessageChannel(enum.StrEnum):
+class MessageChannel(str, enum.Enum):
     whatsapp = "whatsapp"
     email = "email"
 
 
-class ClassificationCategory(enum.StrEnum):
+class ClassificationCategory(str, enum.Enum):
     routine = "routine"
     semi_routine = "semi_routine"
     complex = "complex"
     high_stakes = "high_stakes"
 
 
-class ClassificationUrgency(enum.StrEnum):
+class ClassificationUrgency(str, enum.Enum):
     low = "low"
     medium = "medium"
     high = "high"
     critical = "critical"
 
 
-class DocumentType(enum.StrEnum):
+class DocumentType(str, enum.Enum):
     faq = "faq"
     roster = "roster"
     price_list = "price_list"
@@ -115,7 +118,7 @@ class DocumentType(enum.StrEnum):
     other = "other"
 
 
-class DocumentStatus(enum.StrEnum):
+class DocumentStatus(str, enum.Enum):
     pending = "pending"
     indexing = "indexing"
     ready = "ready"
@@ -123,47 +126,47 @@ class DocumentStatus(enum.StrEnum):
     error = "error"
 
 
-class SourceType(enum.StrEnum):
+class SourceType(str, enum.Enum):
     human_answer = "human_answer"
     document = "document"
 
 
-class ConfidenceBadge(enum.StrEnum):
+class ConfidenceBadge(str, enum.Enum):
     high = "high"
     moderate = "moderate"
     low = "low"
     uncertain = "uncertain"
 
 
-class EscalationStatus(enum.StrEnum):
+class EscalationStatus(str, enum.Enum):
     pending = "pending"
     acknowledged = "acknowledged"
     resolved = "resolved"
     expired = "expired"
 
 
-class EscalationPriority(enum.StrEnum):
+class EscalationPriority(str, enum.Enum):
     low = "low"
     medium = "medium"
     high = "high"
     critical = "critical"
 
 
-class DoerType(enum.StrEnum):
+class DoerType(str, enum.Enum):
     ai_agent = "ai_agent"
     backup_contact = "backup_contact"
     user = "user"
     system = "system"
 
 
-class RecipientType(enum.StrEnum):
+class RecipientType(str, enum.Enum):
     contact = "contact"
     backup_contact = "backup_contact"
     user = "user"
     system = "system"
 
 
-class RoutingTarget(enum.StrEnum):
+class RoutingTarget(str, enum.Enum):
     backup_contact = "backup_contact"
     escalation_queue = "escalation_queue"
     auto_respond = "auto_respond"
@@ -180,7 +183,7 @@ def _uuid() -> uuid.UUID:
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -194,16 +197,14 @@ class Tenant(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email_domain: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
     plan: Mapped[TenantPlan] = mapped_column(
         Enum(TenantPlan, name="tenant_plan", create_constraint=True),
         nullable=False,
         default=TenantPlan.free,
     )
     settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    pdpa_consent_recorded_at: Mapped[datetime | None] = mapped_column(
+    pdpa_consent_recorded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -230,12 +231,12 @@ class Account(Base):
         Enum(OwnershipType, name="ownership_type", create_constraint=True), nullable=False
     )
     owner_email: Mapped[str] = mapped_column(String(320), nullable=False)
-    channels: Mapped[list[str]] = mapped_column(
+    channels: Mapped[list] = mapped_column(
         ARRAY(String(20)), nullable=False, default=lambda: [AccountChannel.email.value]
     )
-    email_address: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    whatsapp_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    backup_contact_ids: Mapped[list | None] = mapped_column(ARRAY(Uuid), nullable=True)
+    email_address: Mapped[Optional[str]] = mapped_column(String(320), nullable=True)
+    whatsapp_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    backup_contact_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid), nullable=True)
     routing_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.90)
     escalation_sla_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
@@ -244,9 +245,7 @@ class Account(Base):
         nullable=False,
         default=AccountStatus.active,
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="accounts")
@@ -273,7 +272,7 @@ class BackupContact(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
-    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     tier: Mapped[ContactTier] = mapped_column(
         Enum(ContactTier, name="contact_tier", create_constraint=True), nullable=False
     )
@@ -299,12 +298,12 @@ class Contact(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(320), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    tags: Mapped[list | None] = mapped_column(ARRAY(String(100)), nullable=True)
-    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    tags: Mapped[Optional[list]] = mapped_column(ARRAY(String(100)), nullable=True)
+    last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     channel_preference: Mapped[ChannelPreference] = mapped_column(
         Enum(ChannelPreference, name="channel_preference", create_constraint=True),
         nullable=False,
@@ -338,15 +337,13 @@ class ChannelConsent(Base):
     channel: Mapped[ConsentChannel] = mapped_column(
         Enum(ConsentChannel, name="consent_channel", create_constraint=True), nullable=False
     )
-    opt_in_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    opt_in_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
     opt_in_method: Mapped[OptInMethod] = mapped_column(
         Enum(OptInMethod, name="opt_in_method", create_constraint=True), nullable=False
     )
-    opt_in_notice_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    opt_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    withdrawal_method: Mapped[WithdrawalMethod | None] = mapped_column(
+    opt_in_notice_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    opt_out_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    withdrawal_method: Mapped[Optional[WithdrawalMethod]] = mapped_column(
         Enum(WithdrawalMethod, name="withdrawal_method", create_constraint=True), nullable=True
     )
 
@@ -376,19 +373,17 @@ class Message(Base):
     channel: Mapped[MessageChannel] = mapped_column(
         Enum(MessageChannel, name="message_channel", create_constraint=True), nullable=False
     )
-    external_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    in_reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
+    external_message_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    in_reply_to_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
-    subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    body_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    body_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
-    attachments: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    body_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    body_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attachments: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     whatsapp_session_expired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    received_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_messages_tenant_id", "tenant_id"),
@@ -398,9 +393,7 @@ class Message(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<Message id={self.id} direction={self.direction.value} channel={self.channel.value}>"
-        )
+        return f"<Message id={self.id} direction={self.direction.value} channel={self.channel.value}>"
 
 
 class Classification(Base):
@@ -423,10 +416,8 @@ class Classification(Base):
         nullable=False,
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
-    classified_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    classified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
     __table_args__ = (
         Index("ix_classifications_tenant_id", "tenant_id"),
@@ -450,13 +441,11 @@ class RAGRetrieval(Base):
     message_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
-    document_ids: Mapped[list | None] = mapped_column(ARRAY(Uuid), nullable=True)
-    passages: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    retrieval_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    synthesis_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    retrieved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    document_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid), nullable=True)
+    passages: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    retrieval_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    synthesis_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
     __table_args__ = (
         Index("ix_rag_retrievals_tenant_id", "tenant_id"),
@@ -478,11 +467,11 @@ class Document(Base):
     type: Mapped[DocumentType] = mapped_column(
         Enum(DocumentType, name="document_type", create_constraint=True), nullable=False
     )
-    file_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, name="document_status", create_constraint=True),
         nullable=False,
@@ -515,9 +504,7 @@ class DocumentChunk(Base):
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding = mapped_column(Vector(768), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
     # Relationships
     document = relationship("Document", back_populates="chunks")
@@ -546,11 +533,9 @@ class LearnedAnswer(Base):
     source_type: Mapped[SourceType] = mapped_column(
         Enum(SourceType, name="source_type", create_constraint=True), nullable=False
     )
-    source_escalation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    source_escalation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     embedding = mapped_column(Vector(768), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
     __table_args__ = (
         Index("ix_learned_answers_tenant_id", "tenant_id"),
@@ -571,7 +556,7 @@ class Response(Base):
     message_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
-    rag_retrieval_id: Mapped[uuid.UUID | None] = mapped_column(
+    rag_retrieval_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("rag_retrievals.id", ondelete="SET NULL"), nullable=True
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -580,11 +565,11 @@ class Response(Base):
     )
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False)
     was_auto_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    approved_by_backup_at: Mapped[datetime | None] = mapped_column(
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by_backup_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    backup_approver_id: Mapped[uuid.UUID | None] = mapped_column(
+    backup_approver_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("backup_contacts.id", ondelete="SET NULL"), nullable=True
     )
 
@@ -607,7 +592,7 @@ class Escalation(Base):
     message_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
-    response_id: Mapped[uuid.UUID | None] = mapped_column(
+    response_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("responses.id", ondelete="SET NULL"), nullable=True
     )
     backup_contact_id: Mapped[uuid.UUID] = mapped_column(
@@ -623,12 +608,10 @@ class Escalation(Base):
         Enum(EscalationPriority, name="escalation_priority", create_constraint=True),
         nullable=False,
     )
-    assigned_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
-    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    resolution_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_escalations_tenant_id", "tenant_id"),
@@ -639,9 +622,7 @@ class Escalation(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<Escalation id={self.id} status={self.status.value} priority={self.priority.value}>"
-        )
+        return f"<Escalation id={self.id} status={self.status.value} priority={self.priority.value}>"
 
 
 class AuditEntry(Base):
@@ -660,13 +641,11 @@ class AuditEntry(Base):
         Enum(RecipientType, name="recipient_type", create_constraint=True), nullable=False
     )
     recipient_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    message_id: Mapped[uuid.UUID | None] = mapped_column(
+    message_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
-    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
+    metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
     __table_args__ = (
         Index("ix_audit_entries_tenant_id", "tenant_id"),
@@ -694,18 +673,16 @@ class RoutingOutcome(Base):
     routing_target: Mapped[RoutingTarget] = mapped_column(
         Enum(RoutingTarget, name="routing_target", create_constraint=True), nullable=False
     )
-    backup_contact_id: Mapped[uuid.UUID | None] = mapped_column(
+    backup_contact_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("backup_contacts.id", ondelete="SET NULL"), nullable=True
     )
     escalation_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     escalation_resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    resolution_time_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    resolution_time_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     auto_response_accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     auto_response_rejected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_now
-    )
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_routing_outcomes_tenant_id", "tenant_id"),

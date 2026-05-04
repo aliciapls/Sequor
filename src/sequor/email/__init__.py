@@ -1,29 +1,28 @@
-"""Email module for Sequor.
+"""Sequor email service — SendGrid-backed email sending and templates."""
 
-Exports:
-- EmailSenderImpl: SendGrid-based email sender
-- EmailSender: Protocol for email sending
-- AutoReplyService: Full auto-reply orchestration pipeline
-- MessageContext: Context for message processing
-- AutoReplyResult: Result of auto-reply processing
-"""
-
-from sequor.email.auto_reply import (
-    AutoReplyResult,
-    AutoReplyService,
-    MessageContext,
-    get_auto_reply_service,
-)
-from sequor.email.sender import (
-    EmailSenderImpl,
-    get_email_sender,
+from sequor.email.rate_limiter import RateLimitExceededError
+from sequor.email.sender import SendGridAPIError, SendGridEmailSender
+from sequor.email.templates import (
+    build_digest_email,
+    build_digest_subject,
+    build_escalation_email,
+    build_escalation_subject,
+    build_return_summary_email,
+    build_return_summary_subject,
+    build_weekly_recap_email,
+    build_weekly_recap_subject,
 )
 
 __all__ = [
-    "EmailSenderImpl",
-    "get_email_sender",
-    "AutoReplyService",
-    "get_auto_reply_service",
-    "MessageContext",
-    "AutoReplyResult",
+    "RateLimitExceededError",
+    "SendGridAPIError",
+    "SendGridEmailSender",
+    "build_digest_email",
+    "build_digest_subject",
+    "build_escalation_email",
+    "build_escalation_subject",
+    "build_return_summary_email",
+    "build_return_summary_subject",
+    "build_weekly_recap_email",
+    "build_weekly_recap_subject",
 ]

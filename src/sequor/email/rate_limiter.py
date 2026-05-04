@@ -1,0 +1,60 @@
+"""Token-bucket rate limiter for outbound email sends."""
+
+import asyncio
+import time
+
+import structlog
+
+logger = structlog.get_logger()
+
+_MAX_WAIT_SECONDS = 60
+
+
+class RateLimitExceededError(Exception):
+    """Local rate limiter blocked the send after maximum wait."""
+
+
+class EmailRateLimiter:
+    """Token-bucket rate limiter for outbound emails.
+
+    Allows up to `max_per_minute` sends per minute. Acquiring a token
+    beyond the budget waits for refill. If the wait would exceed 60
+    seconds, raises RateLimitExceededError instead of blocking.
+    """
+
+    def __init__(self, max_per_minute: int) -> None:
+        if max_per_minute <= 0:
+            raise ValueError("max_per_minute must be positive")
+        self._max = max_per_minute
+        self._tokens: float = float(max_per_minute)
+        self._last_refill: float = time.monotonic()
+
+    async def acquire(self) -> None:
+        """Wait until a token is available, then consume it."""
+        self._refill()
+
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return
+
+        needed = 1.0 - self._tokens
+        wait_seconds = needed / (self._max / 60.0)
+
+        if wait_seconds >= _MAX_WAIT_SECONDS:
+            raise RateLimitExceededError(
+                f"Rate limit wait ({wait_seconds:.1f}s) exceeds maximum "
+                f"({_MAX_WAIT_SECONDS}s). Queue the email for later."
+            )
+
+        logger.warning("email.rate_limited", wait_seconds=round(wait_seconds, 2))
+        await asyncio.sleep(wait_seconds)
+
+        self._refill()
+        self._tokens -= 1.0
+
+    def _refill(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self._last_refill
+        added = elapsed * (self._max / 60.0)
+        self._tokens = min(self._tokens + added, float(self._max))
+        self._last_refill = now

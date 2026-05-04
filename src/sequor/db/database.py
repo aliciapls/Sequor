@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 """Async database engine and table management."""
+
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from sequor.config import settings
 
-_engine: AsyncEngine | None = None
+_engine: Optional[AsyncEngine] = None
 
 
 def get_engine() -> AsyncEngine:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Protocol interfaces for cross-branch dependencies.
 
 Branch 3 (onboarding, operations) depends on features from Branch 1 (email)
@@ -7,10 +9,11 @@ needs so it can develop and test independently.
 At merge time, swap in the real implementations from the other branches.
 """
 
-from typing import Any, Protocol
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 
+@runtime_checkable
 class EmailSender(Protocol):
     """Branch 1 provides — sends an email and returns a message ID."""
 
@@ -22,6 +25,15 @@ class EmailSender(Protocol):
         body_text: str,
         reply_to: str | None = None,
         in_reply_to: str | None = None,
+    ) -> str: ...
+
+    async def send_escalation_email(
+        self,
+        to: str,
+        escalation_id: str,
+        subject: str,
+        body_html: str,
+        body_text: str,
     ) -> str: ...
 
 
@@ -36,7 +48,7 @@ class MessageFetcher(Protocol):
 
 
 class DocumentIngester(Protocol):
-    """Protocol for document ingestion — implemented by sequor.ai.ingestion.DocumentIngesterImpl."""
+    """Branch 2 provides — uploads and indexes a document."""
 
     async def ingest(
         self,
@@ -46,68 +58,6 @@ class DocumentIngester(Protocol):
         content: bytes,
         document_type: str,
     ) -> UUID: ...
-
-
-class DocumentIngesterImpl:
-    """Branch 2 implementation — uploads and indexes a document.
-
-    Uses the AI ingestion pipeline for parsing, chunking, embedding, and storage.
-    """
-
-    def __init__(self, db_pool: Any = None) -> None:
-        from sequor.ai.client import get_ollama_client
-        from sequor.ai.ingestion import DocumentIngester as AIDocumentIngester
-        from sequor.ai.vector_store import VectorStore
-
-        self._db_pool = db_pool
-        self._vector_store = VectorStore(db_pool) if db_pool else None
-        self._ingester = AIDocumentIngester(
-            vector_store=self._vector_store,
-            llm_client=get_ollama_client(),
-        )
-
-    async def ingest(
-        self,
-        tenant_id: UUID,
-        account_id: UUID,
-        filename: str,
-        content: bytes,
-        document_type: str,
-    ) -> UUID:
-        """Ingest a document into the RAG pipeline.
-
-        Args:
-            tenant_id: Tenant ID
-            account_id: Account ID
-            filename: Original filename
-            content: File content as bytes
-            document_type: One of 'faq', 'roster', 'price_list', 'policy', 'other'
-
-        Returns:
-            UUID of the created document record
-        """
-        if self._vector_store is None:
-            raise RuntimeError("DocumentIngester requires a database pool")
-
-        return await self._ingester.ingest(
-            tenant_id=tenant_id,
-            account_id=account_id,
-            filename=filename,
-            content=content,
-            document_type=document_type,
-        )
-
-
-# Default instance
-_default_ingester: DocumentIngesterImpl | None = None
-
-
-def get_document_ingester(db_pool: Any = None) -> DocumentIngesterImpl:
-    """Get or create the default DocumentIngester instance."""
-    global _default_ingester
-    if _default_ingester is None:
-        _default_ingester = DocumentIngesterImpl(db_pool)
-    return _default_ingester
 
 
 class DigestDataSupplier(Protocol):

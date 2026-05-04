@@ -1,31 +1,67 @@
-"""Email sender implementation using SendGrid.
+"""SendGrid-backed email sender implementing the EmailSender protocol."""
 
-Sends outbound emails and returns a message ID for tracking.
-Implements the EmailSender protocol from protocols.py.
-"""
+from __future__ import annotations
 
+import asyncio
+import hashlib
+import re
 import structlog
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import CustomArg, Header, Mail, ReplyTo
 
 from sequor.config import settings
+from sequor.email.rate_limiter import EmailRateLimiter, RateLimitExceededError
+from sequor.email.templates import _sanitize_header
 
 logger = structlog.get_logger()
 
+_EXECUTOR_MAX_WORKERS = 10
 
-class EmailSenderImpl:
-    """SendGrid-based email sender.
 
-    Implements the EmailSender protocol.
+class SendGridAPIError(Exception):
+    """SendGrid returned a non-202 response."""
+
+    def __init__(self, status_code: int, body: str) -> None:
+        self.status_code = status_code
+        self.body = body
+        body_fingerprint = hashlib.sha256(body.encode()).hexdigest()[:8]
+        super().__init__(
+            f"SendGrid API error {status_code} (body_fingerprint={body_fingerprint})"
+        )
+
+
+class SendGridEmailSender:
+    """SendGrid-backed implementation of the EmailSender protocol.
+
+    Reads api_key from settings (loaded from .env).
+    Rate-limits outbound sends to email_rate_limit_per_minute.
     """
 
-    def __init__(self, api_key: str | None = None) -> None:
-        """Initialize the email sender.
-
-        Args:
-            api_key: SendGrid API key. Defaults to settings.sendgrid_api_key.
-        """
-        self._api_key = api_key or settings.sendgrid_api_key
-        self._from_email: str | None = None
-        self._from_name: str | None = None
+    def __init__(
+        self,
+        api_key: str | None = None,
+        from_domain: str | None = None,
+        rate_limit_per_minute: int | None = None,
+    ) -> None:
+        key = api_key if api_key is not None else settings.sendgrid_api_key
+        if not key:
+            raise ValueError(
+                "SendGrid API key is required. Set SENDGRID_API_KEY in .env"
+            )
+        self._client = SendGridAPIClient(api_key=key)
+        self._from_domain = from_domain or settings.email_from_domain
+        self._rate_limiter = EmailRateLimiter(
+            max_per_minute=rate_limit_per_minute or settings.email_rate_limit_per_minute
+        )
+        self._executor = ThreadPoolExecutor(max_workers=_EXECUTOR_MAX_WORKERS)
+        logger.info(
+            "email.sender.initialized",
+            from_domain=self._from_domain,
+            rate_limit=rate_limit_per_minute or settings.email_rate_limit_per_minute,
+        )
 
     async def send_email(
         self,
@@ -36,192 +72,129 @@ class EmailSenderImpl:
         reply_to: str | None = None,
         in_reply_to: str | None = None,
     ) -> str:
-        """Send an email via SendGrid.
+        """Send an email via SendGrid. Returns the SendGrid message ID."""
+        return await self._send(to, subject, body_html, body_text, reply_to, in_reply_to)
 
-        Args:
-            to: Recipient email address
-            subject: Email subject line
-            body_html: HTML content of the email
-            body_text: Plain text content of the email
-            reply_to: Optional reply-to address
-            in_reply_to: Optional in-reply-to message ID for threading
-
-        Returns:
-            SendGrid message ID
-
-        Raises:
-            RuntimeError: If SendGrid is not configured or fails
-        """
-        if not self._api_key:
-            logger.warning("email.sendgrid.not_configured")
-            raise RuntimeError("SendGrid API key not configured. Set SENDGRID_API_KEY in .env")
-
-        logger.info(
-            "email.send.start",
-            to=to,
-            subject_length=len(subject),
-            body_html_length=len(body_html),
+    async def send_escalation_email(
+        self,
+        to: str,
+        escalation_id: str,
+        subject: str,
+        body_html: str,
+        body_text: str,
+    ) -> str:
+        """Send an escalation notification with reply-to-resolve metadata."""
+        return await self._send(
+            to,
+            subject,
+            body_html,
+            body_text,
+            reply_to=f"coverage@{self._from_domain}",
+            in_reply_to=None,
+            escalation_id=escalation_id,
         )
 
+    async def _send(
+        self,
+        to: str,
+        subject: str,
+        body_html: str,
+        body_text: str,
+        reply_to: str | None = None,
+        in_reply_to: str | None = None,
+        escalation_id: str | None = None,
+    ) -> str:
+        await self._rate_limiter.acquire()
+
+        mail = self._build_mail(
+            to, subject, body_html, body_text, reply_to, in_reply_to, escalation_id
+        )
+
+        masked_to = _mask_email(to)
+        logger.info("email.send.start", to=masked_to, subject=subject[:80])
+
+        loop = asyncio.get_running_loop()
         try:
-            import sendgrid
-            from sendgrid.helpers.mail import Mail
-        except ImportError:
-            logger.error("email.sendgrid.import_failed")
-            raise RuntimeError(
-                "SendGrid package not installed. Run: pip install sendgrid"
-            ) from None
+            response = await loop.run_in_executor(
+                self._executor, self._post, mail
+            )
+        except Exception as exc:
+            logger.exception("email.send.error", to=masked_to, error=str(exc))
+            raise
 
-        if not self._from_email:
-            domain = settings.email_from_domain
-            self._from_email = f"noreply@{domain}"
-            self._from_name = "Sequor AI Assistant"
+        status = response.status_code
+        if status != 202:
+            body = response.body.decode() if isinstance(response.body, bytes) else str(response.body)
+            logger.error("email.send.error", to=masked_to, status_code=status)
+            raise SendGridAPIError(status, body)
 
+        message_id = _extract_message_id(response.headers)
+        logger.info("email.send.ok", to=masked_to, message_id=message_id)
+        return message_id
+
+    def _build_mail(
+        self,
+        to: str,
+        subject: str,
+        body_html: str,
+        body_text: str,
+        reply_to: str | None = None,
+        in_reply_to: str | None = None,
+        escalation_id: str | None = None,
+    ) -> Mail:
+        from_email = f"coverage@{self._from_domain}"
+        safe_to = _validate_email(to)
+        safe_subject = _sanitize_header(subject)
         mail = Mail(
-            from_email=self._from_email,
-            to_emails=to,
-            subject=subject,
+            from_email=from_email,
+            to_emails=safe_to,
+            subject=safe_subject,
             html_content=body_html,
             plain_text_content=body_text,
         )
 
-        mail.reply_to = Mail(address=reply_to) if reply_to else None
+        if reply_to:
+            safe_reply_to = _validate_email(reply_to)
+            mail.reply_to = ReplyTo(safe_reply_to)
 
         if in_reply_to:
-            mail.add_header("In-Reply-To", in_reply_to)
-            mail.add_header("References", in_reply_to)
+            safe_irt = _sanitize_header(in_reply_to)
+            mail.add_header(Header("In-Reply-To", safe_irt))
+            mail.add_header(Header("References", safe_irt))
 
-        try:
-            sg = sendgrid.SendGridAPIClient(api_key=self._api_key)
-            response = sg.send(mail)
+        if escalation_id:
+            safe_esc_id = _sanitize_header(escalation_id)
+            mail.add_header(Header("X-Sequor-Escalation-Id", safe_esc_id))
+            mail.add_custom_arg(CustomArg("escalation_id", safe_esc_id))
 
-            if response.status_code not in (200, 201, 202):
-                logger.error(
-                    "email.send.failed",
-                    status_code=response.status_code,
-                    body=response.body,
-                )
-                raise RuntimeError(f"SendGrid API returned {response.status_code}: {response.body}")
+        return mail
 
-            message_id = response.headers.get("X-Message-Id", "unknown")
-
-            logger.info(
-                "email.send.ok",
-                to=to,
-                message_id=message_id,
-                status_code=response.status_code,
-            )
-
-            return message_id
-
-        except Exception as e:
-            logger.error("email.send.error", to=to, error=str(e))
-            raise RuntimeError(f"Failed to send email: {str(e)}") from None
-
-    async def send_auto_reply(
-        self,
-        to: str,
-        original_subject: str,
-        response_content: str,
-        confidence_badge: str,
-        in_reply_to: str | None = None,
-    ) -> str:
-        """Send an AI-generated auto-reply email.
-
-        Args:
-            to: Recipient email address
-            original_subject: Subject of the original message
-            response_content: AI-generated response text
-            confidence_badge: Confidence badge (high/moderate/low/uncertain)
-            in_reply_to: Message ID to thread reply to
-
-        Returns:
-            SendGrid message ID
-        """
-        subject = (
-            f"Re: {original_subject}"
-            if not original_subject.startswith("Re:")
-            else original_subject
-        )
-
-        badge_emoji = {
-            "high": "✓",
-            "moderate": "◐",
-            "low": "◑",
-            "uncertain": "?",
-        }.get(confidence_badge, "")
-
-        badge_label = confidence_badge.replace("_", " ").title()
-        response_content_html = response_content.replace("\n", "<br>")
-
-        body_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }}
-        .header {{ background: #f8f9fa; padding: 15px 20px; border-radius: 8px 8px 0 0; border-bottom: 1px solid #e9ecef; }}
-        .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }}
-        .badge-high {{ background: #d4edda; color: #155724; }}
-        .badge-moderate {{ background: #fff3cd; color: #856404; }}
-        .badge-low {{ background: #ffeaa7; color: #6d4c00; }}
-        .badge-uncertain {{ background: #f8d7da; color: #721c24; }}
-        .content {{ padding: 20px; background: white; }}
-        .footer {{ padding: 15px 20px; font-size: 12px; color: #6c757d; background: #f8f9fa; border-radius: 0 0 8px 8px; }}
-        .confidence {{ margin-top: 15px; padding-top: 15px; border-top: 1px solid #e9ecef; }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <span class="badge badge-{confidence_badge}">{badge_emoji} {badge_label} Confidence</span>
-        <p style="margin: 10px 0 0 0; font-size: 13px; color: #6c757d;">
-            This is an automated AI response. If you need human assistance, please reply with "HUMAN" or contact us directly.
-        </p>
-    </div>
-    <div class="content">
-        {response_content_html}
-    </div>
-    <div class="footer">
-        <p style="margin: 0;">
-            Powered by Sequor AI · This message was generated using AI assistance.<br>
-            If you received this in error or wish to speak with a human, please reply with "HUMAN".
-        </p>
-    </div>
-</body>
-</html>
-"""
-
-        body_text = f"""{"=" * 60}
-
-This is an automated AI response (Confidence: {badge_label})
-
-{"=" * 60}
-
-{response_content}
-
-{"-" * 60}
-If you need human assistance, please reply with "HUMAN" or contact us directly.
-
-This message was generated using AI assistance.
-Powered by Sequor AI
-"""
-
-        return await self.send_email(
-            to=to,
-            subject=subject,
-            body_html=body_html,
-            body_text=body_text,
-            in_reply_to=in_reply_to,
-        )
+    def _post(self, mail: Mail) -> Any:
+        return self._client.client.mail.send.post(request_body=mail.get())
 
 
-_email_sender: EmailSenderImpl | None = None
+def _mask_email(email: str) -> str:
+    if "@" not in email:
+        return "***"
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        return f"***@{domain}"
+    return f"{local[0]}***@{domain}"
 
 
-def get_email_sender() -> EmailSenderImpl:
-    """Get or create the global email sender instance."""
-    global _email_sender
-    if _email_sender is None:
-        _email_sender = EmailSenderImpl()
-    return _email_sender
+def _extract_message_id(headers: dict | Any) -> str:
+    if isinstance(headers, dict):
+        return headers.get("X-Message-Id", "")
+    return getattr(headers, "get", lambda k, d="": d)("X-Message-Id", "")
+
+
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
+def _validate_email(email: str) -> str:
+    """Sanitize and validate an email address for use in SMTP headers."""
+    clean = _sanitize_header(email.strip())
+    clean = clean.replace("\r", "").replace("\n", "")
+    if not _EMAIL_RE.match(clean):
+        raise ValueError(f"Invalid email address (fingerprint={hashlib.sha256(email.encode()).hexdigest()[:8]})")
+    return clean
