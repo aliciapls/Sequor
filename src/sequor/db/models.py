@@ -206,6 +206,7 @@ class Tenant(Base):
         default=TenantPlan.free,
     )
     settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    schema_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     pdpa_consent_recorded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

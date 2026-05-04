@@ -79,3 +79,20 @@ async def close_engine() -> None:
     if _engine is not None:
         await _engine.dispose()
         _engine = None
+
+
+from contextlib import asynccontextmanager
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+@asynccontextmanager
+async def get_tenant_session(tenant_id):
+    """Yield a session with search_path set to the tenant's schema."""
+    from sequor.db.schema_manager import tenant_id_to_schema
+
+    engine = get_engine()
+    schema_name = tenant_id_to_schema(tenant_id)
+    async with AsyncSession(engine) as session:
+        await session.execute(text(f'SET search_path TO "{schema_name}", public'))
+        yield session
