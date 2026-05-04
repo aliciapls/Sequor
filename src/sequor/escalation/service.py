@@ -172,7 +172,7 @@ class EscalationService:
 
         try:
             await self._email_sender.send_escalation_email(
-                to=_mask_email(backup["email"]),
+                to=backup["email"],
                 escalation_id=escalation_record["id"],
                 subject=subject,
                 body_html=body_html,
@@ -299,7 +299,7 @@ class EscalationService:
 
         try:
             await self._email_sender.send_escalation_email(
-                to=_mask_email(second_tier_backup["email"]),
+                to=second_tier_backup["email"],
                 escalation_id=new_escalation["id"],
                 subject=subject,
                 body_html=body_html,
@@ -519,7 +519,7 @@ class EscalationService:
                 if backup and backup.get("email"):
                     short_id = escalation_id[:8]
                     await self._email_sender.send_escalation_email(
-                        to=_mask_email(backup["email"]),
+                        to=backup["email"],
                         escalation_id=escalation_id,
                         subject=_sanitize_header(f"[SLA BREACHED] Escalation {short_id} requires attention"),
                         body_html=(

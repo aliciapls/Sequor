@@ -183,7 +183,7 @@ class TestProcessBreachedEscalation:
 
         reminder = [s for s in email.sent if "SLA BREACHED" in s.get("subject", "")]
         assert len(reminder) == 1
-        assert reminder[0]["to"] == "p***@test.com"
+        assert reminder[0]["to"] == "primary@test.com"
 
     async def test_tier2_breach_marks_expired_no_further_escalation(self):
         storage, esc_id, _ = _setup_storage_with_breach(tier=2)
