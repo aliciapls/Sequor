@@ -6341,6 +6341,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
+    { name = "fastapi" },
+    { name = "httpx" },
     { name = "kailash" },
     { name = "kailash-dataflow" },
     { name = "kailash-kaizen" },
@@ -6364,6 +6366,7 @@ dependencies = [
     { name = "stripe" },
     { name = "structlog" },
     { name = "tiktoken" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -6393,6 +6396,8 @@ requires-dist = [
     { name = "apscheduler", specifier = ">=3.10.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0" },
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = ">=1.5.0" },
+    { name = "fastapi", specifier = ">=0.135.3" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "kailash", specifier = ">=2.8.6" },
     { name = "kailash-align", marker = "extra == 'align'", specifier = ">=0.3.1" },
@@ -6426,6 +6431,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=23.1.0" },
     { name = "tiktoken", specifier = ">=0.7.0" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.7.1" },
+    { name = "uvicorn", specifier = ">=0.43.0" },
 ]
 provides-extras = ["ml", "align", "all", "dev"]
 

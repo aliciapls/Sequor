@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sequor — Get Started</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #1a1a2e; line-height: 1.6; }
+        .container { max-width: 560px; margin: 40px auto; padding: 0 20px; }
+        h1 { font-size: 28px; margin-bottom: 8px; }
+        .subtitle { color: #6b7280; margin-bottom: 32px; }
+        .step { margin-bottom: 32px; }
+        .step-title { font-size: 14px; font-weight: 600; color: #6366f1; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+        label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+        input, select { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; margin-bottom: 16px; }
+        input:focus, select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+        .row { display: flex; gap: 16px; }
+        .row > div { flex: 1; }
+        .hint { font-size: 13px; color: #9ca3af; margin-top: -12px; margin-bottom: 16px; }
+        button { width: 100%; padding: 14px; background: #6366f1; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        button:hover { background: #4f46e5; }
+        button:disabled { background: #a5b4fc; cursor: not-allowed; }
+        .error { color: #dc2626; font-size: 14px; margin-top: 12px; display: none; }
+        .success { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 20px; text-align: center; display: none; }
+        .success h2 { color: #065f46; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Set up your coverage</h1>
+        <p class="subtitle">Your inbox, covered. Even when you're not there.</p>
+
+        <form id="signup-form">
+            <!-- Step 1: Organization -->
+            <div class="step">
+                <div class="step-title">Step 1 — Your Organization</div>
+                <label for="org_name">Organization name</label>
+                <input type="text" id="org_name" name="org_name" required placeholder="Acme Consulting">
+
+                <label for="owner_email">Your email</label>
+                <input type="email" id="owner_email" name="owner_email" required placeholder="you@company.com">
+
+                <label for="owner_password">Password</label>
+                <input type="password" id="owner_password" name="owner_password" required minlength="8" placeholder="Min 8 chars, 1 uppercase, 1 digit">
+            </div>
+
+            <!-- Step 2: Account -->
+            <div class="step">
+                <div class="step-title">Step 2 — Account Setup</div>
+                <label for="account_name">Account name</label>
+                <input type="text" id="account_name" name="account_name" required placeholder="Front Desk, HR Department, etc.">
+
+                <div class="row">
+                    <div>
+                        <label for="ownership_type">Type</label>
+                        <select id="ownership_type" name="ownership_type">
+                            <option value="individual">Individual</option>
+                            <option value="department">Department</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="routing_rule">Routing</label>
+                        <select id="routing_rule" name="routing_rule">
+                            <option value="full_ai">Full AI (recommended)</option>
+                            <option value="faq_only">FAQ-only</option>
+                            <option value="all_to_backup">All to backup</option>
+                        </select>
+                    </div>
+                </div>
+
+                <label for="escalation_sla_hours">Escalation deadline (hours)</label>
+                <select id="escalation_sla_hours" name="escalation_sla_hours">
+                    <option value="2">2 hours</option>
+                    <option value="4" selected>4 hours</option>
+                    <option value="8">8 hours</option>
+                    <option value="24">24 hours</option>
+                </select>
+                <p class="hint">How long before we escalate to your backup if you don't respond.</p>
+            </div>
+
+            <!-- Step 3: Backup Contact -->
+            <div class="step">
+                <div class="step-title">Step 3 — Backup Contact</div>
+                <p class="hint" style="margin-top:0">Who gets escalations when you're unavailable.</p>
+
+                <div class="row">
+                    <div>
+                        <label for="backup_name">Name</label>
+                        <input type="text" id="backup_name" name="backup_name" required placeholder="Jane Smith">
+                    </div>
+                    <div>
+                        <label for="backup_email">Email</label>
+                        <input type="email" id="backup_email" name="backup_email" required placeholder="jane@company.com">
+                    </div>
+                </div>
+            </div>
+
+            <div id="error-msg" class="error"></div>
+            <button type="submit" id="submit-btn">Create Account</button>
+        </form>
+
+        <div id="success-msg" class="success">
+            <h2>You're all set!</h2>
+            <p>Your coverage is now active. We'll send a confirmation to <strong id="confirm-email"></strong>.</p>
+            <p style="margin-top:12px;color:#6b7280;font-size:14px;">Next: connect your email inbox so Sequor can start monitoring.</p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('signup-form');
+        const errorEl = document.getElementById('error-msg');
+        const successEl = document.getElementById('success-msg');
+        const submitBtn = document.getElementById('submit-btn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorEl.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Setting up...';
+
+            const data = Object.fromEntries(new FormData(form));
+            data.escalation_sla_hours = parseInt(data.escalation_sla_hours);
+
+            try {
+                const res = await fetch('/api/v1/onboarding', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                const json = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(json.detail || json.message || 'Something went wrong');
+                }
+
+                form.style.display = 'none';
+                document.getElementById('confirm-email').textContent = data.owner_email;
+                successEl.style.display = 'block';
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
+            }
+        });
+    </script>
+</body>
+</html>
