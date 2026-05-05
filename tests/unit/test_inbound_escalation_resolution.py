@@ -64,6 +64,7 @@ class TestEscalationResolutionViaReply:
         parent_id = _make_uuid()
         escalation_id = _make_uuid()
         contact_id = _make_uuid()
+        backup_id = _make_uuid()
 
         storage = {
             "Account": {
@@ -81,6 +82,14 @@ class TestEscalationResolutionViaReply:
                     "name": "Alice",
                 }
             },
+            "BackupContact": {
+                backup_id: {
+                    "id": backup_id,
+                    "tenant_id": tenant_id,
+                    "email": "alice@example.com",
+                    "name": "Alice Backup",
+                }
+            },
             "Message": {
                 parent_id: {
                     "id": parent_id,
@@ -92,7 +101,9 @@ class TestEscalationResolutionViaReply:
                 escalation_id: {
                     "id": escalation_id,
                     "tenant_id": tenant_id,
+                    "account_id": account_id,
                     "message_id": parent_id,
+                    "backup_contact_id": backup_id,
                     "status": EscalationStatus.pending.value,
                     "tier": 1,
                     "priority": "high",
@@ -126,6 +137,7 @@ class TestEscalationResolutionViaReply:
         account_id = _make_uuid()
         parent_id = _make_uuid()
         escalation_id = _make_uuid()
+        backup_id = _make_uuid()
 
         storage = {
             "Account": {
@@ -136,6 +148,14 @@ class TestEscalationResolutionViaReply:
                 }
             },
             "Contact": {},
+            "BackupContact": {
+                backup_id: {
+                    "id": backup_id,
+                    "tenant_id": tenant_id,
+                    "email": "bob@example.com",
+                    "name": "Bob",
+                }
+            },
             "Message": {
                 parent_id: {
                     "id": parent_id,
@@ -147,7 +167,9 @@ class TestEscalationResolutionViaReply:
                 escalation_id: {
                     "id": escalation_id,
                     "tenant_id": tenant_id,
+                    "account_id": account_id,
                     "message_id": parent_id,
+                    "backup_contact_id": backup_id,
                     "status": EscalationStatus.acknowledged.value,
                 }
             },
@@ -250,6 +272,7 @@ class TestEscalationResolutionViaReply:
         account_id = _make_uuid()
         parent_id = _make_uuid()
         escalation_id = _make_uuid()
+        backup_id = _make_uuid()
 
         storage = {
             "Account": {
@@ -260,6 +283,14 @@ class TestEscalationResolutionViaReply:
                 }
             },
             "Contact": {},
+            "BackupContact": {
+                backup_id: {
+                    "id": backup_id,
+                    "tenant_id": tenant_id,
+                    "email": "dave@example.com",
+                    "name": "Dave",
+                }
+            },
             "Message": {
                 parent_id: {
                     "id": parent_id,
@@ -271,7 +302,9 @@ class TestEscalationResolutionViaReply:
                 escalation_id: {
                     "id": escalation_id,
                     "tenant_id": tenant_id,
+                    "account_id": account_id,
                     "message_id": parent_id,
+                    "backup_contact_id": backup_id,
                     "status": EscalationStatus.pending.value,
                 }
             },

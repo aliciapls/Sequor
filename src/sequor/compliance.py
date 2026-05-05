@@ -112,8 +112,23 @@ async def erase_contact_pii(
     )
     erased["tables_affected"].append("contacts")
 
-    # 4. Delete vector embeddings from document chunks (keep text for audit)
+    # 4. Delete vector embeddings from document chunks for this contact's messages
+    from sequor.db.models import Message
+
+    msg_result = await session.execute(
+        select(Message.id).where(
+            Message.tenant_id == tenant_id,
+            Message.contact_id == contact_id,
+        )
+    )
+    message_ids = [row[0] for row in msg_result.all()]
+
     chunk_result = await session.execute(
+        select(DocumentChunk.id).where(
+            DocumentChunk.tenant_id == tenant_id,
+            DocumentChunk.message_id.in_(message_ids) if message_ids else False,
+        )
+    ) if message_ids else await session.execute(
         select(DocumentChunk.id).where(DocumentChunk.tenant_id == tenant_id)
     )
     chunk_ids = [row[0] for row in chunk_result.all()]
@@ -126,11 +141,26 @@ async def erase_contact_pii(
         erased["tables_affected"].append("document_chunks")
         erased["embeddings_removed"] = len(chunk_ids)
 
-    # 5. Delete vector embeddings from learned answers
+    # 5. Delete vector embeddings from learned answers for this contact's escalations
+    from sequor.db.models import Escalation
+
+    esc_result = await session.execute(
+        select(Escalation.id).where(
+            Escalation.tenant_id == tenant_id,
+            Escalation.message_id.in_(message_ids) if message_ids else False,
+        )
+    ) if message_ids else await session.execute(
+        select(Escalation.id).where(Escalation.tenant_id == tenant_id)
+    )
+    escalation_ids = [row[0] for row in esc_result.all()]
+
     learned_result = await session.execute(
         select(LearnedAnswer.id).where(
             LearnedAnswer.tenant_id == tenant_id,
+            LearnedAnswer.source_escalation_id.in_(escalation_ids) if escalation_ids else False,
         )
+    ) if escalation_ids else await session.execute(
+        select(LearnedAnswer.id).where(LearnedAnswer.tenant_id == tenant_id)
     )
     learned_ids = [row[0] for row in learned_result.all()]
     if learned_ids:

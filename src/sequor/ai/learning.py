@@ -176,24 +176,26 @@ class LearningLoop:
             return []
 
         async with AsyncSession(self._engine) as session:
+            from sqlalchemy import text
+
             if account_id:
                 result = await session.execute(
-                    """
+                    text("""
                     SELECT id, question_text, answer_text, source_type,
                            source_escalation_id, created_at, embedding
                     FROM learned_answers
                     WHERE tenant_id = :tenant_id AND account_id = :account_id
-                    """,
+                    """),
                     {"tenant_id": tenant_id, "account_id": account_id},
                 )
             else:
                 result = await session.execute(
-                    """
+                    text("""
                     SELECT id, question_text, answer_text, source_type,
                            source_escalation_id, created_at, embedding
                     FROM learned_answers
                     WHERE tenant_id = :tenant_id
-                    """,
+                    """),
                     {"tenant_id": tenant_id},
                 )
             rows = result.fetchall()
@@ -233,11 +235,13 @@ class LearningLoop:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(self._engine) as session:
+            from sqlalchemy import text
+
             result = await session.execute(
-                """
+                text("""
                 DELETE FROM learned_answers
                 WHERE id = :id AND tenant_id = :tenant_id
-                """,
+                """),
                 {"id": learned_answer_id, "tenant_id": tenant_id},
             )
             await session.commit()

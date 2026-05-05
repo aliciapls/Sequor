@@ -94,6 +94,22 @@ class SendGridEmailSender:
             escalation_id=escalation_id,
         )
 
+    async def send_reply_to_customer(
+        self,
+        to: str,
+        original_subject: str,
+        reply_text: str,
+        in_reply_to: str | None = None,
+    ) -> str:
+        """Forward a backup contact's reply to the original customer."""
+        subject = original_subject if original_subject.startswith("Re: ") else f"Re: {original_subject}"
+        body_text = reply_text or ""
+        body_html = f"<p>{body_text}</p>"
+        return await self._send(
+            to, subject, body_html, body_text,
+            in_reply_to=in_reply_to,
+        )
+
     async def _send(
         self,
         to: str,

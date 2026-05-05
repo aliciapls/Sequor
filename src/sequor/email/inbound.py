@@ -5,8 +5,6 @@ When a reply matches an active escalation, resolves the escalation automatically
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -148,7 +146,8 @@ class InboundEmailProcessor:
         """Check if the parent message has an active escalation and resolve it.
 
         Only resolves if the sender matches the backup contact assigned to
-        the escalation. This prevents unauthorized escalation resolution.
+        the escalation. After resolving: triggers learning loop and forwards
+        the reply to the original customer.
         """
         try:
             escalations = await self._db.list("Escalation", {
@@ -162,16 +161,31 @@ class InboundEmailProcessor:
                 ):
                     continue
 
+                # Require backup_contact_id — skip if unassigned
+                if not esc.get("backup_contact_id"):
+                    logger.warning(
+                        "inbound.escalation_no_backup",
+                        escalation_id=esc["id"],
+                    )
+                    continue
+
+                # Require sender_email for authorization
+                if not sender_email:
+                    logger.warning(
+                        "inbound.escalation_no_sender",
+                        escalation_id=esc["id"],
+                    )
+                    continue
+
                 # Verify the sender is the assigned backup contact
-                if sender_email and esc.get("backup_contact_id"):
-                    backup = await self._db.read("BackupContact", str(esc["backup_contact_id"]))
-                    if backup and backup.get("email", "").lower() != sender_email.lower():
-                        logger.warning(
-                            "inbound.escalation_unauthorized_sender",
-                            escalation_id=esc["id"],
-                            sender=_mask_email(sender_email),
-                        )
-                        continue
+                backup = await self._db.read("BackupContact", str(esc["backup_contact_id"]))
+                if backup and backup.get("email", "").lower() != sender_email.lower():
+                    logger.warning(
+                        "inbound.escalation_unauthorized_sender",
+                        escalation_id=esc["id"],
+                        sender=_mask_email(sender_email),
+                    )
+                    continue
 
                 summary = (reply_text or "Resolved via email reply")[:500]
                 await self._db.update(
@@ -188,6 +202,23 @@ class InboundEmailProcessor:
                     escalation_id=esc["id"],
                     parent_message_id=parent_message_id,
                 )
+
+                # Trigger learning loop — capture human answer for future AI improvement
+                await self._capture_learning(
+                    tenant_id=tenant_id,
+                    account_id=str(esc.get("account_id", "")),
+                    escalation_id=esc["id"],
+                    parent_message_id=parent_message_id,
+                    human_reply=reply_text,
+                )
+
+                # Forward the human reply to the original customer
+                await self._forward_reply_to_customer(
+                    parent_message_id=parent_message_id,
+                    reply_text=reply_text,
+                    tenant_id=tenant_id,
+                )
+
                 return True
         except Exception:
             logger.exception(
@@ -195,6 +226,74 @@ class InboundEmailProcessor:
                 parent_message_id=parent_message_id,
             )
         return False
+
+    async def _capture_learning(
+        self,
+        tenant_id: str,
+        account_id: str,
+        escalation_id: str,
+        parent_message_id: str,
+        human_reply: str,
+    ) -> None:
+        """Feed the human's resolution back into the learning loop."""
+        try:
+            parent = await self._db.read("Message", parent_message_id)
+            if not parent or not parent.get("body_text"):
+                return
+
+            from sequor.ai.learning import LearningLoop
+            from sequor.db.database import get_engine
+
+            loop = LearningLoop(engine=get_engine())
+            await loop.capture_human_answer(
+                tenant_id=uuid.UUID(tenant_id),
+                account_id=uuid.UUID(account_id),
+                escalation_id=uuid.UUID(escalation_id),
+                original_query=parent["body_text"],
+                human_reply=human_reply or "",
+            )
+            logger.info(
+                "inbound.learning_captured",
+                escalation_id=escalation_id,
+                tenant_id=tenant_id,
+            )
+        except Exception:
+            logger.exception("inbound.learning_capture_failed", escalation_id=escalation_id)
+
+    async def _forward_reply_to_customer(
+        self,
+        parent_message_id: str,
+        reply_text: str,
+        tenant_id: str,
+    ) -> None:
+        """Forward the backup contact's reply to the original customer."""
+        try:
+            parent = await self._db.read("Message", parent_message_id)
+            if not parent:
+                return
+
+            contact = await self._db.read("Contact", str(parent.get("contact_id", "")))
+            if not contact or not contact.get("email"):
+                return
+
+            from sequor.email.sender import SendGridEmailSender
+            sender = SendGridEmailSender()
+            await sender.send_reply_to_customer(
+                to=contact["email"],
+                original_subject=parent.get("subject", "Re: your inquiry"),
+                reply_text=reply_text,
+                in_reply_to=parent.get("external_message_id"),
+            )
+            logger.info(
+                "inbound.reply_forwarded",
+                parent_message_id=parent_message_id,
+                to=_mask_email(contact["email"]),
+            )
+        except Exception:
+            logger.exception(
+                "inbound.reply_forward_failed",
+                parent_message_id=parent_message_id,
+            )
 
     async def _resolve_account(self, to_email: str) -> dict | None:
         lower = to_email.lower()
@@ -271,10 +370,10 @@ def _mask_email(email: str) -> str:
 
 
 def _verify_sendgrid_signature(raw_body: str, signature: str) -> bool:
-    """Verify SendGrid Inbound Parse webhook signature using HMAC-SHA256.
+    """Verify SendGrid Inbound Parse webhook signature using ECDSA.
 
+    SendGrid signs webhooks with ECDSA (Elliptic Curve), not HMAC.
     The public key is configured via SENDGRID_WEBHOOK_VERIFICATION_KEY in .env.
-    If the key is not configured, verification is skipped (logged as warning).
     """
     public_key = settings.sendgrid_webhook_verification_key
     if not public_key:
@@ -283,9 +382,23 @@ def _verify_sendgrid_signature(raw_body: str, signature: str) -> bool:
 
     import base64
     try:
+        from cryptography.hazmat.primitives.asymmetric import ec, utils
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.exceptions import InvalidSignature
+
         key_bytes = base64.b64decode(public_key)
-        expected = hmac.new(key_bytes, raw_body.encode("utf-8"), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, signature)
+        sig_bytes = base64.b64decode(signature)
+
+        public_ec_key = serialization.load_der_public_key(key_bytes)
+        public_ec_key.verify(
+            sig_bytes,
+            raw_body.encode("utf-8"),
+            ec.ECDSA(hashes.SHA256()),
+        )
+        return True
+    except InvalidSignature:
+        logger.warning("inbound.signature_verification_failed")
+        return False
     except Exception:
         logger.exception("inbound.signature_verification_error")
         return False

@@ -246,12 +246,15 @@ async def email_inbound(request: Request):
                     rag = RAGPipeline(vector_store=vector_store, llm_client=llm)
 
                     from sequor.email.sender import SendGridEmailSender
+                    from sequor.ai.learning import LearningLoop
                     email_sender = SendGridEmailSender()
+                    learning = LearningLoop(engine=engine)
 
                     service = AutoReplyService(
                         classifier=classifier,
                         rag_pipeline=rag,
                         email_sender=email_sender,
+                        learning_loop=learning,
                     )
                     from uuid import UUID as _UUID
 

@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Encryption (base64-encoded 32-byte master key)
     encryption_master_key: str = ""
 
+    # Reverse proxy — only trust X-Forwarded-For when behind a known proxy
+    trust_x_forwarded_for: bool = False
+
     # SLA Scheduler
     scheduler_interval_seconds: int = 300
     scheduler_enabled: bool = True

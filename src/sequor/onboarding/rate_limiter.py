@@ -1,9 +1,10 @@
 """IP-based sliding window rate limiter for onboarding endpoints.
 
 Uses an in-memory defaultdict + deque of timestamps. Expired entries are
-pruned on every check to prevent unbounded memory growth.
+pruned on every check. Empty keys are removed to prevent unbounded memory.
 """
 
+import re
 import time
 import structlog
 from collections import defaultdict, deque
@@ -11,12 +12,12 @@ from collections import defaultdict, deque
 
 _logger = structlog.get_logger()
 
+_MAX_TRACKED_KEYS = 10_000
+_IPV4_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+
 
 def _mask_ip(ip: str) -> str:
-    """Mask the last octet of an IPv4 address for logging.
-
-    For non-IPv4 inputs (IPv6, unknown), returns a safe placeholder.
-    """
+    """Mask the last octet of an IPv4 address for logging."""
     parts = ip.split(".")
     if len(parts) == 4:
         return f"{parts[0]}.{parts[1]}.{parts[2]}.***"
@@ -24,34 +25,35 @@ def _mask_ip(ip: str) -> str:
 
 
 class IPRateLimiter:
-    """Sliding-window rate limiter keyed by client IP.
-
-    Parameters
-    ----------
-    max_requests:
-        Maximum number of requests allowed within the window.
-    window_seconds:
-        Duration of the sliding window in seconds.
-    """
+    """Sliding-window rate limiter keyed by client IP."""
 
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self._max_requests = max_requests
         self._window_seconds = window_seconds
-        self._windows: defaultdict[str, deque] = defaultdict(deque)
+        self._windows: dict[str, deque] = {}
 
     def is_allowed(self, key: str) -> bool:
         """Check whether a request from *key* is allowed.
 
-        Prunes expired timestamps before checking. Returns True if the
-        request is within the limit, False otherwise.
+        Prunes expired timestamps and removes empty keys to bound memory.
         """
         now = time.monotonic()
-        window = self._windows[key]
         cutoff = now - self._window_seconds
 
-        # Prune expired entries
-        while window and window[0] <= cutoff:
-            window.popleft()
+        window = self._windows.get(key)
+        if window is None:
+            if len(self._windows) >= _MAX_TRACKED_KEYS:
+                _logger.warning("rate_limiter.max_keys_reached")
+                return True
+            window = deque()
+            self._windows[key] = window
+        else:
+            while window and window[0] <= cutoff:
+                window.popleft()
+            if not window:
+                del self._windows[key]
+                window = deque()
+                self._windows[key] = window
 
         if len(window) >= self._max_requests:
             return False
@@ -71,12 +73,18 @@ class IPRateLimiter:
 def get_client_ip(request) -> str:
     """Extract the client IP from a FastAPI Request.
 
-    Checks X-Forwarded-For first (leftmost value), then falls back to
-    the direct client address.
+    Only trusts X-Forwarded-For when behind a known reverse proxy
+    (TRUSTED_PROXY_HEADER env var). Otherwise uses the direct client address.
     """
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    from sequor.config import settings
+
+    if getattr(settings, "trust_x_forwarded_for", False):
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            ip = forwarded.split(",")[0].strip()
+            if _IPV4_RE.match(ip):
+                return ip
+
     if request.client:
         return request.client.host
     return "unknown"

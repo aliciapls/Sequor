@@ -14,6 +14,9 @@ logger = structlog.get_logger()
 # Map model name strings to their ORM classes.
 _MODEL_MAP: dict[str, type] = {}
 
+# Fields that must never be set via create/update (mass assignment protection).
+_PROTECTED_FIELDS = frozenset({"id", "created_at", "updated_at"})
+
 
 def _get_model(name: str) -> type:
     if not _MODEL_MAP:
@@ -50,7 +53,11 @@ class SessionCrud:
 
     async def create(self, model_name: str, data: dict[str, Any]) -> dict[str, Any]:
         model = _get_model(model_name)
-        obj = model(**{k: v for k, v in data.items() if hasattr(model, k)})
+        safe = {k: v for k, v in data.items() if hasattr(model, k) and k not in _PROTECTED_FIELDS}
+        unknown = [k for k in data if not hasattr(model, k)]
+        if unknown:
+            logger.warning("crud.create_unknown_fields", model=model_name, fields=unknown)
+        obj = model(**safe)
         self._session.add(obj)
         await self._session.flush()
         return _orm_to_dict(obj)
@@ -70,6 +77,8 @@ class SessionCrud:
         if obj is None:
             return None
         for key, value in data.items():
+            if key in _PROTECTED_FIELDS:
+                continue
             if hasattr(obj, key):
                 setattr(obj, key, value)
         await self._session.flush()

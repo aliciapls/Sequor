@@ -250,13 +250,14 @@ class AutoReplyService:
         badge = ConfidenceBadge(response_result.confidence_badge)
 
         async with AsyncSession(get_engine()) as session:
-            await session.execute(
+            result = await session.execute(
                 text("""
                 INSERT INTO responses
                 (id, tenant_id, message_id, content, confidence_badge,
                  confidence_score, was_auto_sent, sent_at)
                 VALUES (gen_random_uuid(), :tenant_id, :message_id, :content, :badge,
                  :confidence_score, :was_auto_sent, :sent_at)
+                RETURNING id
                 """),
                 {
                     "tenant_id": context.tenant_id,
@@ -268,9 +269,10 @@ class AutoReplyService:
                     "sent_at": now if response_result.was_auto_sent else None,
                 },
             )
+            row = result.fetchone()
             await session.commit()
 
-        return context.message_id
+        return row[0] if row else context.message_id
 
     async def _create_escalation(
         self,
@@ -278,20 +280,17 @@ class AutoReplyService:
         response_id: UUID,
         classification: ClassificationResult,
     ) -> UUID:
-        """Create an escalation record.
+        """Create an escalation via EscalationService (sends email, writes audit).
 
-        Args:
-            context: Message context
-            response_id: Related response ID
-            classification: Classification result
-
-        Returns:
-            UUID of created escalation
+        Delegates to EscalationService.create_escalation which handles:
+        backup contact lookup, escalation email with AI context, audit trail,
+        and SLA deadline tracking.
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-
+        from sequor.db.crud import SessionCrud
         from sequor.db.database import get_engine
-        from sequor.db.models import EscalationPriority, EscalationStatus
+        from sequor.db.models import EscalationPriority
+        from sequor.escalation.service import EscalationService
+        from sqlalchemy.ext.asyncio import AsyncSession
 
         urgency_map = {
             "low": EscalationPriority.low,
@@ -301,49 +300,24 @@ class AutoReplyService:
         }
         priority = urgency_map.get(classification.urgency.value, EscalationPriority.medium)
 
-        async with AsyncSession(get_engine()) as session:
-            backup_result = await session.execute(
-                text("""
-                SELECT id FROM backup_contacts
-                WHERE tenant_id = :tenant_id AND account_id = :account_id AND active = true
-                ORDER BY tier = 'primary' DESC
-                LIMIT 1
-                """),
-                {
-                    "tenant_id": context.tenant_id,
-                    "account_id": context.account_id,
-                },
-            )
-            backup_row = await backup_result.fetchone()
-            backup_id = backup_row[0] if backup_row else None
+        engine = get_engine()
+        async with AsyncSession(engine) as session:
+            crud = SessionCrud(session)
+            svc = EscalationService(db_express=crud, email_sender=self._email)
 
-            if not backup_id:
-                logger.warning(
-                    "auto_reply.no_backup",
-                    tenant_id=str(context.tenant_id),
-                    account_id=str(context.account_id),
-                )
-
-            await session.execute(
-                text("""
-                INSERT INTO escalations
-                (id, tenant_id, message_id, response_id, backup_contact_id,
-                 tier, status, priority, assigned_at)
-                VALUES (gen_random_uuid(), :tenant_id, :message_id, :response_id,
-                 :backup_contact_id, 1, :status, :priority, NOW())
-                """),
-                {
-                    "tenant_id": context.tenant_id,
-                    "message_id": context.message_id,
-                    "response_id": response_id,
-                    "backup_contact_id": backup_id,
-                    "status": EscalationStatus.pending.value,
-                    "priority": priority.value,
-                },
+            record = await svc.create_escalation(
+                message_id=context.message_id,
+                tenant_id=context.tenant_id,
+                account_id=context.account_id,
+                priority=priority,
+                ai_summary=classification.reasoning or "Classification-based escalation",
+                routing_reason=f"AI confidence {classification.confidence:.0%}, category {classification.category.value}",
+                suggested_response=getattr(classification, "suggested_response", None),
             )
             await session.commit()
 
-        return context.message_id
+        esc_id = record.get("id")
+        return UUID(esc_id) if isinstance(esc_id, str) else esc_id or context.message_id
 
     async def _send_auto_reply(
         self,
