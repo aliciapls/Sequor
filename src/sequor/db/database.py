@@ -89,10 +89,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 @asynccontextmanager
 async def get_tenant_session(tenant_id):
     """Yield a session with search_path set to the tenant's schema."""
-    from sequor.db.schema_manager import tenant_id_to_schema
+    from sequor.db.schema_manager import tenant_id_to_schema, validate_identifier
 
     engine = get_engine()
     schema_name = tenant_id_to_schema(tenant_id)
+    validate_identifier(schema_name)  # defense-in-depth
     async with AsyncSession(engine) as session:
         await session.execute(text(f'SET search_path TO "{schema_name}", public'))
         yield session

@@ -181,7 +181,8 @@ class TestSearchLearnedAnswers:
             source_type="human_answer",
             source_escalation_id=None,
             created_at=None,
-            embedding=[0.1, 0.2, 0.3],  # matching the mock embedding
+            embedding=[0.1, 0.2, 0.3],
+            similarity=0.95,
         )
 
         mock_result = MagicMock()
@@ -211,7 +212,6 @@ class TestSearchLearnedAnswers:
         from types import SimpleNamespace
 
         doc_id = uuid4()
-        # Use an orthogonal embedding to get similarity = 0
         mock_row = SimpleNamespace(
             id=doc_id,
             question_text="Unrelated",
@@ -219,7 +219,8 @@ class TestSearchLearnedAnswers:
             source_type="human_answer",
             source_escalation_id=None,
             created_at=None,
-            embedding=[3.0, 0.0, -1.0],  # truly orthogonal to [0.1, 0.2, 0.3] (dot product = 0)
+            embedding=[3.0, 0.0, -1.0],
+            similarity=0.2,
         )
 
         mock_result = MagicMock()

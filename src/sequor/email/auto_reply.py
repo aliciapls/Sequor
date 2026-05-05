@@ -14,7 +14,6 @@ from datetime import datetime
 from uuid import UUID
 
 import structlog
-from sqlalchemy import text
 
 from sequor.ai.classifier import ClassificationResult, MessageClassifier
 from sequor.ai.learning import LearningLoop
@@ -22,15 +21,8 @@ from sequor.ai.rag_pipeline import RAGPipeline
 from sequor.ai.response import ResponseGenerator, ResponseResult
 from sequor.email.sender import SendGridEmailSender
 from sequor.protocols import EmailSender
+from sequor.email.utils import mask_email as _mask_email
 
-
-def _mask_email(email: str) -> str:
-    if "@" not in email:
-        return "***"
-    local, domain = email.split("@", 1)
-    if len(local) <= 2:
-        return f"***@{domain}"
-    return f"{local[0]}***@{domain}"
 
 logger = structlog.get_logger()
 
@@ -229,50 +221,31 @@ class AutoReplyService:
         response_result: ResponseResult,
         classification: ClassificationResult,
     ) -> UUID:
-        """Record the response in the database.
-
-        Args:
-            context: Message context
-            response_result: Generated response
-            classification: Classification result
-
-        Returns:
-            UUID of created response record
-        """
-        from sqlalchemy.ext.asyncio import AsyncSession
-
+        """Record the response in the database via SessionCrud."""
+        from sequor.db.crud import SessionCrud
         from sequor.db.database import get_engine
         from sequor.db.models import ConfidenceBadge
-
+        from sqlalchemy.ext.asyncio import AsyncSession
         from datetime import timezone
 
         now = datetime.now(timezone.utc)
         badge = ConfidenceBadge(response_result.confidence_badge)
 
         async with AsyncSession(get_engine()) as session:
-            result = await session.execute(
-                text("""
-                INSERT INTO responses
-                (id, tenant_id, message_id, content, confidence_badge,
-                 confidence_score, was_auto_sent, sent_at)
-                VALUES (gen_random_uuid(), :tenant_id, :message_id, :content, :badge,
-                 :confidence_score, :was_auto_sent, :sent_at)
-                RETURNING id
-                """),
-                {
-                    "tenant_id": context.tenant_id,
-                    "message_id": context.message_id,
-                    "content": response_result.content,
-                    "badge": badge.value,
-                    "confidence_score": response_result.confidence_score,
-                    "was_auto_sent": response_result.was_auto_sent,
-                    "sent_at": now if response_result.was_auto_sent else None,
-                },
-            )
-            row = result.fetchone()
+            crud = SessionCrud(session)
+            record = await crud.create("responses", {
+                "tenant_id": context.tenant_id,
+                "message_id": context.message_id,
+                "content": response_result.content,
+                "confidence_badge": badge.value,
+                "confidence_score": response_result.confidence_score,
+                "was_auto_sent": response_result.was_auto_sent,
+                "sent_at": now if response_result.was_auto_sent else None,
+            })
             await session.commit()
 
-        return row[0] if row else context.message_id
+        resp_id = record.get("id")
+        return UUID(str(resp_id)) if resp_id else context.message_id
 
     async def _create_escalation(
         self,
@@ -313,6 +286,7 @@ class AutoReplyService:
                 ai_summary=classification.reasoning or "Classification-based escalation",
                 routing_reason=f"AI confidence {classification.confidence:.0%}, category {classification.category.value}",
                 suggested_response=getattr(classification, "suggested_response", None),
+                confidence_score=classification.confidence,
             )
             await session.commit()
 

@@ -15,6 +15,7 @@ from sendgrid.helpers.mail import CustomArg, Header, Mail, ReplyTo
 from sequor.config import settings
 from sequor.email.rate_limiter import EmailRateLimiter, RateLimitExceededError
 from sequor.email.templates import _sanitize_header
+from sequor.email.utils import mask_email as _mask_email
 
 logger = structlog.get_logger()
 
@@ -232,15 +233,6 @@ def _get_backoff_delays() -> list[float]:
 
 def _get_max_retry_attempts() -> int:
     return settings.email_retry_max_attempts
-
-
-def _mask_email(email: str) -> str:
-    if "@" not in email:
-        return "***"
-    local, domain = email.split("@", 1)
-    if len(local) <= 2:
-        return f"***@{domain}"
-    return f"{local[0]}***@{domain}"
 
 
 def _extract_message_id(headers: dict | Any) -> str:

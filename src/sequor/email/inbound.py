@@ -14,6 +14,7 @@ import structlog
 from sequor.config import settings
 from sequor.db.models import EscalationStatus, MessageChannel, MessageDirection
 from sequor.email.parser import InboundEmail, parse_sendgrid_payload
+from sequor.email.utils import mask_email as _mask_email
 
 logger = structlog.get_logger()
 
@@ -359,15 +360,6 @@ class InboundEmailProcessor:
                         return refs[0]["id"]
 
         return None
-
-
-def _mask_email(email: str) -> str:
-    if "@" not in email:
-        return "***"
-    local, domain = email.split("@", 1)
-    if len(local) <= 2:
-        return f"***@{domain}"
-    return f"{local[0]}***@{domain}"
 
 
 def _verify_sendgrid_signature(raw_body: str, signature: str) -> bool:

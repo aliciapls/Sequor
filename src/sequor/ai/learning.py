@@ -168,63 +168,56 @@ class LearningLoop:
         account_id: UUID | None = None,
         top_k: int = 3,
     ) -> list[dict]:
-        """Search learned answers for a query."""
+        """Search learned answers using pgvector cosine distance."""
         from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy import text
 
         query_embedding = await self._llm.generate_embeddings([query])
         if not query_embedding:
             return []
 
+        emb_str = "[" + ",".join(str(v) for v in query_embedding[0]) + "]"
+
         async with AsyncSession(self._engine) as session:
-            from sqlalchemy import text
-
+            account_filter = "AND account_id = :account_id" if account_id else ""
+            params: dict = {"tenant_id": tenant_id, "emb": emb_str, "limit": top_k}
             if account_id:
-                result = await session.execute(
-                    text("""
-                    SELECT id, question_text, answer_text, source_type,
-                           source_escalation_id, created_at, embedding
-                    FROM learned_answers
-                    WHERE tenant_id = :tenant_id AND account_id = :account_id
-                    """),
-                    {"tenant_id": tenant_id, "account_id": account_id},
-                )
-            else:
-                result = await session.execute(
-                    text("""
-                    SELECT id, question_text, answer_text, source_type,
-                           source_escalation_id, created_at, embedding
-                    FROM learned_answers
-                    WHERE tenant_id = :tenant_id
-                    """),
-                    {"tenant_id": tenant_id},
-                )
-            rows = result.fetchall()
+                params["account_id"] = account_id
 
-        if not rows:
-            return []
+            result = await session.execute(
+                text(f"""
+                SELECT id, question_text, answer_text, source_type,
+                       source_escalation_id, created_at,
+                       1 - (embedding <=> :emb::vector) AS similarity
+                FROM learned_answers
+                WHERE tenant_id = :tenant_id
+                  AND embedding IS NOT NULL
+                  {account_filter}
+                ORDER BY embedding <=> :emb::vector
+                LIMIT :limit
+                """),
+                params,
+            )
+            rows = result.fetchall()
 
         results = []
         for row in rows:
-            if row.embedding:
-                similarity = self._cosine_similarity(
-                    query_embedding[0],
-                    list(row.embedding),
-                )
-                if similarity > 0.5:
-                    results.append(
-                        {
-                            "id": row.id,
-                            "question_text": row.question_text,
-                            "answer_text": row.answer_text,
-                            "source_type": row.source_type,
-                            "source_escalation_id": row.source_escalation_id,
-                            "created_at": row.created_at,
-                            "similarity": similarity,
-                        }
-                    )
-
-        results.sort(key=lambda x: x["similarity"], reverse=True)
-        return results[:top_k]
+            sim = getattr(row, "similarity", None)
+            if sim is None:
+                continue
+            sim = float(sim)
+            if sim <= 0.5:
+                continue
+            results.append({
+                "id": getattr(row, "id", None),
+                "question_text": getattr(row, "question_text", ""),
+                "answer_text": getattr(row, "answer_text", ""),
+                "source_type": getattr(row, "source_type", ""),
+                "source_escalation_id": getattr(row, "source_escalation_id", None),
+                "created_at": getattr(row, "created_at", None),
+                "similarity": sim,
+            })
+        return results
 
     async def delete_learned_answer(
         self,

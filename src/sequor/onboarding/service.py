@@ -8,6 +8,8 @@ keys and tenant schema, sends a verification email, and returns the result.
 import structlog
 from uuid import UUID
 
+from sequor.email.utils import mask_email as _mask_email
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -229,10 +231,3 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     }
 
 
-def _mask_email(email: str) -> str:
-    if "@" not in email:
-        return "***"
-    local, domain = email.split("@", 1)
-    if len(local) <= 2:
-        return f"***@{domain}"
-    return f"{local[0]}***@{domain}"

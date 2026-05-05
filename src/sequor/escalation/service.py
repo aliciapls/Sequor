@@ -9,15 +9,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from sequor.config import settings
-
-
-def _mask_email(email: str) -> str:
-    if "@" not in email:
-        return "***"
-    local, domain = email.split("@", 1)
-    if len(local) <= 2:
-        return f"***@{domain}"
-    return f"{local[0]}***@{domain}"
+from sequor.email.utils import mask_email as _mask_email
 from sequor.db.models import (
     ContactTier,
     EscalationPriority,
@@ -85,6 +77,7 @@ class EscalationService:
         ai_summary: str,
         routing_reason: str,
         suggested_response: str | None = None,
+        confidence_score: float = 0.0,
     ) -> dict[str, Any]:
         """Create a tier-1 escalation and notify the primary backup contact.
 
@@ -171,7 +164,7 @@ class EscalationService:
                 contact_channel=message.get("channel", "unknown"),
                 received_at=_format_datetime(message.get("received_at", now)),
                 ai_attempted=routing_reason,
-                confidence_score=0.0,
+                confidence_score=confidence_score,
                 confidence_category="escalated",
                 original_message_body=message.get("body_text", ""),
                 escalation_deadline=_format_datetime(deadline),
