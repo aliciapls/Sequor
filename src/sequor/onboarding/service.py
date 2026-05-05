@@ -98,13 +98,13 @@ async def send_verification_email(
         )
         try:
             sg.client.mail.send.post(request_body=message.get())
-            logger.info("onboarding.verification_email.sent", to=to)
+            logger.info("onboarding.verification_email.sent", to=_mask_email(to))
         except Exception as e:
-            logger.warning("onboarding.verification_email.failed", to=to, error=str(e))
+            logger.warning("onboarding.verification_email.failed", to=_mask_email(to), error=str(e))
     else:
         logger.info(
             "onboarding.verification_email.skipped",
-            to=to,
+            to=_mask_email(to),
             reason="no sendgrid_api_key configured",
         )
 
@@ -147,8 +147,16 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
             tenant_key = await km.provision_tenant_key(session, tenant.id)
             set_tenant_key(tenant_key)
             logger.info("onboarding.encryption_key_provisioned", tenant_id=str(tenant.id))
+        else:
+            raise RuntimeError(
+                "ENCRYPTION_MASTER_KEY is not configured. "
+                "Set it in .env before running signup."
+            )
+    except RuntimeError:
+        raise
     except Exception:
         logger.exception("onboarding.encryption_key_failed", tenant_id=str(tenant.id))
+        raise RuntimeError("Failed to provision tenant encryption key")
 
     # 3. Create Account (encrypted columns require tenant key set above)
     routing_rules = ROUTING_RULES[request.routing_rule]

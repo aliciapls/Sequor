@@ -100,8 +100,6 @@ async def create_tenant_schema(
             )
         )
 
-    await conn.commit()
-
     logger.info(
         "schema.created",
         schema_name=schema_name,

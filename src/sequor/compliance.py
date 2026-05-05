@@ -90,7 +90,21 @@ async def erase_contact_pii(
 
     erased = {"contact_id": str(contact_id), "tables_affected": []}
 
-    # 2. Overwrite contact PII fields
+    # 2. Load tenant encryption key so encrypted columns can be updated
+    try:
+        from sequor.config import settings
+        from sequor.db.encryption_keys import KeyManager
+        from sequor.db.encrypted_column import set_tenant_key
+
+        if settings.encryption_master_key:
+            km = KeyManager(settings.encryption_master_key)
+            key = await km.get_tenant_key(session, tenant_id)
+            set_tenant_key(key)
+    except Exception:
+        logger.exception("compliance.erasure_key_failed", tenant_id=str(tenant_id))
+        raise RuntimeError("Cannot load tenant encryption key for erasure")
+
+    # 3. Overwrite contact PII fields
     await session.execute(
         update(Contact)
         .where(Contact.id == contact_id)
@@ -98,7 +112,7 @@ async def erase_contact_pii(
     )
     erased["tables_affected"].append("contacts")
 
-    # 3. Delete vector embeddings from document chunks (keep text for audit)
+    # 4. Delete vector embeddings from document chunks (keep text for audit)
     chunk_result = await session.execute(
         select(DocumentChunk.id).where(DocumentChunk.tenant_id == tenant_id)
     )
@@ -112,7 +126,7 @@ async def erase_contact_pii(
         erased["tables_affected"].append("document_chunks")
         erased["embeddings_removed"] = len(chunk_ids)
 
-    # 4. Delete vector embeddings from learned answers
+    # 5. Delete vector embeddings from learned answers
     learned_result = await session.execute(
         select(LearnedAnswer.id).where(
             LearnedAnswer.tenant_id == tenant_id,
@@ -127,7 +141,7 @@ async def erase_contact_pii(
         )
         erased["tables_affected"].append("learned_answers")
 
-    # 5. Write audit entry
+    # 6. Write audit entry
     try:
         from sequor.db.audit import audit
 

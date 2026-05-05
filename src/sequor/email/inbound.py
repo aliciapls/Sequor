@@ -49,10 +49,16 @@ class InboundEmailProcessor:
 
         Returns the created Message record.
         """
+        # Signature verification is now mandatory — handled at the endpoint level
+        # which rejects requests without the signature header entirely.
+        # This dual check provides defense-in-depth if called from other contexts.
         if raw_body is not None and signature is not None:
             if not _verify_sendgrid_signature(raw_body, signature):
                 logger.warning("inbound.signature_invalid")
                 return {"status": "rejected", "reason": "invalid_signature"}
+        elif raw_body is not None and signature is None:
+            logger.warning("inbound.no_signature")
+            return {"status": "rejected", "reason": "missing_signature"}
 
         inbound = parse_sendgrid_payload(payload)
 
@@ -119,6 +125,7 @@ class InboundEmailProcessor:
                 parent_message_id=parent_message_id,
                 reply_text=inbound.body_text,
                 tenant_id=tenant_id,
+                sender_email=inbound.from_email,
             )
 
         return {
@@ -136,11 +143,12 @@ class InboundEmailProcessor:
         parent_message_id: str,
         reply_text: str,
         tenant_id: str,
+        sender_email: str | None = None,
     ) -> bool:
         """Check if the parent message has an active escalation and resolve it.
 
-        Looks up pending/acknowledged escalations for the parent message
-        and resolves the first one found with the reply text as the resolution summary.
+        Only resolves if the sender matches the backup contact assigned to
+        the escalation. This prevents unauthorized escalation resolution.
         """
         try:
             escalations = await self._db.list("Escalation", {
@@ -148,26 +156,39 @@ class InboundEmailProcessor:
                 "tenant_id": tenant_id,
             })
             for esc in escalations:
-                if esc.get("status") in (
+                if esc.get("status") not in (
                     EscalationStatus.pending.value,
                     EscalationStatus.acknowledged.value,
                 ):
-                    summary = (reply_text or "Resolved via email reply")[:500]
-                    await self._db.update(
-                        "Escalation",
-                        esc["id"],
-                        {
-                            "status": EscalationStatus.resolved.value,
-                            "resolved_at": datetime.now(timezone.utc),
-                            "resolution_summary": summary,
-                        },
-                    )
-                    logger.info(
-                        "inbound.escalation_resolved",
-                        escalation_id=esc["id"],
-                        parent_message_id=parent_message_id,
-                    )
-                    return True
+                    continue
+
+                # Verify the sender is the assigned backup contact
+                if sender_email and esc.get("backup_contact_id"):
+                    backup = await self._db.read("BackupContact", str(esc["backup_contact_id"]))
+                    if backup and backup.get("email", "").lower() != sender_email.lower():
+                        logger.warning(
+                            "inbound.escalation_unauthorized_sender",
+                            escalation_id=esc["id"],
+                            sender=_mask_email(sender_email),
+                        )
+                        continue
+
+                summary = (reply_text or "Resolved via email reply")[:500]
+                await self._db.update(
+                    "Escalation",
+                    esc["id"],
+                    {
+                        "status": EscalationStatus.resolved.value,
+                        "resolved_at": datetime.now(timezone.utc),
+                        "resolution_summary": summary,
+                    },
+                )
+                logger.info(
+                    "inbound.escalation_resolved",
+                    escalation_id=esc["id"],
+                    parent_message_id=parent_message_id,
+                )
+                return True
         except Exception:
             logger.exception(
                 "inbound.escalation_resolve_failed",

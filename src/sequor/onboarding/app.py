@@ -200,35 +200,83 @@ async def stripe_webhook(request: Request):
 @app.post("/api/v1/email/inbound")
 async def email_inbound(request: Request):
     """Receive SendGrid Inbound Parse webhook for incoming emails."""
+    raw_body = await request.body()
+    signature = request.headers.get("x-twilio-email-event-webhook-signature")
+
+    # Reject if signature header is missing — mandatory verification
+    if not signature:
+        _logger.warning("email.inbound.no_signature")
+        return JSONResponse(status_code=403, content={"detail": "Missing signature header"})
+
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        payload = await request.json()
+    else:
+        form = await request.form()
+        payload = dict(form)
+
     try:
-        raw_body = await request.body()
-        signature = request.headers.get("x-twilio-email-event-webhook-signature")
-
-        content_type = request.headers.get("content-type", "")
-        if "application/json" in content_type:
-            payload = await request.json()
-        else:
-            form = await request.form()
-            payload = dict(form)
-
         from sequor.email.inbound import InboundEmailProcessor
         from sequor.db.database import get_engine
+        from sequor.db.crud import SessionCrud
         from sqlalchemy.ext.asyncio import AsyncSession
 
         engine = get_engine()
         async with AsyncSession(engine) as session:
-            processor = InboundEmailProcessor(db_express=None)
+            crud = SessionCrud(session)
+            processor = InboundEmailProcessor(db_express=crud)
             result = await processor.process_sendgrid_payload(
                 payload=payload,
                 raw_body=raw_body.decode("utf-8", errors="replace") if raw_body else None,
                 signature=signature,
             )
 
+            # Wire AI pipeline: classify → RAG → auto-reply or escalate
+            if result.get("status") == "created" and not result.get("escalation_resolved"):
+                try:
+                    from sequor.ai.client import get_ollama_client
+                    from sequor.ai.classifier import MessageClassifier
+                    from sequor.ai.rag_pipeline import RAGPipeline
+                    from sequor.ai.vector_store import VectorStore
+                    from sequor.email.auto_reply import AutoReplyService, MessageContext
+
+                    llm = get_ollama_client()
+                    vector_store = VectorStore(engine)
+                    classifier = MessageClassifier(llm_client=llm)
+                    rag = RAGPipeline(vector_store=vector_store, llm_client=llm)
+
+                    from sequor.email.sender import SendGridEmailSender
+                    email_sender = SendGridEmailSender()
+
+                    service = AutoReplyService(
+                        classifier=classifier,
+                        rag_pipeline=rag,
+                        email_sender=email_sender,
+                    )
+                    from uuid import UUID as _UUID
+
+                    ctx = MessageContext(
+                        tenant_id=_UUID(result["tenant_id"]),
+                        account_id=_UUID(result["account_id"]),
+                        contact_email="",
+                        message_id=_UUID(result["message_id"]),
+                        subject=None,
+                        body_text=payload.get("text", ""),
+                        channel="email",
+                        external_message_id=payload.get("message_id"),
+                        in_reply_to=payload.get("in_reply_to"),
+                    )
+                    ai_result = await service.process_message(ctx)
+                    result["ai_routing"] = ai_result.routing_target
+                    result["ai_confidence"] = ai_result.confidence_score
+                except Exception:
+                    _logger.exception("email.inbound.ai_pipeline_failed")
+
+            await session.commit()
+
         status_code = 200
         if result.get("status") == "rejected":
             status_code = 403
-        elif result.get("status") == "no_account":
-            status_code = 200
 
         return JSONResponse(status_code=status_code, content=result)
     except Exception:
