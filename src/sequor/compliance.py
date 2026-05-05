@@ -38,6 +38,22 @@ def is_opt_out(message_body: str) -> bool:
     return first_word in OPT_OUT_KEYWORDS
 
 
+def is_human_override(message_body: str) -> bool:
+    """WhatsApp-specific HUMAN override detection.
+
+    Per the WhatsApp spec, only exact "HUMAN" or starts-with "HUMAN "
+    (with trailing space) triggers the override. This prevents false
+    positives from phrases like "human resources" or "human form".
+
+    The detection window is only within the active 24-hour session.
+    """
+    stripped = message_body.strip()
+    if not stripped:
+        return False
+    upper = stripped.upper()
+    return upper == "HUMAN" or upper.startswith("HUMAN ")
+
+
 def build_consent_notice(org_name: str) -> str:
     """Format the consent notice with the organization's name."""
     return CONSENT_NOTICE.format(org_name=org_name)

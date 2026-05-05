@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     # Encryption (base64-encoded 32-byte master key)
     encryption_master_key: str = ""
 
+    # WhatsApp Business (Meta Cloud API)
+    whatsapp_access_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_business_account_id: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_verify_token: str = ""
+    whatsapp_api_version: str = "v21.0"
+    whatsapp_rate_limit_per_minute: int = 250
+    whatsapp_user_rate_limit_seconds: float = 6.0
+
     # Reverse proxy — only trust X-Forwarded-For when behind a known proxy
     trust_x_forwarded_for: bool = False
 

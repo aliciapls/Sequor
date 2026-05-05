@@ -60,6 +60,25 @@ class DocumentIngester(Protocol):
     ) -> UUID: ...
 
 
+@runtime_checkable
+class WhatsAppSender(Protocol):
+    """WhatsApp channel provides — sends messages via Meta Cloud API."""
+
+    async def send_text_message(self, to: str, body: str) -> str:
+        """Send a free-form text message. Only valid within 24hr session window."""
+        ...
+
+    async def send_template_message(
+        self,
+        to: str,
+        template_name: str,
+        language_code: str = "en",
+        components: list | None = None,
+    ) -> str:
+        """Send a pre-approved template message. Valid outside session window."""
+        ...
+
+
 class DigestDataSupplier(Protocol):
     """Branches 1 + 2 provide — returns counts for the daily digest."""
 
