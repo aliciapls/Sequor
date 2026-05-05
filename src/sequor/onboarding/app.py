@@ -285,3 +285,54 @@ async def email_inbound(request: Request):
     except Exception:
         _logger.exception("email.inbound.error")
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.post("/api/v1/whatsapp/inbound")
+async def whatsapp_inbound(request: Request):
+    """Receive Meta Cloud API webhook for incoming WhatsApp messages."""
+    raw_body = await request.body()
+    signature_header = request.headers.get("x-hub-signature-256", "")
+
+    # Verify Meta signature (mandatory)
+    if not signature_header:
+        _logger.warning("whatsapp.inbound.no_signature")
+        return JSONResponse(status_code=403, content={"detail": "Missing X-Hub-Signature-256 header"})
+
+    from sequor.whatsapp import verify_meta_signature
+    from sequor.config import settings
+
+    if not verify_meta_signature(
+        settings.whatsapp_app_secret,
+        raw_body,
+        signature_header,
+    ):
+        _logger.warning("whatsapp.inbound.signature_invalid")
+        return JSONResponse(status_code=403, content={"detail": "Invalid signature"})
+
+    try:
+        payload = await request.json()
+    except Exception:
+        _logger.warning("whatsapp.inbound.parse_failed")
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON payload"})
+
+    try:
+        from sequor.whatsapp.inbound import InboundWhatsAppProcessor
+        from sequor.db.database import get_engine
+        from sequor.db.crud import SessionCrud
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        engine = get_engine()
+        async with AsyncSession(engine) as session:
+            crud = SessionCrud(session)
+            processor = InboundWhatsAppProcessor(db_express=crud)
+            results = await processor.process_meta_payload(payload)
+
+            if not results or results[0].get("status") == "no_account":
+                return JSONResponse(status_code=200, content={"status": "ignored"})
+
+            await session.commit()
+
+        return JSONResponse(status_code=200, content={"status": "ok", "results": results})
+    except Exception:
+        _logger.exception("whatsapp.inbound.error")
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})

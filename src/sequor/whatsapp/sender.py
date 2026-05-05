@@ -95,6 +95,11 @@ class MetaWhatsAppSender:
         Returns:
             Meta message ID
         """
+        if len(body) > 4096:
+            raise ValueError("WhatsApp message body exceeds 4096 character limit")
+        if not body:
+            raise ValueError("WhatsApp message body cannot be empty")
+
         await self._rate_limiter.acquire()
 
         masked_to = _mask_phone(to)
@@ -148,6 +153,14 @@ class MetaWhatsAppSender:
         Returns:
             Meta message ID
         """
+        import re
+        _TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+        if not _TEMPLATE_NAME_RE.match(template_name):
+            raise ValueError(
+                f"Invalid WhatsApp template name '{template_name}' — "
+                "must be 1-64 chars, lowercase letters/digits/underscores only"
+            )
+
         await self._rate_limiter.acquire()
 
         masked_to = _mask_phone(to)

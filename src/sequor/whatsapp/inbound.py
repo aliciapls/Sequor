@@ -72,7 +72,7 @@ class InboundWhatsAppProcessor:
         # 1. Resolve account by WhatsApp phone number
         account = await self._resolve_account(inbound.to_phone)
         if account is None:
-            logger.warning("whatsapp.inbound.no_account", to=inbound.to_phone)
+            logger.warning("whatsapp.inbound.no_account", to=_mask_phone(inbound.to_phone))
             return {"status": "no_account", "from": inbound.from_phone}
 
         tenant_id = account["tenant_id"]
