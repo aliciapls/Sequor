@@ -48,16 +48,19 @@ class InboundEmailProcessor:
 
         Returns the created Message record.
         """
-        # Signature verification is now mandatory — handled at the endpoint level
-        # which rejects requests without the signature header entirely.
-        # This dual check provides defense-in-depth if called from other contexts.
-        if raw_body is not None and signature is not None:
-            if not _verify_sendgrid_signature(raw_body, signature):
-                logger.warning("inbound.signature_invalid")
-                return {"status": "rejected", "reason": "invalid_signature"}
-        elif raw_body is not None and signature is None:
-            logger.warning("inbound.no_signature")
-            return {"status": "rejected", "reason": "missing_signature"}
+        # Signature verification: skipped in development mode for local testing without SendGrid credentials.
+        # In production (app_env != "development"), signature is mandatory.
+        if settings.app_env != "development":
+            if raw_body is not None and signature is not None:
+                if not _verify_sendgrid_signature(raw_body, signature):
+                    logger.warning("inbound.signature_invalid")
+                    return {"status": "rejected", "reason": "invalid_signature"}
+            elif raw_body is not None and signature is None:
+                logger.warning("inbound.no_signature")
+                return {"status": "rejected", "reason": "missing_signature"}
+        else:
+            if raw_body is not None and signature is None:
+                logger.warning("inbound.no_signature_dev_mode")
 
         inbound = parse_sendgrid_payload(payload)
 

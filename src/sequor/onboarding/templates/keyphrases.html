@@ -1,0 +1,106 @@
+{% extends "_portal.html" %}
+{% block title %}Key Phrase Maps — Sequor Portal{% endblock %}
+{% block topbar_title %}Key Phrase Maps{% endblock %}
+{% block topbar_actions %}
+<button class="topbar-btn topbar-btn-primary" onclick="showAddModal()">+ Add Mapping</button>
+{% endblock %}
+{% block page_content %}
+<div class="page-header">
+    <div>
+        <h1>Key Phrase Maps</h1>
+        <p>Link key phrases to documents — Sequor retrieves the right doc when clients mention these phrases</p>
+    </div>
+</div>
+
+<div class="card mb-6">
+    <div class="card-header">
+        <div class="card-title">Active Mappings</div>
+        <input type="text" class="form-input" placeholder="Search phrases or docs..." style="width:220px;font-size:13px;padding:6px 12px;">
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Key Phrase</th>
+                    <th>Aliases</th>
+                    <th>Maps To</th>
+                    <th>Confidence Boost</th>
+                    <th>Type</th>
+                    <th>Usage (30d)</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="mappings-tbody">
+                <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Add/edit modal -->
+<div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:16px;padding:32px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h2 style="font-size:18px;font-weight:700;">Add Key Phrase Mapping</h2>
+            <button onclick="document.getElementById('add-modal').style.display='none'" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--slate-400);">×</button>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Key Phrase *</label>
+            <input type="text" class="form-input" placeholder="e.g. pricing, how much, cost">
+            <div class="form-hint">The phrase a client uses that triggers this mapping</div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Aliases (comma-separated)</label>
+            <input type="text" class="form-input" placeholder="e.g. how much does it cost, what's the fee">
+            <div class="form-hint">Alternative phrases that should trigger the same document</div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Document *</label>
+            <select class="form-select">
+                <option value="">Select a document...</option>
+                <option>Company Pricing 2026.pdf</option>
+                <option>Refund Policy.pdf</option>
+                <option>Service Level Agreement.docx</option>
+                <option>Onboarding Guide.pdf</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Mapping Type</label>
+            <select class="form-select">
+                <option>Auto-reply (full answer from doc)</option>
+                <option>Include in AI context (partial)</option>
+                <option>Escalate (don't auto-reply)</option>
+            </select>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:24px;">
+            <button class="btn btn-secondary" onclick="document.getElementById('add-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary">Save Mapping</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block page_script %}
+function showAddModal() { document.getElementById('add-modal').style.display='flex'; }
+
+(async function() {
+    const mappings = [
+        { phrase: 'pricing', aliases: 'how much, cost, fee, charge', doc: 'Company Pricing 2026.pdf', boost: '+20%', type: 'Auto-reply', usage: 142 },
+        { phrase: 'refund', aliases: 'money back, cancel, get a refund', doc: 'Refund Policy.pdf', boost: '+15%', type: 'Auto-reply', usage: 38 },
+        { phrase: 'sla', aliases: 'uptime, service level, guarantee', doc: 'Service Level Agreement.docx', boost: '+25%', type: 'Include in context', usage: 12 },
+        { phrase: 'onboarding', aliases: 'setup, get started, how to begin', doc: 'Onboarding Guide.pdf', boost: '+20%', type: 'Auto-reply', usage: 67 },
+        { phrase: 'contract', aliases: 'agreement, terms, sign', doc: 'Service Level Agreement.docx', boost: '+30%', type: 'Escalate', usage: 24 },
+        { phrase: 'invoice', aliases: 'bill, payment, receipt', doc: 'Company Pricing 2026.pdf', boost: '+10%', type: 'Include in context', usage: 89 },
+    ];
+    document.getElementById('mappings-tbody').innerHTML = mappings.map(m => `
+        <tr>
+            <td><span style="font-weight:600;color:var(--duck-700);">"${m.phrase}"</span></td>
+            <td class="text-sm text-muted">${m.aliases}</td>
+            <td><span style="font-size:12px;">📄 ${m.doc}</span></td>
+            <td><span class="badge badge-green">${m.boost}</span></td>
+            <td><span class="badge ${m.type === 'Auto-reply' ? 'badge-green' : m.type === 'Escalate' ? 'badge-red' : 'badge-blue'}">${m.type}</span></td>
+            <td class="text-sm">${m.usage} triggers</td>
+            <td><button class="btn btn-secondary btn-sm">Edit</button></td>
+        </tr>
+    `).join('');
+})();
+{% endblock %}

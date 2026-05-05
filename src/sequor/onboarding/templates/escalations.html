@@ -1,0 +1,111 @@
+{% extends "_portal.html" %}
+{% block title %}Escalations — Sequor Portal{% endblock %}
+{% block topbar_title %}Escalations{% endblock %}
+{% block topbar_actions %}
+<button class="topbar-btn topbar-btn-ghost">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+    Filter
+</button>
+<button class="topbar-btn topbar-btn-primary">Export CSV</button>
+{% endblock %}
+{% block page_content %}
+<div class="page-header">
+    <div class="page-header-left">
+        <h1>Escalation Queue</h1>
+        <p>Messages that need human review or action</p>
+    </div>
+    <div class="page-header-actions">
+        <span class="badge badge-amber">5 Open</span>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">All Escalations</div>
+        <input type="text" class="form-input" placeholder="Search escalations…" style="width:200px;font-size:13px;padding:6px 12px;">
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Channel</th>
+                    <th>From</th>
+                    <th>Message</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>AI Reason</th>
+                    <th>Assigned To</th>
+                    <th>Time</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="escalations-tbody">
+                <tr><td colspan="10" style="text-align:center;padding:40px;color:var(--slate-400);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+{% block page_script %}
+(async function() {
+    const escalations = [
+        {
+            id: 'ESC-001', channel: 'email', from: 'client@firm.com', fromName: 'Rachel Tan',
+            body: 'Hi, I received an invoice for $4,500 but our agreement was $3,800. Can you clarify?',
+            priority: 'high', status: 'pending',
+            aiReason: 'Pricing dispute — human review required to avoid incorrect concessions',
+            assigned: 'Alex Chen', time: '14m ago'
+        },
+        {
+            id: 'ESC-002', channel: 'whatsapp', from: '+65 9123 4567', fromName: 'David Lee',
+            body: 'Hi, I need the onboarding documents for my team. We signed up yesterday.',
+            priority: 'medium', status: 'in_progress',
+            aiReason: 'Request for documents not in knowledge base — routing to account manager',
+            assigned: 'Priya S.', time: '3h ago'
+        },
+        {
+            id: 'ESC-003', channel: 'email', from: 'legal@partner.co', fromName: 'Legal Dept',
+            body: 'Re: Contract amendment — we need to discuss clause 7.3 before signing.',
+            priority: 'high', status: 'pending',
+            aiReason: 'Legal matter — auto-escalated by policy keyword "contract" + "legal"',
+            assigned: 'Unassigned', time: '5h ago'
+        },
+        {
+            id: 'ESC-004', channel: 'whatsapp', from: '+65 8876 5432', fromName: 'Mei Ling',
+            body: 'Is the quarterly report ready? We need it for our board meeting next Monday.',
+            priority: 'low', status: 'resolved',
+            aiReason: 'Status inquiry — routed to backup who confirmed delivery timeline',
+            assigned: 'Alex Chen', time: '1d ago'
+        },
+        {
+            id: 'ESC-005', channel: 'email', from: 'ops@supply.com', fromName: 'Supply Ops',
+            body: 'Delivery delayed by 2 days. Affected order #ORD-8823. Tracking attached.',
+            priority: 'medium', status: 'resolved',
+            aiReason: 'Operational update — routine but flagged for ops manager visibility',
+            assigned: 'Priya S.', time: '1d ago'
+        },
+    ];
+
+    const tbody = document.getElementById('escalations-tbody');
+    tbody.innerHTML = escalations.map(e => `
+        <tr>
+            <td><span style="font-size:12px;font-weight:700;color:var(--slate-500);">${e.id}</span></td>
+            <td><span class="badge ${e.channel === 'whatsapp' ? 'badge-green' : 'badge-blue'}">${e.channel}</span></td>
+            <td>
+                <div style="font-size:13px;font-weight:500;">${e.fromName}</div>
+                <div class="text-sm text-muted">${e.from}</div>
+            </td>
+            <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.body}</td>
+            <td><span class="badge ${e.priority === 'high' ? 'badge-red' : e.priority === 'medium' ? 'badge-amber' : 'badge-slate'}">${e.priority}</span></td>
+            <td><span class="badge ${e.status === 'resolved' ? 'badge-green' : e.status === 'in_progress' ? 'badge-blue' : 'badge-amber'}">${e.status}</span></td>
+            <td style="font-size:11px;max-width:180px;color:var(--slate-500);font-style:italic;">${e.aiReason}</td>
+            <td style="font-size:12px;">${e.assigned}</td>
+            <td class="text-sm text-muted">${e.time}</td>
+            <td>
+                <a href="/portal/escalations/${e.id}" class="btn btn-primary btn-sm">${e.status === 'resolved' ? 'View' : 'Respond'}</a>
+            </td>
+        </tr>
+    `).join('');
+})();
+{% endblock %}

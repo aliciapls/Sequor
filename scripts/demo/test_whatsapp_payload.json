@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "+1234567890",
+              "phone_number_id": "PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "wa_id": "15551234567",
+                "profile": {
+                  "name": "Alice Friend"
+                }
+              }
+            ],
+            "messages": [
+              {
+                "from": "15551234567",
+                "id": "wamid.test001",
+                "timestamp": "1714915200",
+                "type": "text",
+                "text": {
+                  "body": "Hi! Do you offer monthly billing?"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

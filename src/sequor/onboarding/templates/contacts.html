@@ -1,0 +1,71 @@
+{% extends "_portal.html" %}
+{% block title %}Backup Contacts — Sequor Portal{% endblock %}
+{% block topbar_title %}Backup Contacts{% endblock %}
+{% block topbar_actions %}
+<button class="topbar-btn topbar-btn-primary" onclick="showAddContact()">+ Add Contact</button>
+{% endblock %}
+{% block page_content %}
+<div class="page-header">
+    <div class="page-header-left">
+        <h1>Backup Contacts</h1>
+        <p>Team members who receive escalated messages when you are unavailable</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">All Contacts</div>
+        <input type="text" class="form-input" placeholder="Search contacts…" style="width:200px;font-size:13px;padding:6px 12px;">
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Role</th>
+                    <th>Channels</th>
+                    <th>OOO Windows</th>
+                    <th>Escalation Load</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="contacts-tbody">
+                <tr><td colspan="9" style="text-align:center;padding:40px;color:var(--slate-400);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+{% block page_script %}
+function showAddContact() { alert('Add contact modal would open here'); }
+
+(async function() {
+    const contacts = [
+        { name: 'Alex Chen', email: 'alex@demo.com', phone: '+65 9123 4567', role: 'Primary Contact', channels: ['whatsapp', 'email'], ooo: 'None active', load: 12, status: 'Active' },
+        { name: 'Priya Sharma', email: 'priya@demo.com', phone: '+65 9234 5678', role: 'Finance Backup', channels: ['email'], ooo: 'None active', load: 8, status: 'Active' },
+        { name: 'James Tan', email: 'james@demo.com', phone: '+65 9345 6789', role: 'Operations Backup', channels: ['whatsapp', 'email'], ooo: 'Jun 15–22 (configured)', load: 3, status: 'OOO' },
+        { name: 'Sarah Lim', email: 'sarah@demo.com', phone: '+65 9456 7890', role: 'Sales Backup', channels: ['whatsapp', 'email'], ooo: 'None active', load: 5, status: 'Active' },
+    ];
+    document.getElementById('contacts-tbody').innerHTML = contacts.map(c => `
+        <tr>
+            <td>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="width:32px;height:32px;border-radius:50%;background:var(--duck-200);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--duck-800);">${c.name.charAt(0)}</div>
+                    <span style="font-weight:500;">${c.name}</span>
+                </div>
+            </td>
+            <td class="text-sm">${c.email}</td>
+            <td class="text-sm">${c.phone}</td>
+            <td><span class="badge ${c.role === 'Primary Contact' ? 'badge-blue' : 'badge-slate'}">${c.role}</span></td>
+            <td>${c.channels.map(ch => `<span class="badge ${ch === 'whatsapp' ? 'badge-green' : 'badge-blue'}" style="margin-right:4px;">${ch}</span>`).join('')}</td>
+            <td class="text-sm ${c.ooo.includes('None') ? '' : 'text-muted'}" style="${c.ooo.includes('None') ? '' : 'color:var(--amber-500);'}">${c.ooo}</td>
+            <td class="text-sm">${c.load} this month</td>
+            <td><span class="badge ${c.status === 'Active' ? 'badge-green' : 'badge-amber'}">${c.status}</span></td>
+            <td><button class="btn btn-secondary btn-sm">Edit</button></td>
+        </tr>
+    `).join('');
+})();
+{% endblock %}

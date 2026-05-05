@@ -1,0 +1,246 @@
+{% extends "_portal.html" %}
+{% block title %}Dashboard — Sequor Portal{% endblock %}
+{% block topbar_title %}Dashboard{% endblock %}
+{% block page_style %}
+<style>
+    .chart-bar {
+        border-radius: 4px 4px 0 0;
+        transition: opacity 0.2s;
+    }
+    .chart-bar:hover { opacity: 0.8; }
+
+    .esc-list-item {
+        display: block;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--slate-50);
+        text-decoration: none;
+        transition: background 0.12s;
+        cursor: pointer;
+    }
+    .esc-list-item:hover { background: var(--duck-50); }
+    .esc-list-item:last-child { border-bottom: none; }
+</style>
+{% endblock %}
+{% block page_content %}
+<!-- Stats Row -->
+<div class="stats-grid mb-6">
+    <div class="stat-card">
+        <div class="stat-label">Messages Received</div>
+        <div class="stat-value" id="stat-received">--</div>
+        <div class="stat-change up">↑ 12% vs last week</div>
+    </div>
+    <div class="stat-card stat-green">
+        <div class="stat-label">Auto-Replied</div>
+        <div class="stat-value" id="stat-auto-replied">--</div>
+        <div class="stat-change up">↑ 8% vs last week</div>
+    </div>
+    <div class="stat-card stat-amber">
+        <div class="stat-label">Escalated</div>
+        <div class="stat-value" id="stat-escalated">--</div>
+        <div class="stat-change down">↓ 3% vs last week</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Avg Response Time</div>
+        <div class="stat-value" id="stat-response">--</div>
+        <div class="stat-change up">↓ 18% vs last week</div>
+    </div>
+</div>
+
+<!-- Charts row -->
+<div class="grid-2 mb-6">
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Message Volume — Last 7 Days</div>
+        </div>
+        <div class="card-body">
+            <div style="display:flex;align-items:flex-end;gap:10px;height:120px;">
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <div class="chart-bar" style="width:100%;background:var(--duck-300);height:60px;"></div>
+                    <span class="text-sm text-muted">Mon</span>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <div class="chart-bar" style="width:100%;background:var(--duck-400);height:85px;"></div>
+                    <span class="text-sm text-muted">Tue</span>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <div class="chart-bar" style="width:100%;background:var(--duck-300);height:45px;"></div>
+                    <span class="text-sm text-muted">Wed</span>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <div class="chart-bar" style="width:100%;background:var(--duck-500);height:100px;"></div>
+                    <span class="text-sm text-muted">Thu</span>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <div class="chart-bar" style="width:100%;background:var(--duck-400);height:70px;"></div>
+                    <span class="text-sm text-muted">Fri</span>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <div class="chart-bar" style="width:100%;background:var(--duck-200);height:30px;"></div>
+                    <span class="text-sm text-muted">Sat</span>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <div class="chart-bar" style="width:100%;background:var(--duck-200);height:20px;"></div>
+                    <span class="text-sm text-muted">Sun</span>
+                </div>
+            </div>
+            <div style="display:flex;gap:24px;margin-top:16px;padding-top:16px;border-top:1px solid var(--slate-100);">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <div style="width:10px;height:10px;border-radius:2px;background:var(--duck-500);"></div>
+                    <span class="text-sm text-muted">All messages</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <div style="width:10px;height:10px;border-radius:2px;background:var(--green-500);"></div>
+                    <span class="text-sm text-muted">Auto-replied</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <div style="width:10px;height:10px;border-radius:2px;background:var(--amber-500);"></div>
+                    <span class="text-sm text-muted">Escalated</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Resolution Breakdown — Today</div>
+        </div>
+        <div class="card-body">
+            <div style="display:flex;gap:32px;align-items:center;">
+                <div style="position:relative;width:140px;height:140px;flex-shrink:0;">
+                    <svg viewBox="0 0 36 36" style="width:140px;height:140px;transform:rotate(-90deg);">
+                        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--slate-100)" stroke-width="3.5"/>
+                        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--duck-500)" stroke-width="3.5"
+                            stroke-dasharray="62 88" stroke-linecap="round"/>
+                        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--green-500)" stroke-width="3.5"
+                            stroke-dasharray="18 88" stroke-dashoffset="-62" stroke-linecap="round"/>
+                        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--amber-500)" stroke-width="3.5"
+                            stroke-dasharray="8 88" stroke-dashoffset="-80" stroke-linecap="round"/>
+                    </svg>
+                    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                        <span style="font-size:22px;font-weight:700;color:var(--slate-800);">88</span>
+                        <span class="text-sm text-muted">total</span>
+                    </div>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:12px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="width:10px;height:10px;border-radius:50%;background:var(--duck-500);"></div>
+                            <span class="text-sm font-medium text-slate">Auto-replied</span>
+                        </div>
+                        <div>
+                            <span class="text-sm font-semibold text-slate-800">62</span>
+                            <span class="text-sm text-muted"> (70%)</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="width:10px;height:10px;border-radius:50%;background:var(--green-500);"></div>
+                            <span class="text-sm font-medium text-slate">Resolved by backup</span>
+                        </div>
+                        <div>
+                            <span class="text-sm font-semibold text-slate-800">18</span>
+                            <span class="text-sm text-muted"> (20%)</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="width:10px;height:10px;border-radius:50%;background:var(--amber-500);"></div>
+                            <span class="text-sm font-medium text-slate">Pending escalation</span>
+                        </div>
+                        <div>
+                            <span class="text-sm font-semibold text-slate-800">8</span>
+                            <span class="text-sm text-muted"> (10%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Two columns: Recent Messages + Open Escalations -->
+<div class="grid-2">
+    <!-- Recent Messages -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Recent Messages</div>
+            <a href="/portal/messages" class="btn btn-secondary btn-sm">View all</a>
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Channel</th>
+                        <th>From</th>
+                        <th>Message</th>
+                        <th>Status</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-messages-body">
+                    <tr><td colspan="5" style="text-align:center;padding:40px;color:var(--slate-400);">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Open Escalations -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Open Escalations</div>
+            <a href="/portal/escalations" class="btn btn-secondary btn-sm">View all</a>
+        </div>
+        <div id="escalations-body">
+            <!-- Filled by JS -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block page_script %}
+(async function() {
+    const stats = { received: 88, autoReplied: 62, escalated: 8, responseTime: '1.4h' };
+    document.getElementById('stat-received').textContent = stats.received;
+    document.getElementById('stat-auto-replied').textContent = stats.autoReplied;
+    document.getElementById('stat-escalated').textContent = stats.escalated;
+    document.getElementById('stat-response').textContent = stats.responseTime;
+    document.getElementById('escalation-count').textContent = stats.escalated;
+
+    const messages = [
+        { channel: 'whatsapp', from: 'Almanie (+1 555 1234)', body: 'Hi! What are your business hours?', status: 'auto-replied', time: '2m ago' },
+        { channel: 'email', from: 'client@firm.com', body: 'Question about Q3 invoice…', status: 'escalated', time: '14m ago' },
+        { channel: 'whatsapp', from: 'Priya Sharma', body: 'Is the report ready for review?', status: 'resolved', time: '1h ago' },
+        { channel: 'email', from: 'partner@corp.com', body: 'RE: Contract review — following up', status: 'auto-replied', time: '2h ago' },
+        { channel: 'whatsapp', from: 'David Lee', body: 'Need help with onboarding docs', status: 'pending', time: '3h ago' },
+    ];
+
+    const tbody = document.getElementById('recent-messages-body');
+    tbody.innerHTML = messages.map(m => `
+        <tr>
+            <td><span class="badge ${m.channel === 'whatsapp' ? 'badge-green' : 'badge-blue'}">${m.channel}</span></td>
+            <td class="text-sm">${m.from}</td>
+            <td class="text-sm truncate" style="max-width:180px;">${m.body}</td>
+            <td><span class="badge ${m.status === 'auto-replied' ? 'badge-green' : m.status === 'escalated' ? 'badge-amber' : m.status === 'resolved' ? 'badge-slate' : 'badge-blue'}">${m.status}</span></td>
+            <td class="text-sm text-muted">${m.time}</td>
+        </tr>
+    `).join('');
+
+    const escalations = [
+        { id: 'ESC-001', from: 'client@firm.com', subject: 'Q3 Invoice Question', priority: 'high', time: '14m ago', ai: 'Customer asked about invoice discrepancy — needs human review' },
+        { id: 'ESC-002', from: 'David Lee', subject: 'Onboarding Docs Request', priority: 'medium', time: '3h ago', ai: 'Request for documents not in knowledge base — routing to account manager' },
+    ];
+
+    const escBody = document.getElementById('escalations-body');
+    escBody.innerHTML = escalations.map(e => `
+        <a href="/portal/escalations/${e.id}" class="esc-list-item">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span class="text-xs font-semibold text-muted">${e.id}</span>
+                <span class="badge ${e.priority === 'high' ? 'badge-red' : 'badge-amber'}">${e.priority}</span>
+            </div>
+            <div class="font-semibold text-slate-800 mb-2">${e.subject}</div>
+            <div class="text-sm text-muted mb-2">From: ${e.from}</div>
+            <div class="text-xs text-muted" style="padding:6px 8px;background:var(--slate-50);border-radius:6px;font-style:italic;">AI: "${e.ai}"</div>
+            <div class="text-sm text-muted mt-4">${e.time}</div>
+        </a>
+    `).join('');
+})();
+{% endblock %}

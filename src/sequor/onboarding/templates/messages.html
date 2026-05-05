@@ -1,0 +1,75 @@
+{% extends "_portal.html" %}
+{% block title %}Messages — Sequor Portal{% endblock %}
+{% block topbar_title %}Messages{% endblock %}
+{% block topbar_actions %}
+<button class="topbar-btn topbar-btn-ghost">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+    Filter
+</button>
+<button class="topbar-btn topbar-btn-primary">Export CSV</button>
+{% endblock %}
+{% block page_content %}
+<div class="page-header">
+    <div>
+        <h1>Message History</h1>
+        <p>All inbound and outbound messages across all channels</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-sm">All</button>
+            <button class="btn btn-secondary btn-sm">WhatsApp</button>
+            <button class="btn btn-secondary btn-sm">Email</button>
+        </div>
+        <input type="text" class="form-input" placeholder="Search messages..." style="width:200px;font-size:13px;padding:6px 12px;">
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Channel</th>
+                    <th>Direction</th>
+                    <th>From</th>
+                    <th>Message</th>
+                    <th>Classification</th>
+                    <th>Action</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="messages-tbody">
+                <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--slate-400);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+{% block page_script %}
+(async function() {
+    const messages = [
+        { time: '2m ago', channel: 'whatsapp', dir: 'inbound', from: 'Almanie (+1 555 1234)', msg: 'Hi! What are your business hours?', class: 'FAQ', action: 'Auto-replied', status: 'resolved' },
+        { time: '14m ago', channel: 'email', dir: 'inbound', from: 'client@firm.com', msg: 'Question about Q3 invoice...', class: 'Billing Inquiry', action: 'Escalated', status: 'pending' },
+        { time: '1h ago', channel: 'whatsapp', dir: 'outbound', from: 'Priya Sharma', msg: 'Yes, the Q4 report is ready...', class: 'Status Update', action: 'Sent', status: 'delivered' },
+        { time: '1h ago', channel: 'whatsapp', dir: 'inbound', from: 'Priya Sharma', msg: 'Is the report ready for review?', class: 'Status Inquiry', action: 'Escalated', status: 'resolved' },
+        { time: '2h ago', channel: 'email', dir: 'inbound', from: 'partner@corp.com', msg: 'RE: Contract review — following up', class: 'Legal', action: 'Escalated', status: 'resolved' },
+        { time: '2h ago', channel: 'email', dir: 'outbound', from: 'partner@corp.com', msg: 'I have escalated this to our legal team...', class: 'Escalation ACK', action: 'Sent', status: 'delivered' },
+        { time: '3h ago', channel: 'whatsapp', dir: 'inbound', from: 'David Lee', msg: 'Need the refund policy please', class: 'Policy Inquiry', action: 'Auto-replied', status: 'resolved' },
+        { time: '3h ago', channel: 'whatsapp', dir: 'outbound', from: 'David Lee', msg: 'Our refund policy allows full refunds within 30 days...', class: 'Policy Response', action: 'Sent', status: 'delivered' },
+        { time: '5h ago', channel: 'email', dir: 'inbound', from: 'ops@supply.com', msg: 'Delivery update for order #ORD-8821', class: 'Operations', action: 'Auto-replied', status: 'resolved' },
+    ];
+    document.getElementById('messages-tbody').innerHTML = messages.map(m => `
+        <tr>
+            <td class="text-sm text-muted">${m.time}</td>
+            <td><span class="badge ${m.channel === 'whatsapp' ? 'badge-green' : 'badge-blue'}">${m.channel}</span></td>
+            <td><span class="badge ${m.dir === 'inbound' ? 'badge-amber' : 'badge-slate'}">${m.dir}</span></td>
+            <td class="text-sm">${m.from}</td>
+            <td class="text-sm" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.msg}</td>
+            <td><span class="badge badge-slate">${m.class}</span></td>
+            <td><span class="badge ${m.action === 'Auto-replied' ? 'badge-green' : m.action === 'Escalated' ? 'badge-amber' : 'badge-blue'}">${m.action}</span></td>
+            <td><span class="badge ${m.status === 'resolved' ? 'badge-green' : m.status === 'pending' ? 'badge-amber' : 'badge-slate'}">${m.status}</span></td>
+        </tr>
+    `).join('');
+})();
+{% endblock %}

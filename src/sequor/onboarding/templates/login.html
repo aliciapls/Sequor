@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In — Sequor Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --duck-50: #f0f9fb;
+            --duck-100: #d9eef4;
+            --duck-200: #b7ddea;
+            --duck-300: #8fc5db;
+            --duck-400: #5fa6c5;
+            --duck-500: #3c8eaf;
+            --duck-600: #2d7296;
+            --duck-700: #1d5a77;
+            --duck-800: #1a4a63;
+            --slate-50: #f8fafc;
+            --slate-100: #f1f5f9;
+            --slate-200: #e2e8f0;
+            --slate-300: #cbd5e1;
+            --slate-400: #94a3b8;
+            --slate-500: #64748b;
+            --slate-600: #475569;
+            --slate-700: #334155;
+            --slate-800: #1e293b;
+            --green-500: #22c55e;
+            --red-50: #fef2f2;
+            --red-500: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(160deg, var(--duck-50) 0%, #ffffff 40%, var(--duck-50) 100%);
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .login-card {
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--duck-200);
+            border-radius: 20px;
+            padding: 48px 44px;
+            width: 100%;
+            max-width: 440px;
+            box-shadow: 0 4px 32px rgba(29, 90, 119, 0.10), 0 1px 4px rgba(29, 90, 119, 0.06);
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--slate-500);
+            text-decoration: none;
+            margin-bottom: 20px;
+            transition: color 0.12s;
+        }
+
+        .back-link:hover { color: var(--duck-600); }
+        .back-link svg { flex-shrink: 0; }
+
+        .login-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 36px;
+            text-decoration: none;
+        }
+
+        .login-logo-icon {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(60, 142, 175, 0.30);
+        }
+
+        .login-logo-text {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--duck-800);
+            letter-spacing: -0.5px;
+        }
+
+        .login-heading {
+            text-align: center;
+            margin-bottom: 6px;
+        }
+
+        .login-heading h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--slate-800);
+            letter-spacing: -0.3px;
+        }
+
+        .login-subtitle {
+            text-align: center;
+            font-size: 14px;
+            color: var(--slate-500);
+            margin-bottom: 36px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--slate-700);
+            margin-bottom: 7px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 11px 15px;
+            border: 1.5px solid var(--slate-200);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--slate-800);
+            background: white;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--duck-400);
+            box-shadow: 0 0 0 3px rgba(60, 142, 175, 0.12);
+        }
+
+        .form-input::placeholder { color: var(--slate-400); }
+
+        .remember-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+
+        .remember-label {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--slate-600);
+        }
+
+        .remember-label input[type="checkbox"] {
+            accent-color: var(--duck-500);
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+        }
+
+        .forgot-link {
+            font-size: 13px;
+            color: var(--duck-600);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .forgot-link:hover { text-decoration: underline; }
+
+        .btn-signin {
+            width: 100%;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.15s;
+            box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25);
+        }
+
+        .btn-signin:hover {
+            background: linear-gradient(135deg, var(--duck-600), var(--duck-800));
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(45, 114, 150, 0.32);
+        }
+
+        .btn-signin:active { transform: translateY(0); }
+        .btn-signin:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+        .login-divider {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin: 24px 0;
+            color: var(--slate-400);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .login-divider::before,
+        .login-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--slate-200);
+        }
+
+        .demo-box {
+            background: linear-gradient(135deg, var(--duck-50), white);
+            border: 1px solid var(--duck-200);
+            border-radius: 12px;
+            padding: 16px 18px;
+            text-align: center;
+        }
+
+        .demo-box-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--duck-800);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .demo-box-title::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--duck-500);
+        }
+
+        .demo-cred {
+            font-size: 13px;
+            color: var(--slate-600);
+            margin-bottom: 4px;
+        }
+
+        .demo-cred strong {
+            color: var(--slate-800);
+            font-weight: 600;
+        }
+
+        .demo-cred code {
+            background: var(--slate-100);
+            padding: 2px 8px;
+            border-radius: 5px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 12px;
+            color: var(--duck-800);
+            font-weight: 600;
+        }
+
+        .login-footer {
+            text-align: center;
+            margin-top: 28px;
+            font-size: 13px;
+            color: var(--slate-400);
+        }
+
+        .login-footer a {
+            color: var(--duck-600);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .login-footer a:hover { text-decoration: underline; }
+
+        .alert {
+            padding: 11px 15px;
+            border-radius: 10px;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+
+        .alert-error {
+            background: var(--red-50);
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .alert-success {
+            background: var(--green-50);
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+    </style>
+</head>
+<body>
+<div class="login-card">
+    <a href="/" class="back-link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+    </a>
+
+    <a href="/" class="login-logo">
+        <div class="login-logo-icon">S</div>
+        <span class="login-logo-text">Sequor</span>
+    </a>
+
+    <div class="login-heading">
+        <h1>Welcome back</h1>
+    </div>
+    <p class="login-subtitle">Sign in to your operator portal</p>
+
+    <div id="login-error" class="alert alert-error" style="display:none;"></div>
+    <div id="login-success" class="alert alert-success" style="display:none;"></div>
+
+    <form id="login-form">
+        <div class="form-group">
+            <label class="form-label" for="email">Email address</label>
+            <input type="email" id="email" class="form-input" placeholder="you@company.com" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="password">Password</label>
+            <input type="password" id="password" class="form-input" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+
+        <div class="remember-row">
+            <label class="remember-label">
+                <input type="checkbox">
+                Remember me
+            </label>
+            <a href="#" class="forgot-link">Forgot password?</a>
+        </div>
+
+        <button type="submit" class="btn-signin" id="login-btn">Sign in</button>
+    </form>
+
+    <div class="login-divider">or use demo account</div>
+
+    <div class="demo-box">
+        <div class="demo-box-title">Pre-created account</div>
+        <div class="demo-cred">Email: <strong>demo@sequor.com</strong></div>
+        <div class="demo-cred">Password: <code>demo1234</code></div>
+    </div>
+
+    <div class="login-footer">
+        Don't have an account? <a href="/portal/signup">Sign up free</a>
+    </div>
+</div>
+
+<script>
+    var DEMO_ACCOUNTS = [
+        { email: 'demo@sequor.com', password: 'demo1234', name: 'Alex Chen', company: 'Demo Company' },
+        { email: 'owner@integrationtest.com', password: 'demo1234', name: 'Demo Operator', company: 'Integration Test Corp' }
+    ];
+
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var email = document.getElementById('email').value;
+        var password = document.getElementById('password').value;
+        var errorDiv = document.getElementById('login-error');
+        var btn = document.getElementById('login-btn');
+
+        btn.textContent = 'Signing in…';
+        btn.disabled = true;
+        errorDiv.style.display = 'none';
+
+        setTimeout(function() {
+            var account = null;
+            for (var i = 0; i < DEMO_ACCOUNTS.length; i++) {
+                var a = DEMO_ACCOUNTS[i];
+                if (a.email === email && a.password === password) {
+                    account = a;
+                    break;
+                }
+            }
+            if (account) {
+                var token = 'demo_token_' + Date.now();
+                try {
+                    sessionStorage.setItem('sequor_operator', JSON.stringify(account));
+                    sessionStorage.setItem('sequor_token', token);
+                    document.cookie = 'sequor_session=' + token + '; path=/; SameSite=Lax';
+                } catch (err) {}
+                window.location.href = '/portal/dashboard';
+            } else {
+                errorDiv.textContent = 'Invalid email or password. Try: demo@sequor.com / demo1234';
+                errorDiv.style.display = 'block';
+                btn.textContent = 'Sign in';
+                btn.disabled = false;
+            }
+        }, 800);
+    });
+</script>
+</body>
+</html>

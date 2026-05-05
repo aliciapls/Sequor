@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up — Sequor Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --duck-50: #f0f9fb;
+            --duck-100: #d9eef4;
+            --duck-200: #b7ddea;
+            --duck-300: #8fc5db;
+            --duck-400: #5fa6c5;
+            --duck-500: #3c8eaf;
+            --duck-600: #2d7296;
+            --duck-700: #1d5a77;
+            --duck-800: #1a4a63;
+            --slate-50: #f8fafc;
+            --slate-100: #f1f5f9;
+            --slate-200: #e2e8f0;
+            --slate-300: #cbd5e1;
+            --slate-400: #94a3b8;
+            --slate-500: #64748b;
+            --slate-600: #475569;
+            --slate-700: #334155;
+            --slate-800: #1e293b;
+            --green-50: #f0fdf4;
+            --green-500: #22c55e;
+            --red-50: #fef2f2;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(160deg, var(--duck-50) 0%, #ffffff 40%, var(--duck-50) 100%);
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .signup-card {
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--duck-200);
+            border-radius: 20px;
+            padding: 48px 44px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 4px 32px rgba(29, 90, 119, 0.10), 0 1px 4px rgba(29, 90, 119, 0.06);
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--slate-500);
+            text-decoration: none;
+            margin-bottom: 20px;
+            transition: color 0.12s;
+        }
+
+        .back-link:hover { color: var(--duck-600); }
+        .back-link svg { flex-shrink: 0; }
+
+        .signup-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 32px;
+            text-decoration: none;
+        }
+
+        .signup-logo-icon {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(60, 142, 175, 0.30);
+        }
+
+        .signup-logo-text {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--duck-800);
+            letter-spacing: -0.5px;
+        }
+
+        .signup-heading {
+            text-align: center;
+            margin-bottom: 6px;
+        }
+
+        .signup-heading h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--slate-800);
+            letter-spacing: -0.3px;
+        }
+
+        .signup-subtitle {
+            text-align: center;
+            font-size: 14px;
+            color: var(--slate-500);
+            margin-bottom: 32px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--slate-700);
+            margin-bottom: 6px;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 11px 15px;
+            border: 1.5px solid var(--slate-200);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--slate-800);
+            background: white;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--duck-400);
+            box-shadow: 0 0 0 3px rgba(60, 142, 175, 0.12);
+        }
+
+        .form-input::placeholder { color: var(--slate-400); }
+        .form-select { cursor: pointer; }
+
+        .form-hint {
+            font-size: 12px;
+            color: var(--slate-400);
+            margin-top: 5px;
+        }
+
+        .btn-signup {
+            width: 100%;
+            padding: 13px 20px;
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 8px;
+            box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25);
+        }
+
+        .btn-signup:hover {
+            background: linear-gradient(135deg, var(--duck-600), var(--duck-800));
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(45, 114, 150, 0.32);
+        }
+
+        .btn-signup:active { transform: translateY(0); }
+        .btn-signup:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+        .signup-divider {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin: 24px 0;
+            color: var(--slate-400);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .signup-divider::before,
+        .signup-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--slate-200);
+        }
+
+        .demo-box {
+            background: linear-gradient(135deg, var(--duck-50), white);
+            border: 1px solid var(--duck-200);
+            border-radius: 12px;
+            padding: 16px 18px;
+            text-align: center;
+        }
+
+        .demo-box-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--duck-800);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .demo-box-title::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--duck-500);
+        }
+
+        .demo-cred {
+            font-size: 13px;
+            color: var(--slate-600);
+            margin-bottom: 4px;
+        }
+
+        .demo-cred strong {
+            color: var(--slate-800);
+            font-weight: 600;
+        }
+
+        .demo-cred code {
+            background: var(--slate-100);
+            padding: 2px 8px;
+            border-radius: 5px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 12px;
+            color: var(--duck-800);
+            font-weight: 600;
+        }
+
+        .demo-signin-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 10px;
+            padding: 9px 18px;
+            background: white;
+            color: var(--duck-700);
+            border: 1.5px solid var(--duck-200);
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.15s;
+            width: 100%;
+        }
+
+        .demo-signin-btn:hover {
+            background: var(--duck-50);
+            border-color: var(--duck-300);
+        }
+
+        .signup-footer {
+            text-align: center;
+            margin-top: 28px;
+            font-size: 13px;
+            color: var(--slate-400);
+        }
+
+        .signup-footer a {
+            color: var(--duck-600);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .signup-footer a:hover { text-decoration: underline; }
+
+        .alert {
+            padding: 11px 15px;
+            border-radius: 10px;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+
+        .alert-error {
+            background: var(--red-50);
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .alert-success {
+            background: var(--green-50);
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+    </style>
+</head>
+<body>
+<div class="signup-card">
+    <a href="/" class="back-link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+    </a>
+
+    <a href="/" class="signup-logo">
+        <div class="signup-logo-icon">S</div>
+        <span class="signup-logo-text">Sequor</span>
+    </a>
+
+    <div class="signup-heading">
+        <h1>Create your account</h1>
+    </div>
+    <p class="signup-subtitle">Get started in 2 minutes — no credit card required</p>
+
+    <div id="signup-error" class="alert alert-error" style="display:none;"></div>
+    <div id="signup-success" class="alert alert-success" style="display:none;"></div>
+
+    <form id="signup-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label" for="first_name">First name</label>
+                <input type="text" id="first_name" class="form-input" placeholder="Alex" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="last_name">Last name</label>
+                <input type="text" id="last_name" class="form-input" placeholder="Chen" required>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="company">Company name</label>
+            <input type="text" id="company" class="form-input" placeholder="Acme Corp" required>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="email">Work email</label>
+            <input type="email" id="email" class="form-input" placeholder="alex@acmecorp.com" autocomplete="email" required>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="phone">Phone number</label>
+            <input type="tel" id="phone" class="form-input" placeholder="+1 (555) 000-0000" autocomplete="tel">
+        </div>
+
+        <button type="submit" class="btn-signup" id="signup-btn">Create account</button>
+    </form>
+
+    <div class="signup-divider">or try the demo</div>
+
+    <div class="demo-box">
+        <div class="demo-box-title">Pre-created account</div>
+        <div class="demo-cred">Email: <strong>demo@sequor.com</strong></div>
+        <div class="demo-cred">Password: <code>demo1234</code></div>
+        <a href="/portal/login" class="demo-signin-btn">Sign in with demo</a>
+    </div>
+
+    <div class="signup-footer">
+        Already have an account? <a href="/portal/login">Sign in</a>
+    </div>
+</div>
+
+<script>
+    document.getElementById('signup-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var btn = document.getElementById('signup-btn');
+        var errorDiv = document.getElementById('signup-error');
+        var successDiv = document.getElementById('signup-success');
+
+        btn.textContent = 'Creating account…';
+        btn.disabled = true;
+        errorDiv.style.display = 'none';
+        successDiv.style.display = 'none';
+
+        setTimeout(function() {
+            var firstName = document.getElementById('first_name').value;
+            var lastName = document.getElementById('last_name').value;
+            var company = document.getElementById('company').value;
+            var email = document.getElementById('email').value;
+
+            var account = {
+                name: firstName + ' ' + lastName,
+                email: email,
+                company: company
+            };
+
+            var token = 'demo_token_' + Date.now();
+            try {
+                sessionStorage.setItem('sequor_operator', JSON.stringify(account));
+                sessionStorage.setItem('sequor_token', token);
+                document.cookie = 'sequor_session=' + token + '; path=/; SameSite=Lax';
+            } catch (err) {}
+
+            successDiv.textContent = 'Account created! Redirecting to your portal…';
+            successDiv.style.display = 'block';
+            btn.textContent = 'Account created!';
+
+            setTimeout(function() {
+                window.location.href = '/portal/dashboard';
+            }, 1000);
+        }, 1200);
+    });
+</script>
+</body>
+</html>

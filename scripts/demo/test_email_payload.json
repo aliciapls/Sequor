@@ -1,0 +1,9 @@
+{
+  "from": "alice@example.com",
+  "to": "team@yourcompany.com",
+  "subject": "Pricing question",
+  "text": "Hi, do you offer monthly billing? Thanks!",
+  "sender_ip": "203.0.113.42",
+  "message_id": "test-email-001",
+  "date": "2026-05-05T12:00:00Z"
+}

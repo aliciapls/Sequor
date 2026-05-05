@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sequor Portal{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --duck-50: #f0f9fb;
+            --duck-100: #d9eef4;
+            --duck-200: #b7ddea;
+            --duck-300: #8fc5db;
+            --duck-400: #5fa6c5;
+            --duck-500: #3c8eaf;
+            --duck-600: #2d7296;
+            --duck-700: #1d5a77;
+            --duck-800: #1a4a63;
+            --duck-900: #1a3f55;
+            --slate-50: #f8fafc;
+            --slate-100: #f1f5f9;
+            --slate-200: #e2e8f0;
+            --slate-300: #cbd5e1;
+            --slate-400: #94a3b8;
+            --slate-500: #64748b;
+            --slate-600: #475569;
+            --slate-700: #334155;
+            --slate-800: #1e293b;
+            --slate-900: #0f172a;
+            --green-500: #22c55e;
+            --green-50: #f0fdf4;
+            --amber-50: #fffbeb;
+            --amber-500: #f59e0b;
+            --red-50: #fef2f2;
+            --red-500: #ef4444;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 3px rgba(29, 90, 119, 0.06), 0 1px 2px rgba(29, 90, 119, 0.04);
+            --shadow-md: 0 4px 16px rgba(29, 90, 119, 0.08), 0 1px 4px rgba(29, 90, 119, 0.05);
+            --shadow-lg: 0 8px 32px rgba(29, 90, 119, 0.10), 0 2px 8px rgba(29, 90, 119, 0.06);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--slate-50);
+            color: var(--slate-700);
+            line-height: 1.6;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── Layout ── */
+        .portal-layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 252px;
+            background: white;
+            border-right: 1px solid var(--duck-100);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 22px 20px 18px;
+            border-bottom: 1px solid var(--duck-100);
+            text-decoration: none;
+            position: relative;
+        }
+
+        .sidebar-logo::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 20px;
+            right: 20px;
+            height: 1px;
+            background: linear-gradient(90deg, var(--duck-200), transparent);
+        }
+
+        .sidebar-logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 15px;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25);
+        }
+
+        .sidebar-logo-text {
+            font-size: 19px;
+            font-weight: 700;
+            color: var(--duck-800);
+            letter-spacing: -0.3px;
+        }
+
+        .sidebar-section-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--slate-400);
+            padding: 20px 18px 6px;
+        }
+
+        .sidebar-nav { flex: 1; padding: 4px 12px 12px; }
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 12px;
+            border-radius: var(--radius-md);
+            text-decoration: none;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--slate-600);
+            transition: all 0.12s;
+            margin-bottom: 2px;
+            position: relative;
+        }
+
+        .sidebar-nav a:hover {
+            background: var(--duck-50);
+            color: var(--duck-700);
+        }
+
+        .sidebar-nav a.active {
+            background: linear-gradient(135deg, var(--duck-50), var(--duck-100));
+            color: var(--duck-800);
+            font-weight: 600;
+        }
+
+        .sidebar-nav a.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 20px;
+            background: linear-gradient(180deg, var(--duck-500), var(--duck-700));
+            border-radius: 0 2px 2px 0;
+        }
+
+        .sidebar-nav a svg { width: 17px; height: 17px; flex-shrink: 0; }
+
+        .nav-badge {
+            margin-left: auto;
+            background: linear-gradient(135deg, var(--red-500), #dc2626);
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 20px;
+            box-shadow: 0 1px 4px rgba(239, 68, 68, 0.3);
+        }
+
+        .sidebar-footer {
+            padding: 12px;
+            border-top: 1px solid var(--duck-100);
+        }
+
+        .sidebar-user {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: background 0.12s;
+            text-decoration: none;
+        }
+
+        .sidebar-user:hover { background: var(--slate-50); }
+
+        .sidebar-user-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--duck-400), var(--duck-600));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 13px;
+            font-weight: 700;
+            flex-shrink: 0;
+            box-shadow: 0 2px 6px rgba(95, 166, 197, 0.3);
+        }
+
+        .sidebar-user-info { flex: 1; min-width: 0; }
+        .sidebar-user-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--slate-800);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sidebar-user-email {
+            font-size: 11px;
+            color: var(--slate-400);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-logout {
+            padding: 8px;
+            border-radius: var(--radius-sm);
+            color: var(--slate-400);
+            transition: all 0.12s;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: inherit;
+        }
+
+        .sidebar-logout:hover { background: var(--red-50); color: var(--red-500); }
+        .sidebar-logout svg { width: 15px; height: 15px; display: block; }
+
+        /* ── Main Content ── */
+        .main-content {
+            margin-left: 252px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        /* ── Topbar ── */
+        .topbar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--duck-100);
+            padding: 0 32px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .topbar-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--slate-800);
+            letter-spacing: -0.2px;
+        }
+
+        .topbar-breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--slate-400);
+        }
+
+        .topbar-breadcrumb svg { width: 12px; height: 12px; }
+
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .topbar-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.12s;
+            text-decoration: none;
+            border: none;
+            font-family: inherit;
+        }
+
+        .topbar-btn svg { width: 14px; height: 14px; }
+
+        .topbar-btn-ghost {
+            background: white;
+            color: var(--slate-600);
+            border: 1.5px solid var(--slate-200);
+        }
+
+        .topbar-btn-ghost:hover {
+            background: var(--slate-50);
+            border-color: var(--slate-300);
+        }
+
+        .topbar-btn-primary {
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            color: white;
+            box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25);
+        }
+
+        .topbar-btn-primary:hover {
+            background: linear-gradient(135deg, var(--duck-600), var(--duck-800));
+            box-shadow: 0 4px 12px rgba(45, 114, 150, 0.32);
+            transform: translateY(-1px);
+        }
+
+        /* ── Page Content ── */
+        .page-content { padding: 28px 32px 40px; flex: 1; }
+
+        .page-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 28px;
+        }
+
+        .page-header-left h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--slate-800);
+            letter-spacing: -0.3px;
+        }
+
+        .page-header-left p {
+            font-size: 14px;
+            color: var(--slate-500);
+            margin-top: 3px;
+        }
+
+        .page-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: white;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--duck-100);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 16px 22px;
+            border-bottom: 1px solid var(--slate-100);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(180deg, white, var(--slate-50));
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--slate-800);
+        }
+
+        .card-body { padding: 22px; }
+
+        /* ── Stats ── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 18px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--duck-100);
+            padding: 20px 22px;
+            box-shadow: var(--shadow-sm);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--duck-400), var(--duck-600));
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        }
+
+        .stat-card.stat-green::before { background: linear-gradient(90deg, #86efac, var(--green-500)); }
+        .stat-card.stat-amber::before { background: linear-gradient(90deg, #fcd34d, var(--amber-500)); }
+        .stat-card.stat-red::before { background: linear-gradient(90deg, #fca5a5, var(--red-500)); }
+
+        .stat-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--slate-500);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 30px;
+            font-weight: 700;
+            color: var(--slate-800);
+            letter-spacing: -0.5px;
+            line-height: 1;
+        }
+
+        .stat-change {
+            font-size: 12px;
+            margin-top: 6px;
+            font-weight: 500;
+        }
+
+        .stat-change.up { color: var(--green-500); }
+        .stat-change.down { color: var(--red-500); }
+        .stat-change.neutral { color: var(--slate-400); }
+
+        /* ── Tables ── */
+        .table-wrapper { overflow-x: auto; }
+
+        .data-table { width: 100%; border-collapse: collapse; }
+
+        .data-table th {
+            text-align: left;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--slate-500);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--slate-100);
+            background: var(--slate-50);
+            white-space: nowrap;
+        }
+
+        .data-table td {
+            padding: 12px 16px;
+            font-size: 13px;
+            color: var(--slate-700);
+            border-bottom: 1px solid var(--slate-50);
+            vertical-align: middle;
+        }
+
+        .data-table tbody tr { transition: background 0.1s; }
+        .data-table tbody tr:hover td { background: var(--duck-50); }
+        .data-table tbody tr:last-child td { border-bottom: none; }
+
+        /* ── Badges ── */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 9px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .badge-green { background: var(--green-50); color: #166534; }
+        .badge-amber { background: var(--amber-50); color: #92400e; }
+        .badge-red { background: var(--red-50); color: #991b1b; }
+        .badge-blue { background: var(--duck-100); color: var(--duck-800); }
+        .badge-slate { background: var(--slate-100); color: var(--slate-600); }
+        .badge-purple { background: #f5f3ff; color: #5b21b6; }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.13s;
+            border: none;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            color: white;
+            box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--duck-600), var(--duck-800));
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(45, 114, 150, 0.32);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: var(--slate-700);
+            border: 1.5px solid var(--slate-200);
+        }
+
+        .btn-secondary:hover { background: var(--slate-50); border-color: var(--slate-300); }
+        .btn-danger { background: var(--red-50); color: #991b1b; }
+        .btn-danger:hover { background: #fee2e2; }
+        .btn-success { background: var(--green-50); color: #166534; }
+        .btn-success:hover { background: #dcfce7; }
+        .btn-sm { padding: 5px 11px; font-size: 12px; }
+        .btn-lg { padding: 11px 22px; font-size: 15px; }
+
+        /* ── Forms ── */
+        .form-group { margin-bottom: 18px; }
+        .form-label { display: block; font-size: 13px; font-weight: 600; color: var(--slate-700); margin-bottom: 6px; }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 9px 13px;
+            border: 1.5px solid var(--slate-200);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--slate-800);
+            background: white;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--duck-400);
+            box-shadow: 0 0 0 3px rgba(60, 142, 175, 0.1);
+        }
+        .form-textarea { resize: vertical; min-height: 80px; }
+        .form-select { cursor: pointer; }
+
+        /* ── Utility ── */
+        .text-muted { color: var(--slate-400); }
+        .text-sm { font-size: 12px; }
+        .text-xs { font-size: 11px; }
+        .font-medium { font-weight: 500; }
+        .font-semibold { font-weight: 600; }
+        .text-slate { color: var(--slate-600); }
+        .text-slate-800 { color: var(--slate-800); }
+        .text-duck { color: var(--duck-600); }
+        .text-green { color: #166534; }
+        .text-amber { color: #92400e; }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--slate-400);
+        }
+
+        .flex { display: flex; }
+        .flex-col { flex-direction: column; }
+        .items-center { align-items: center; }
+        .items-start { align-items: flex-start; }
+        .justify-between { justify-content: space-between; }
+        .gap-2 { gap: 8px; }
+        .gap-3 { gap: 12px; }
+        .gap-4 { gap: 16px; }
+        .gap-6 { gap: 24px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .mb-2 { margin-bottom: 8px; }
+        .mb-4 { margin-bottom: 16px; }
+        .mb-6 { margin-bottom: 24px; }
+        .mt-4 { margin-top: 16px; }
+        .w-full { width: 100%; }
+        .truncate {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        {% block page_style %}{% endblock %}
+    </style>
+    <style>
+        /* ── Mobile ── */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.25s ease;
+            }
+            .sidebar.open {
+                transform: translateX(0);
+                box-shadow: 4px 0 24px rgba(29,90,119,0.15);
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .topbar {
+                padding: 0 16px;
+            }
+            .page-content {
+                padding: 20px 16px 32px;
+            }
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .hamburger-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 36px;
+                height: 36px;
+                border-radius: 8px;
+                border: 1.5px solid var(--slate-200);
+                background: white;
+                cursor: pointer;
+                color: var(--slate-600);
+                transition: all 0.12s;
+                flex-shrink: 0;
+            }
+            .hamburger-btn:hover {
+                background: var(--slate-50);
+                border-color: var(--slate-300);
+            }
+            .hamburger-btn svg {
+                width: 18px;
+                height: 18px;
+            }
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.35);
+                z-index: 99;
+            }
+            .sidebar-overlay.show {
+                display: block;
+            }
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="portal-layout">
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <a href="/portal/dashboard" class="sidebar-logo">
+            <div class="sidebar-logo-icon">S</div>
+            <span class="sidebar-logo-text">Sequor</span>
+        </a>
+
+        <div class="sidebar-section-label">Main</div>
+        <div class="sidebar-nav">
+            <a href="/portal/dashboard" id="nav-dashboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                Dashboard
+            </a>
+            <a href="/portal/messages" id="nav-messages">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Messages
+            </a>
+            <a href="/portal/escalations" id="nav-escalations">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                Escalations
+                <span class="nav-badge" id="escalation-count">2</span>
+            </a>
+            <a href="/portal/auto-replies" id="nav-auto-replies">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                Auto-Replies
+            </a>
+        </div>
+
+        <div class="sidebar-section-label">Configuration</div>
+        <div class="sidebar-nav">
+            <a href="/portal/contacts" id="nav-contacts">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Backup Contacts
+            </a>
+            <a href="/portal/documents" id="nav-documents">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Document Hub
+            </a>
+            <a href="/portal/keyphrases" id="nav-keyphrases">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                Key Phrase Maps
+            </a>
+            <a href="/portal/channels" id="nav-channels">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.59 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9a16 16 0 0 0 6.91 6.91l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                Channels
+            </a>
+        </div>
+
+        <div class="sidebar-section-label">Account</div>
+        <div class="sidebar-nav">
+            <a href="/portal/subscription" id="nav-subscription">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                Subscription
+            </a>
+            <a href="/portal/settings" id="nav-settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+                Settings
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <a href="/portal/settings" class="sidebar-user" style="flex:1;text-decoration:none;">
+                    <div class="sidebar-user-avatar" id="user-avatar">D</div>
+                    <div class="sidebar-user-info">
+                        <div class="sidebar-user-name" id="user-name">Demo Operator</div>
+                        <div class="sidebar-user-email" id="user-email">owner@integrationtest.com</div>
+                    </div>
+                </a>
+                <button class="sidebar-logout" onclick="sessionStorage.clear();window.location.href='/portal/login';" title="Sign out">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main -->
+    <div class="main-content">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="hamburger-btn" id="hamburger-btn" onclick="toggleSidebar()" style="display:none;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <span class="topbar-title">{% block topbar_title %}Dashboard{% endblock %}</span>
+            </div>
+            <div class="topbar-actions">
+                {% block topbar_actions %}{% endblock %}
+            </div>
+        </div>
+        <div class="page-content">
+            {% block page_content %}{% endblock %}
+        </div>
+    </div>
+</div>
+
+<script>
+    // Sidebar toggle for mobile
+    function toggleSidebar() {
+        document.querySelector('.sidebar').classList.toggle('open');
+        document.getElementById('sidebar-overlay').classList.toggle('show');
+    }
+
+    // Show hamburger on mobile viewport
+    function updateHamburger() {
+        const btn = document.getElementById('hamburger-btn');
+        if (window.innerWidth <= 768) {
+            btn.style.display = 'inline-flex';
+        } else {
+            btn.style.display = 'none';
+            document.querySelector('.sidebar').classList.remove('open');
+            document.getElementById('sidebar-overlay').classList.remove('show');
+        }
+    }
+    window.addEventListener('resize', updateHamburger);
+    updateHamburger();
+
+    // Highlight active nav
+    const path = window.location.pathname;
+    document.querySelectorAll('.sidebar-nav a').forEach(a => {
+        if (a.getAttribute('href') === path) {
+            a.classList.add('active');
+        } else {
+            a.classList.remove('active');
+        }
+    });
+
+    // Populate user info from session
+    const operator = JSON.parse(sessionStorage.getItem('sequor_operator') || '{}');
+    if (operator.name) {
+        document.getElementById('user-name').textContent = operator.name;
+        document.getElementById('user-email').textContent = operator.email;
+        document.getElementById('user-avatar').textContent = operator.name.charAt(0).toUpperCase();
+    }
+
+    {% block page_script %}{% endblock %}
+</script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+{% extends "_portal.html" %}
+{% block title %}Document Hub — Sequor Portal{% endblock %}
+{% block topbar_title %}Document Hub{% endblock %}
+{% block topbar_actions %}
+<button class="topbar-btn topbar-btn-primary" onclick="document.getElementById('upload-area').style.display='flex'">
+    + Upload Document
+</button>
+{% endblock %}
+{% block page_content %}
+<div class="page-header">
+    <div>
+        <h1>Document Hub</h1>
+        <p>Upload documents that Sequor uses to answer client queries via AI</p>
+    </div>
+</div>
+
+<!-- Upload area -->
+<div id="upload-area" style="display:none;margin-bottom:24px;" class="card">
+    <div class="card-body" style="border:2px dashed var(--duck-300);border-radius:12px;padding:40px;text-align:center;cursor:pointer;" onclick="this.closest('form').submit()">
+        <div style="font-size:32px;margin-bottom:8px;">📂</div>
+        <div style="font-size:14px;font-weight:600;color:var(--slate-700);">Drop files here or click to browse</div>
+        <div class="text-sm text-muted" style="margin-top:4px;">PDF, DOCX, TXT — up to 25MB each</div>
+    </div>
+</div>
+
+<!-- Document categories -->
+<div class="card mb-6">
+    <div class="card-header"><div class="card-title">Uploaded Documents</div></div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Key Phrases Linked</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="docs-tbody">
+                <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- How it works -->
+<div class="card">
+    <div class="card-header"><div class="card-title">How Document Linking Works</div></div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;">
+            <div style="text-align:center;">
+                <div style="width:48px;height:48px;border-radius:50%;background:var(--duck-100);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:20px;">📄</div>
+                <div style="font-size:13px;font-weight:600;margin-bottom:4px;">1. Upload your docs</div>
+                <div class="text-sm text-muted">Upload FAQs, price lists, policies, and any documents clients commonly ask about</div>
+            </div>
+            <div style="text-align:center;">
+                <div style="width:48px;height:48px;border-radius:50%;background:var(--duck-100);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:20px;">🔗</div>
+                <div style="font-size:13px;font-weight:600;margin-bottom:4px;">2. Link to key phrases</div>
+                <div class="text-sm text-muted">Map phrases like "pricing" or "refund policy" to specific documents</div>
+            </div>
+            <div style="text-align:center;">
+                <div style="width:48px;height:48px;border-radius:50%;background:var(--duck-100);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:20px;">🤖</div>
+                <div style="font-size:13px;font-weight:600;margin-bottom:4px;">3. AI uses them automatically</div>
+                <div class="text-sm text-muted">When a client asks about pricing, Sequor retrieves from your price list doc</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block page_script %}
+(async function() {
+    const docs = [
+        { name: 'Company Pricing 2026', type: 'PDF', phrases: 3, size: '1.2 MB', uploaded: 'Today', status: 'Active', statusClass: 'badge-green' },
+        { name: 'Refund Policy', type: 'PDF', phrases: 2, size: '340 KB', uploaded: 'Yesterday', status: 'Active', statusClass: 'badge-green' },
+        { name: 'Service Level Agreement', type: 'DOCX', phrases: 1, size: '890 KB', uploaded: '3 days ago', status: 'Active', statusClass: 'badge-green' },
+        { name: 'Onboarding Guide', type: 'PDF', phrases: 2, size: '2.1 MB', uploaded: '1 week ago', status: 'Active', statusClass: 'badge-green' },
+        { name: 'Q4 2025 Report', type: 'PDF', phrases: 0, size: '4.5 MB', uploaded: '2 weeks ago', status: 'Inactive', statusClass: 'badge-slate' },
+    ];
+    document.getElementById('docs-tbody').innerHTML = docs.map(d => `
+        <tr>
+            <td><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:18px;">📄</span><span style="font-weight:500;">${d.name}</span></div></td>
+            <td><span class="badge badge-slate">${d.type}</span></td>
+            <td><span style="font-size:12px;color:var(--duck-600);font-weight:600;">${d.phrases} phrase${d.phrases !== 1 ? 's' : ''}</span></td>
+            <td class="text-sm text-muted">${d.size}</td>
+            <td class="text-sm text-muted">${d.uploaded}</td>
+            <td><span class="badge ${d.statusClass}">${d.status}</span></td>
+            <td><button class="btn btn-secondary btn-sm">Edit</button></td>
+        </tr>
+    `).join('');
+})();
+{% endblock %}

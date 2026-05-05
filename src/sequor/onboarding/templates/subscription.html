@@ -1,0 +1,169 @@
+{% extends "_portal.html" %}
+{% block title %}Subscription — Sequor Portal{% endblock %}
+{% block topbar_title %}Subscription{% endblock %}
+{% block page_content %}
+<div class="page-header">
+    <div>
+        <h1>Subscription & Billing</h1>
+        <p>Manage your plan and billing details</p>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;">
+    <div>
+        <!-- Current plan -->
+        <div class="card mb-6">
+            <div class="card-header"><div class="card-title">Current Plan</div></div>
+            <div class="card-body">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+                    <div>
+                        <div style="display:inline-flex;align-items:center;gap:8px;background:var(--duck-100);padding:6px 14px;border-radius:8px;">
+                            <span style="font-size:16px;">🚀</span>
+                            <span style="font-size:16px;font-weight:700;color:var(--duck-800);">Starter Plan</span>
+                        </div>
+                        <div class="text-sm text-muted" style="margin-top:6px;">Billed monthly · Next billing: Jun 5, 2026</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:28px;font-weight:700;color:var(--slate-800);">$35</div>
+                        <div class="text-sm text-muted">per month</div>
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px;background:var(--slate-50);border-radius:8px;">
+                    <div style="text-align:center;">
+                        <div style="font-size:20px;font-weight:700;color:var(--slate-800);">200</div>
+                        <div class="text-sm text-muted">messages/mo</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="font-size:20px;font-weight:700;color:var(--slate-800);">1</div>
+                        <div class="text-sm text-muted">user</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="font-size:20px;font-weight:700;color:var(--slate-800);">5</div>
+                        <div class="text-sm text-muted">documents</div>
+                    </div>
+                </div>
+                <div style="margin-top:16px;">
+                    <div class="text-sm" style="margin-bottom:6px;font-weight:500;">Included features</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                        <span class="badge badge-green">✓ WhatsApp + Email</span>
+                        <span class="badge badge-green">✓ Auto-reply AI</span>
+                        <span class="badge badge-green">✓ RAG Document Search</span>
+                        <span class="badge badge-green">✓ SLA Tracking</span>
+                        <span class="badge badge-green">✓ Audit Trail</span>
+                        <span class="badge badge-slate">✗ Team accounts</span>
+                        <span class="badge badge-slate">✗ Priority RAG</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Usage this month -->
+        <div class="card mb-6">
+            <div class="card-header">
+                <div class="card-title">Usage — May 2026</div>
+                <span class="text-sm text-muted">Resets in 26 days</span>
+            </div>
+            <div class="card-body">
+                <div style="margin-bottom:20px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                        <span class="text-sm font-weight-500">Messages</span>
+                        <span class="text-sm"><strong>142</strong> / 200</span>
+                    </div>
+                    <div style="height:8px;background:var(--slate-100);border-radius:4px;overflow:hidden;">
+                        <div style="width:71%;height:100%;background:var(--duck-500);border-radius:4px;"></div>
+                    </div>
+                </div>
+                <div style="margin-bottom:20px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                        <span class="text-sm">Documents</span>
+                        <span class="text-sm"><strong>5</strong> / 5</span>
+                    </div>
+                    <div style="height:8px;background:var(--slate-100);border-radius:4px;overflow:hidden;">
+                        <div style="width:100%;height:100%;background:var(--duck-500);border-radius:4px;"></div>
+                    </div>
+                </div>
+                <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                        <span class="text-sm">Team members</span>
+                        <span class="text-sm"><strong>1</strong> / 1</span>
+                    </div>
+                    <div style="height:8px;background:var(--slate-100);border-radius:4px;overflow:hidden;">
+                        <div style="width:100%;height:100%;background:var(--duck-500);border-radius:4px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Billing history -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">Billing History</div></div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Date</th><th>Description</th><th>Amount</th><th>Status</th><th>Invoice</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="text-sm">May 5, 2026</td>
+                            <td class="text-sm">Starter Plan — Monthly</td>
+                            <td class="text-sm">$35.00</td>
+                            <td><span class="badge badge-green">Paid</span></td>
+                            <td><button class="btn btn-secondary btn-sm">PDF</button></td>
+                        </tr>
+                        <tr>
+                            <td class="text-sm">Apr 5, 2026</td>
+                            <td class="text-sm">Starter Plan — Monthly</td>
+                            <td class="text-sm">$35.00</td>
+                            <td><span class="badge badge-green">Paid</span></td>
+                            <td><button class="btn btn-secondary btn-sm">PDF</button></td>
+                        </tr>
+                        <tr>
+                            <td class="text-sm">Mar 5, 2026</td>
+                            <td class="text-sm">Starter Plan — Monthly</td>
+                            <td class="text-sm">$35.00</td>
+                            <td><span class="badge badge-green">Paid</span></td>
+                            <td><button class="btn btn-secondary btn-sm">PDF</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upgrade card -->
+    <div>
+        <div class="card" style="border:2px solid var(--duck-400);">
+            <div class="card-header" style="background:var(--duck-50);">
+                <div class="card-title" style="color:var(--duck-800);">Upgrade to Professional</div>
+                <span class="badge badge-blue">Recommended</span>
+            </div>
+            <div class="card-body">
+                <div style="font-size:28px;font-weight:700;color:var(--slate-800);margin-bottom:4px;">$55<span style="font-size:14px;font-weight:400;color:var(--slate-400);">/month</span></div>
+                <div class="text-sm text-muted" style="margin-bottom:16px;">Up to 5 team members · Unlimited messages</div>
+                <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
+                        <span style="color:var(--green-500);">✓</span> Unlimited messages
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
+                        <span style="color:var(--green-500);">✓</span> Up to 5 team members
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
+                        <span style="color:var(--green-500);">✓</span> Unlimited documents
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
+                        <span style="color:var(--green-500);">✓</span> Priority RAG processing
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
+                        <span style="color:var(--green-500);">✓</span> Advanced analytics
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
+                        <span style="color:var(--green-500);">✓</span> PDPA compliance report
+                    </div>
+                </div>
+                <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px;">Upgrade Now</button>
+                <div class="text-sm text-muted" style="text-align:center;margin-top:8px;">7-day free trial · No card required</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

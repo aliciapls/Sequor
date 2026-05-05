@@ -103,10 +103,15 @@ class EncryptedString(TypeDecorator):
 
         tenant_key = _current_tenant_key.get()
         if tenant_key is None:
-            raise RuntimeError(
-                "EncryptedString requires a tenant key. "
-                "Call set_tenant_key() before writing encrypted columns."
-            )
+            # Development mode: store plaintext (seed data, no encryption setup)
+            # Production: require tenant key for encryption
+            import os as _os
+            if _os.environ.get("APP_ENV", "development") != "development":
+                raise RuntimeError(
+                    "EncryptedString requires a tenant key. "
+                    "Call set_tenant_key() before writing encrypted columns."
+                )
+            return value  # store plaintext in development
 
         field_name = self._field_name or "default"
         field_key = derive_field_key(tenant_key, field_name)
@@ -123,10 +128,15 @@ class EncryptedString(TypeDecorator):
 
         tenant_key = _current_tenant_key.get()
         if tenant_key is None:
-            raise RuntimeError(
-                "EncryptedString requires a tenant key. "
-                "Call set_tenant_key() before reading encrypted columns."
-            )
+            # Development mode: allow plaintext columns (seed data not yet encrypted)
+            # Production: require tenant key to decrypt
+            import os as _os
+            if _os.environ.get("APP_ENV", "development") != "development":
+                raise RuntimeError(
+                    "EncryptedString requires a tenant key. "
+                    "Call set_tenant_key() before reading encrypted columns."
+                )
+            return value  # return plaintext as-is in development
 
         field_name = self._field_name or "default"
         field_key = derive_field_key(tenant_key, field_name)

@@ -78,10 +78,36 @@ class TestEncryptedString:
         assert col.process_result_value(None, dialect=None) is None
 
     def test_no_tenant_key_raises(self):
-        set_tenant_key(None)
-        col = EncryptedString(field_name="email")
-        with pytest.raises(RuntimeError, match="tenant key"):
-            col.process_bind_param("test@test.com", dialect=None)
+        import os
+        orig_env = os.environ.get("APP_ENV")
+        os.environ["APP_ENV"] = "production"
+        try:
+            set_tenant_key(None)
+            col = EncryptedString(field_name="email")
+            with pytest.raises(RuntimeError, match="tenant key"):
+                col.process_bind_param("test@test.com", dialect=None)
+        finally:
+            if orig_env is None:
+                os.environ.pop("APP_ENV", None)
+            else:
+                os.environ["APP_ENV"] = orig_env
+
+    def test_dev_mode_allows_no_key(self):
+        """In development mode, EncryptedString stores plaintext when no tenant key is set."""
+        import os
+        orig_env = os.environ.get("APP_ENV")
+        os.environ["APP_ENV"] = "development"
+        try:
+            set_tenant_key(None)
+            col = EncryptedString(field_name="email")
+            # Should store plaintext in dev mode, not raise
+            result = col.process_bind_param("test@test.com", dialect=None)
+            assert result == "test@test.com"
+        finally:
+            if orig_env is None:
+                os.environ.pop("APP_ENV", None)
+            else:
+                os.environ["APP_ENV"] = orig_env
 
     def test_wrong_key_fails_to_decrypt(self, tenant_key):
         col = EncryptedString(field_name="email")
