@@ -6341,6 +6341,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "kailash" },
@@ -6395,6 +6396,7 @@ ml = [
 requires-dist = [
     { name = "apscheduler", specifier = ">=3.10.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0" },
+    { name = "cryptography", specifier = ">=43.0" },
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "fastapi", specifier = ">=0.135.3" },
     { name = "httpx", specifier = ">=0.28.1" },
