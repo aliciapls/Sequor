@@ -1,4 +1,7 @@
-"""InboundEmailProcessor — receives parsed emails and creates Message records."""
+"""InboundEmailProcessor — receives parsed emails and creates Message records.
+
+When a reply matches an active escalation, resolves the escalation automatically.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,7 @@ from typing import Any
 import structlog
 
 from sequor.config import settings
-from sequor.db.models import MessageChannel, MessageDirection
+from sequor.db.models import EscalationStatus, MessageChannel, MessageDirection
 from sequor.email.parser import InboundEmail, parse_sendgrid_payload
 
 logger = structlog.get_logger()
@@ -23,6 +26,9 @@ class InboundEmailProcessor:
     Resolves the sender to a Contact (creates one if new), links to
     existing threads via In-Reply-To, and stores the message for
     downstream classification and routing.
+
+    When the inbound email is a reply to an escalation notification,
+    automatically resolves the escalation with the reply content.
     """
 
     def __init__(self, db_express: Any) -> None:
@@ -106,6 +112,15 @@ class InboundEmailProcessor:
             is_reply=inbound.is_reply,
         )
 
+        # If this is a reply to an escalated message, resolve the escalation
+        escalation_resolved = False
+        if parent_message_id and inbound.is_reply:
+            escalation_resolved = await self._try_resolve_escalation(
+                parent_message_id=parent_message_id,
+                reply_text=inbound.body_text,
+                tenant_id=tenant_id,
+            )
+
         return {
             "status": "created",
             "message_id": message["id"],
@@ -113,7 +128,52 @@ class InboundEmailProcessor:
             "tenant_id": str(tenant_id),
             "account_id": str(account_id),
             "is_reply": inbound.is_reply,
+            "escalation_resolved": escalation_resolved,
         }
+
+    async def _try_resolve_escalation(
+        self,
+        parent_message_id: str,
+        reply_text: str,
+        tenant_id: str,
+    ) -> bool:
+        """Check if the parent message has an active escalation and resolve it.
+
+        Looks up pending/acknowledged escalations for the parent message
+        and resolves the first one found with the reply text as the resolution summary.
+        """
+        try:
+            escalations = await self._db.list("Escalation", {
+                "message_id": parent_message_id,
+                "tenant_id": tenant_id,
+            })
+            for esc in escalations:
+                if esc.get("status") in (
+                    EscalationStatus.pending.value,
+                    EscalationStatus.acknowledged.value,
+                ):
+                    summary = (reply_text or "Resolved via email reply")[:500]
+                    await self._db.update(
+                        "Escalation",
+                        esc["id"],
+                        {
+                            "status": EscalationStatus.resolved.value,
+                            "resolved_at": datetime.now(timezone.utc),
+                            "resolution_summary": summary,
+                        },
+                    )
+                    logger.info(
+                        "inbound.escalation_resolved",
+                        escalation_id=esc["id"],
+                        parent_message_id=parent_message_id,
+                    )
+                    return True
+        except Exception:
+            logger.exception(
+                "inbound.escalation_resolve_failed",
+                parent_message_id=parent_message_id,
+            )
+        return False
 
     async def _resolve_account(self, to_email: str) -> dict | None:
         lower = to_email.lower()

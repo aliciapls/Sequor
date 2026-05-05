@@ -140,6 +140,18 @@ class EscalationService:
             deadline=deadline.isoformat(),
         )
 
+        # Write audit trail
+        await self._write_audit(
+            tenant_id=tenant_id,
+            action="escalation.created",
+            doer_type="system",
+            doer_id=tenant_id,
+            recipient_type="backup_contact",
+            recipient_id=backup["id"],
+            message_id=message_id,
+            metadata={"tier": 1, "priority": priority.value},
+        )
+
         body_html, body_text = self._build_email(
             escalation_record,
             contact,
@@ -343,6 +355,19 @@ class EscalationService:
                 "resolution_summary": resolution_summary,
             },
         )
+
+        # Write audit trail
+        await self._write_audit(
+            tenant_id=uuid.UUID(existing["tenant_id"]),
+            action="escalation.resolved",
+            doer_type="backup_contact",
+            doer_id=uuid.UUID(existing["backup_contact_id"]),
+            recipient_type="contact",
+            recipient_id=uuid.UUID(existing.get("message_id", str(escalation_id))),
+            message_id=uuid.UUID(existing["message_id"]) if existing.get("message_id") else None,
+            metadata={"resolution_summary": resolution_summary[:200]},
+        )
+
         logger.info(
             "escalation.resolved",
             escalation_id=str(escalation_id),
@@ -642,6 +667,36 @@ class EscalationService:
             one_line_summary=ai_summary,
         )
         return build_escalation_email(data)
+
+    async def _write_audit(
+        self,
+        tenant_id: uuid.UUID,
+        action: str,
+        doer_type: str,
+        doer_id: uuid.UUID,
+        recipient_type: str,
+        recipient_id: uuid.UUID,
+        message_id: uuid.UUID | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Write an audit entry for this escalation's tenant."""
+        try:
+            from sequor.db.audit import audit as write_audit
+
+            if hasattr(self._db, "_session"):
+                await write_audit(
+                    self._db._session,
+                    tenant_id=tenant_id,
+                    action=action,
+                    doer_type=doer_type,
+                    doer_id=doer_id,
+                    recipient_type=recipient_type,
+                    recipient_id=recipient_id,
+                    message_id=message_id,
+                    metadata=metadata,
+                )
+        except Exception:
+            logger.exception("escalation.audit_failed", action=action)
 
 
 def _format_datetime(dt: datetime) -> str:

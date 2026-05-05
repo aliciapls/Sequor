@@ -195,3 +195,42 @@ async def stripe_webhook(request: Request):
     except Exception:
         _logger.exception("billing.webhook.error")
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.post("/api/v1/email/inbound")
+async def email_inbound(request: Request):
+    """Receive SendGrid Inbound Parse webhook for incoming emails."""
+    try:
+        raw_body = await request.body()
+        signature = request.headers.get("x-twilio-email-event-webhook-signature")
+
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            payload = await request.json()
+        else:
+            form = await request.form()
+            payload = dict(form)
+
+        from sequor.email.inbound import InboundEmailProcessor
+        from sequor.db.database import get_engine
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        engine = get_engine()
+        async with AsyncSession(engine) as session:
+            processor = InboundEmailProcessor(db_express=None)
+            result = await processor.process_sendgrid_payload(
+                payload=payload,
+                raw_body=raw_body.decode("utf-8", errors="replace") if raw_body else None,
+                signature=signature,
+            )
+
+        status_code = 200
+        if result.get("status") == "rejected":
+            status_code = 403
+        elif result.get("status") == "no_account":
+            status_code = 200
+
+        return JSONResponse(status_code=status_code, content=result)
+    except Exception:
+        _logger.exception("email.inbound.error")
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})

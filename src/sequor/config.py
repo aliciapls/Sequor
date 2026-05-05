@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     email_retry_max_attempts: int = 3
     email_retry_backoff_seconds: str = "0,300,1800"
 
+    # Encryption (base64-encoded 32-byte master key)
+    encryption_master_key: str = ""
+
     # SLA Scheduler
     scheduler_interval_seconds: int = 300
     scheduler_enabled: bool = True

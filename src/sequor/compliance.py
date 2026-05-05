@@ -4,6 +4,15 @@ Single source of truth for consent notice text, HUMAN keyword detection,
 and erasure verification. All compliance-facing code imports from here.
 """
 
+import uuid
+from typing import Any
+
+import structlog
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = structlog.get_logger()
+
 # The consent notice included in every first auto-reply to a contact.
 # Must be a complete sentence explaining AI processing and the opt-out mechanism.
 CONSENT_NOTICE = (
@@ -45,3 +54,103 @@ ERASURE_NULL_FIELDS = {
     "company": None,
     "tags": None,
 }
+
+
+async def erase_contact_pii(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    contact_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Erase a contact's PII per PDPA data subject request.
+
+    Overwrites PII fields with [erased]/null, deletes vector embeddings,
+    and writes an audit entry. The contact row itself is kept (with name
+    set to [erased]) so that audit trails and message references remain
+    intact.
+
+    Returns a summary of what was erased.
+    """
+    from sequor.db.models import (
+        Contact,
+        DocumentChunk,
+        LearnedAnswer,
+        Message,
+    )
+
+    # 1. Verify contact exists and belongs to tenant
+    result = await session.execute(
+        select(Contact).where(
+            Contact.id == contact_id,
+            Contact.tenant_id == tenant_id,
+        )
+    )
+    contact = result.scalar_one_or_none()
+    if contact is None:
+        raise ValueError(f"Contact {contact_id} not found in tenant {tenant_id}")
+
+    erased = {"contact_id": str(contact_id), "tables_affected": []}
+
+    # 2. Overwrite contact PII fields
+    await session.execute(
+        update(Contact)
+        .where(Contact.id == contact_id)
+        .values(**ERASURE_NULL_FIELDS)
+    )
+    erased["tables_affected"].append("contacts")
+
+    # 3. Delete vector embeddings from document chunks (keep text for audit)
+    chunk_result = await session.execute(
+        select(DocumentChunk.id).where(DocumentChunk.tenant_id == tenant_id)
+    )
+    chunk_ids = [row[0] for row in chunk_result.all()]
+    if chunk_ids:
+        await session.execute(
+            update(DocumentChunk)
+            .where(DocumentChunk.id.in_(chunk_ids))
+            .values(embedding=None)
+        )
+        erased["tables_affected"].append("document_chunks")
+        erased["embeddings_removed"] = len(chunk_ids)
+
+    # 4. Delete vector embeddings from learned answers
+    learned_result = await session.execute(
+        select(LearnedAnswer.id).where(
+            LearnedAnswer.tenant_id == tenant_id,
+        )
+    )
+    learned_ids = [row[0] for row in learned_result.all()]
+    if learned_ids:
+        await session.execute(
+            update(LearnedAnswer)
+            .where(LearnedAnswer.id.in_(learned_ids))
+            .values(embedding=None)
+        )
+        erased["tables_affected"].append("learned_answers")
+
+    # 5. Write audit entry
+    try:
+        from sequor.db.audit import audit
+
+        await audit(
+            session,
+            tenant_id=tenant_id,
+            action="contact.pii_erased",
+            doer_type="system",
+            doer_id=tenant_id,
+            recipient_type="contact",
+            recipient_id=contact_id,
+            metadata={"erased_fields": list(ERASURE_NULL_FIELDS.keys())},
+        )
+    except Exception:
+        logger.exception("compliance.erasure_audit_failed", contact_id=str(contact_id))
+
+    await session.flush()
+
+    logger.info(
+        "compliance.pii_erased",
+        contact_id=str(contact_id),
+        tenant_id=str(tenant_id),
+        tables=erased["tables_affected"],
+    )
+
+    return erased

@@ -30,6 +30,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sequor.db.base import Base
+from sequor.db.encrypted_column import EncryptedString
 
 
 # ---------------------------------------------------------------------------
@@ -233,11 +234,11 @@ class Account(Base):
     ownership_type: Mapped[OwnershipType] = mapped_column(
         Enum(OwnershipType, name="ownership_type", create_constraint=True), nullable=False
     )
-    owner_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    owner_email: Mapped[str] = mapped_column(EncryptedString(field_name="owner_email"), nullable=False)
     channels: Mapped[list] = mapped_column(
         ARRAY(String(20)), nullable=False, default=lambda: [AccountChannel.email.value]
     )
-    email_address: Mapped[Optional[str]] = mapped_column(String(320), nullable=True)
+    email_address: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="email_address"), nullable=True)
     whatsapp_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     backup_contact_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid), nullable=True)
     routing_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -274,8 +275,8 @@ class BackupContact(Base):
         Uuid, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(String(320), nullable=False)
-    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    email: Mapped[str] = mapped_column(EncryptedString(field_name="backup_email"), nullable=False)
+    phone: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="backup_phone"), nullable=True)
     tier: Mapped[ContactTier] = mapped_column(
         Enum(ContactTier, name="contact_tier", create_constraint=True), nullable=False
     )
@@ -301,8 +302,8 @@ class Contact(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    email: Mapped[Optional[str]] = mapped_column(String(320), nullable=True)
-    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="contact_email"), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="contact_phone"), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     tags: Mapped[Optional[list]] = mapped_column(ARRAY(String(100)), nullable=True)

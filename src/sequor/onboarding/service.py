@@ -1,8 +1,8 @@
 """Onboarding service — creates Tenant, Account, and BackupContact records.
 
 This is the core business logic for the signup flow. It validates input
-(via Pydantic schemas), creates database records, sends a verification
-email, and returns the result.
+(via Pydantic schemas), creates database records, provisions encryption
+keys and tenant schema, sends a verification email, and returns the result.
 """
 
 import structlog
@@ -115,14 +115,15 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     Returns dict with tenant_id, account_id, and backup_contact_id.
     Raises DuplicateEmailError if the owner_email is already registered.
     """
-    # Check for existing tenant with same owner email domain
+    # Check for existing account with same owner email
     owner_domain = request.owner_email.split("@")[1]
     existing = await session.execute(
-        select(Tenant).where(Tenant.email_domain == owner_domain)
+        select(Account).where(Account.owner_email == request.owner_email)
     )
     if existing.scalars().first() is not None:
-        # Allow same domain but different org — check for exact email match on accounts
-        pass
+        raise DuplicateEmailError(
+            f"An account with email {_mask_email(request.owner_email)} already exists"
+        )
 
     # 1. Create Tenant
     tenant = Tenant(
@@ -130,12 +131,26 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         email_domain=owner_domain,
         plan="starter",
         settings={},
-        pdpa_consent_recorded_at=None,  # Set when first consent notice is sent
+        pdpa_consent_recorded_at=None,
     )
     session.add(tenant)
-    await session.flush()  # Get tenant.id
+    await session.flush()
 
-    # 2. Create Account
+    # 2. Provision encryption key BEFORE creating encrypted records
+    try:
+        from sequor.config import settings as app_settings
+        from sequor.db.encryption_keys import KeyManager
+        from sequor.db.encrypted_column import set_tenant_key
+
+        if app_settings.encryption_master_key:
+            km = KeyManager(app_settings.encryption_master_key)
+            tenant_key = await km.provision_tenant_key(session, tenant.id)
+            set_tenant_key(tenant_key)
+            logger.info("onboarding.encryption_key_provisioned", tenant_id=str(tenant.id))
+    except Exception:
+        logger.exception("onboarding.encryption_key_failed", tenant_id=str(tenant.id))
+
+    # 3. Create Account (encrypted columns require tenant key set above)
     routing_rules = ROUTING_RULES[request.routing_rule]
     account = Account(
         tenant_id=tenant.id,
@@ -149,9 +164,9 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         escalation_sla_hours=request.escalation_sla_hours,
     )
     session.add(account)
-    await session.flush()  # Get account.id
+    await session.flush()
 
-    # 3. Create BackupContact
+    # 4. Create BackupContact (encrypted columns require tenant key set above)
     backup = BackupContact(
         tenant_id=tenant.id,
         account_id=account.id,
@@ -161,20 +176,34 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         active=True,
     )
     session.add(backup)
-    await session.flush()  # Get backup.id
+    await session.flush()
 
     # Link backup to account
     account.backup_contact_ids = [backup.id]
     session.add(account)
 
-    # Capture IDs before commit (avoids async lazy-load issues post-commit)
+    # 5. Create tenant schema for isolation
+    try:
+        from sequor.db.schema_manager import create_tenant_schema, tenant_id_to_schema
+
+        schema_name = tenant_id_to_schema(tenant.id)
+        tenant.schema_name = schema_name
+        session.add(tenant)
+
+        conn = await session.connection()
+        await create_tenant_schema(conn, schema_name)
+        logger.info("onboarding.schema_created", schema_name=schema_name)
+    except Exception:
+        logger.exception("onboarding.schema_creation_failed", tenant_id=str(tenant.id))
+
+    # Capture IDs before commit
     tenant_id = str(tenant.id)
     account_id = str(account.id)
     backup_id = str(backup.id)
 
     await session.commit()
 
-    # 4. Send verification email
+    # 6. Send verification email
     await send_verification_email(
         to=request.owner_email,
         org_name=request.org_name,
@@ -190,3 +219,12 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         "account_id": account_id,
         "backup_contact_id": backup_id,
     }
+
+
+def _mask_email(email: str) -> str:
+    if "@" not in email:
+        return "***"
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        return f"***@{domain}"
+    return f"{local[0]}***@{domain}"
