@@ -680,23 +680,24 @@ class EscalationService:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Write an audit entry for this escalation's tenant."""
-        try:
-            from sequor.db.audit import audit as write_audit
+        session = getattr(self._db, "_session_inner", None) or getattr(self._db, "_session", None)
+        if session is None:
+            logger.error("escalation.audit_no_session", action=action)
+            return
 
-            if hasattr(self._db, "_session"):
-                await write_audit(
-                    self._db._session,
-                    tenant_id=tenant_id,
-                    action=action,
-                    doer_type=doer_type,
-                    doer_id=doer_id,
-                    recipient_type=recipient_type,
-                    recipient_id=recipient_id,
-                    message_id=message_id,
-                    metadata=metadata,
-                )
-        except Exception:
-            logger.exception("escalation.audit_failed", action=action)
+        from sequor.db.audit import audit as write_audit
+
+        await write_audit(
+            session,
+            tenant_id=tenant_id,
+            action=action,
+            doer_type=doer_type,
+            doer_id=doer_id,
+            recipient_type=recipient_type,
+            recipient_id=recipient_id,
+            message_id=message_id,
+            metadata=metadata,
+        )
 
 
 def _format_datetime(dt: datetime) -> str:

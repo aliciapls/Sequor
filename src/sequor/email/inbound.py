@@ -130,6 +130,7 @@ class InboundEmailProcessor:
             "status": "created",
             "message_id": message["id"],
             "contact_id": str(contact["id"]),
+            "contact_email": contact.get("email", inbound.from_email),
             "tenant_id": str(tenant_id),
             "account_id": str(account_id),
             "is_reply": inbound.is_reply,

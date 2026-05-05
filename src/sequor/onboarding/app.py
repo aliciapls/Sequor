@@ -261,7 +261,7 @@ async def email_inbound(request: Request):
                     ctx = MessageContext(
                         tenant_id=_UUID(result["tenant_id"]),
                         account_id=_UUID(result["account_id"]),
-                        contact_email="",
+                        contact_email=result.get("contact_email", payload.get("from", "")),
                         message_id=_UUID(result["message_id"]),
                         subject=None,
                         body_text=payload.get("text", ""),

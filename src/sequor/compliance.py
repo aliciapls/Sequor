@@ -171,7 +171,16 @@ async def erase_contact_pii(
         )
         erased["tables_affected"].append("learned_answers")
 
-    # 6. Write audit entry
+    # 6. Erase learned answer text that may contain PII
+    if learned_ids:
+        await session.execute(
+            update(LearnedAnswer)
+            .where(LearnedAnswer.id.in_(learned_ids))
+            .values(question_text="[erased]", answer_text="[erased]")
+        )
+        erased["learned_answers_text_erased"] = len(learned_ids)
+
+    # 7. Write audit entry
     try:
         from sequor.db.audit import audit
 
