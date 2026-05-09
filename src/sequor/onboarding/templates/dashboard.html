@@ -198,49 +198,101 @@
 {% endblock %}
 {% block page_script %}
 (async function() {
-    const stats = { received: 88, autoReplied: 62, escalated: 8, responseTime: '1.4h' };
-    document.getElementById('stat-received').textContent = stats.received;
-    document.getElementById('stat-auto-replied').textContent = stats.autoReplied;
-    document.getElementById('stat-escalated').textContent = stats.escalated;
-    document.getElementById('stat-response').textContent = stats.responseTime;
-    document.getElementById('escalation-count').textContent = stats.escalated;
+    // Helper to render messages table
+    function renderMessages(msgs) {
+        const tbody = document.getElementById('recent-messages-body');
+        if (!msgs || msgs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--slate-400);">No messages yet</td></tr>';
+            return;
+        }
+        tbody.innerHTML = msgs.map(function(m) {
+            var statusBadge = 'badge-blue';
+            var statusLabel = m.status || 'unknown';
+            if (m.direction === 'outbound') { statusBadge = 'badge-slate'; statusLabel = 'replied'; }
+            else if (m.routing_target === 'auto_reply') { statusBadge = 'badge-green'; statusLabel = 'auto-replied'; }
+            else if (m.routing_target === 'escalation') { statusBadge = 'badge-amber'; statusLabel = 'escalated'; }
+            var contactName = (m.contact && m.contact.name) ? m.contact.name : ((m.contact && m.contact.email) ? m.contact.email : 'Unknown');
+            var channelBadge = m.channel === 'whatsapp' ? 'badge-green' : 'badge-blue';
+            var timeStr = m.received_at ? new Date(m.received_at).toLocaleString() : '';
+            return '<tr>' +
+                '<td><span class="badge ' + channelBadge + '">' + (m.channel || '') + '</span></td>' +
+                '<td class="text-sm">' + contactName + '</td>' +
+                '<td class="text-sm truncate" style="max-width:180px;">' + (m.body_text || '') + '</td>' +
+                '<td><span class="badge ' + statusBadge + '">' + statusLabel + '</span></td>' +
+                '<td class="text-sm text-muted">' + timeStr + '</td>' +
+            '</tr>';
+        }).join('');
+    }
 
-    const messages = [
-        { channel: 'whatsapp', from: 'Almanie (+1 555 1234)', body: 'Hi! What are your business hours?', status: 'auto-replied', time: '2m ago' },
-        { channel: 'email', from: 'client@firm.com', body: 'Question about Q3 invoice…', status: 'escalated', time: '14m ago' },
-        { channel: 'whatsapp', from: 'Priya Sharma', body: 'Is the report ready for review?', status: 'resolved', time: '1h ago' },
-        { channel: 'email', from: 'partner@corp.com', body: 'RE: Contract review — following up', status: 'auto-replied', time: '2h ago' },
-        { channel: 'whatsapp', from: 'David Lee', body: 'Need help with onboarding docs', status: 'pending', time: '3h ago' },
-    ];
+    // Helper to render escalations list
+    function renderEscalations(escs) {
+        var escBody = document.getElementById('escalations-body');
+        if (!escs || escs.length === 0) {
+            escBody.innerHTML = '<div style="padding:40px;text-align:center;color:var(--slate-400);">No open escalations</div>';
+            return;
+        }
+        escBody.innerHTML = escs.map(function(e) {
+            var priorityBadge = e.priority === 'high' ? 'badge-red' : 'badge-amber';
+            var contactName = (e.contact && e.contact.name) ? e.contact.name : 'Unknown';
+            var timeStr = e.assigned_at ? new Date(e.assigned_at).toLocaleString() : '';
+            return '<a href="/portal/escalations" class="esc-list-item">' +
+                '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+                '<span class="text-xs font-semibold text-muted">ESC</span>' +
+                '<span class="badge ' + priorityBadge + '">' + (e.priority || '') + '</span>' +
+                '</div>' +
+                '<div class="font-semibold text-slate-800 mb-2">' + contactName + '</div>' +
+                '<div class="text-sm text-muted mb-2">From: ' + contactName + '</div>' +
+                '<div class="text-sm text-muted mt-4">' + timeStr + '</div>' +
+            '</a>';
+        }).join('');
+    }
 
-    const tbody = document.getElementById('recent-messages-body');
-    tbody.innerHTML = messages.map(m => `
-        <tr>
-            <td><span class="badge ${m.channel === 'whatsapp' ? 'badge-green' : 'badge-blue'}">${m.channel}</span></td>
-            <td class="text-sm">${m.from}</td>
-            <td class="text-sm truncate" style="max-width:180px;">${m.body}</td>
-            <td><span class="badge ${m.status === 'auto-replied' ? 'badge-green' : m.status === 'escalated' ? 'badge-amber' : m.status === 'resolved' ? 'badge-slate' : 'badge-blue'}">${m.status}</span></td>
-            <td class="text-sm text-muted">${m.time}</td>
-        </tr>
-    `).join('');
+    // Helper: time ago string
+    function timeAgo(isoString) {
+        if (!isoString) return '';
+        var diff = Date.now() - new Date(isoString).getTime();
+        var mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return mins + 'm ago';
+        var hrs = Math.floor(mins / 60);
+        if (hrs < 24) return hrs + 'h ago';
+        return Math.floor(hrs / 24) + 'd ago';
+    }
 
-    const escalations = [
-        { id: 'ESC-001', from: 'client@firm.com', subject: 'Q3 Invoice Question', priority: 'high', time: '14m ago', ai: 'Customer asked about invoice discrepancy — needs human review' },
-        { id: 'ESC-002', from: 'David Lee', subject: 'Onboarding Docs Request', priority: 'medium', time: '3h ago', ai: 'Request for documents not in knowledge base — routing to account manager' },
-    ];
+    try {
+        // Fetch dashboard stats
+        var statsRes = await fetch('/api/v1/portal/dashboard', { credentials: 'same-origin' });
+        if (statsRes.ok) {
+            var statsData = await statsRes.json();
+            var stats = statsData.stats || {};
+            document.getElementById('stat-received').textContent = (stats.messages_this_week != null) ? stats.messages_this_week : '--';
+            document.getElementById('stat-auto-replied').textContent = (stats.auto_replied_this_week != null) ? stats.auto_replied_this_week : '--';
+            document.getElementById('stat-escalated').textContent = (stats.open_escalations != null) ? stats.open_escalations : '--';
+            document.getElementById('stat-response').textContent = '--';
+            document.getElementById('escalation-count').textContent = (stats.open_escalations != null) ? stats.open_escalations : '0';
+        }
+    } catch (_) {}
 
-    const escBody = document.getElementById('escalations-body');
-    escBody.innerHTML = escalations.map(e => `
-        <a href="/portal/escalations/${e.id}" class="esc-list-item">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                <span class="text-xs font-semibold text-muted">${e.id}</span>
-                <span class="badge ${e.priority === 'high' ? 'badge-red' : 'badge-amber'}">${e.priority}</span>
-            </div>
-            <div class="font-semibold text-slate-800 mb-2">${e.subject}</div>
-            <div class="text-sm text-muted mb-2">From: ${e.from}</div>
-            <div class="text-xs text-muted" style="padding:6px 8px;background:var(--slate-50);border-radius:6px;font-style:italic;">AI: "${e.ai}"</div>
-            <div class="text-sm text-muted mt-4">${e.time}</div>
-        </a>
-    `).join('');
+    try {
+        // Fetch recent messages
+        var msgsRes = await fetch('/api/v1/portal/messages?limit=5', { credentials: 'same-origin' });
+        if (msgsRes.ok) {
+            var msgsData = await msgsRes.json();
+            renderMessages(msgsData.messages || []);
+        }
+    } catch (_) {
+        document.getElementById('recent-messages-body').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load messages</td></tr>';
+    }
+
+    try {
+        // Fetch open escalations
+        var escRes = await fetch('/api/v1/portal/escalations?limit=5', { credentials: 'same-origin' });
+        if (escRes.ok) {
+            var escData = await escRes.json();
+            renderEscalations(escData.escalations || []);
+        }
+    } catch (_) {
+        document.getElementById('escalations-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--slate-400);">Failed to load escalations</div>';
+    }
 })();
 {% endblock %}

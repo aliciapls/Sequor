@@ -281,6 +281,7 @@ class BackupContact(Base):
         Enum(ContactTier, name="contact_tier", create_constraint=True), nullable=False
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="backup_contacts")

@@ -48,28 +48,47 @@
 {% endblock %}
 {% block page_script %}
 (async function() {
-    const messages = [
-        { time: '2m ago', channel: 'whatsapp', dir: 'inbound', from: 'Almanie (+1 555 1234)', msg: 'Hi! What are your business hours?', class: 'FAQ', action: 'Auto-replied', status: 'resolved' },
-        { time: '14m ago', channel: 'email', dir: 'inbound', from: 'client@firm.com', msg: 'Question about Q3 invoice...', class: 'Billing Inquiry', action: 'Escalated', status: 'pending' },
-        { time: '1h ago', channel: 'whatsapp', dir: 'outbound', from: 'Priya Sharma', msg: 'Yes, the Q4 report is ready...', class: 'Status Update', action: 'Sent', status: 'delivered' },
-        { time: '1h ago', channel: 'whatsapp', dir: 'inbound', from: 'Priya Sharma', msg: 'Is the report ready for review?', class: 'Status Inquiry', action: 'Escalated', status: 'resolved' },
-        { time: '2h ago', channel: 'email', dir: 'inbound', from: 'partner@corp.com', msg: 'RE: Contract review — following up', class: 'Legal', action: 'Escalated', status: 'resolved' },
-        { time: '2h ago', channel: 'email', dir: 'outbound', from: 'partner@corp.com', msg: 'I have escalated this to our legal team...', class: 'Escalation ACK', action: 'Sent', status: 'delivered' },
-        { time: '3h ago', channel: 'whatsapp', dir: 'inbound', from: 'David Lee', msg: 'Need the refund policy please', class: 'Policy Inquiry', action: 'Auto-replied', status: 'resolved' },
-        { time: '3h ago', channel: 'whatsapp', dir: 'outbound', from: 'David Lee', msg: 'Our refund policy allows full refunds within 30 days...', class: 'Policy Response', action: 'Sent', status: 'delivered' },
-        { time: '5h ago', channel: 'email', dir: 'inbound', from: 'ops@supply.com', msg: 'Delivery update for order #ORD-8821', class: 'Operations', action: 'Auto-replied', status: 'resolved' },
-    ];
-    document.getElementById('messages-tbody').innerHTML = messages.map(m => `
-        <tr>
-            <td class="text-sm text-muted">${m.time}</td>
-            <td><span class="badge ${m.channel === 'whatsapp' ? 'badge-green' : 'badge-blue'}">${m.channel}</span></td>
-            <td><span class="badge ${m.dir === 'inbound' ? 'badge-amber' : 'badge-slate'}">${m.dir}</span></td>
-            <td class="text-sm">${m.from}</td>
-            <td class="text-sm" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.msg}</td>
-            <td><span class="badge badge-slate">${m.class}</span></td>
-            <td><span class="badge ${m.action === 'Auto-replied' ? 'badge-green' : m.action === 'Escalated' ? 'badge-amber' : 'badge-blue'}">${m.action}</span></td>
-            <td><span class="badge ${m.status === 'resolved' ? 'badge-green' : m.status === 'pending' ? 'badge-amber' : 'badge-slate'}">${m.status}</span></td>
-        </tr>
-    `).join('');
+    function timeAgo(isoString) {
+        if (!isoString) return '';
+        var diff = Date.now() - new Date(isoString).getTime();
+        var mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return mins + 'm ago';
+        var hrs = Math.floor(mins / 60);
+        if (hrs < 24) return hrs + 'h ago';
+        return Math.floor(hrs / 24) + 'd ago';
+    }
+
+    var tbody = document.getElementById('messages-tbody');
+
+    try {
+        var res = await fetch('/api/v1/portal/messages?limit=50', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        var messages = data.messages || [];
+        if (messages.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--slate-400);">No messages yet</td></tr>';
+            return;
+        }
+        tbody.innerHTML = messages.map(function(m) {
+            var channelBadge = m.channel === 'whatsapp' ? 'badge-green' : 'badge-blue';
+            var dirBadge = m.direction === 'inbound' ? 'badge-amber' : 'badge-slate';
+            var contactName = (m.contact && m.contact.name) ? m.contact.name : ((m.contact && m.contact.email) ? m.contact.email : 'Unknown');
+            var statusBadge = 'badge-blue';
+            var statusLabel = m.direction === 'outbound' ? 'replied' : 'received';
+            return '<tr>' +
+                '<td class="text-sm text-muted">' + timeAgo(m.received_at) + '</td>' +
+                '<td><span class="badge ' + channelBadge + '">' + (m.channel || '') + '</span></td>' +
+                '<td><span class="badge ' + dirBadge + '">' + (m.direction || '') + '</span></td>' +
+                '<td class="text-sm">' + contactName + '</td>' +
+                '<td class="text-sm" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (m.body_text || '') + '</td>' +
+                '<td><span class="badge badge-slate">—</span></td>' +
+                '<td><span class="badge badge-slate">—</span></td>' +
+                '<td><span class="badge ' + statusBadge + '">' + statusLabel + '</span></td>' +
+            '</tr>';
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load messages</td></tr>';
+    }
 })();
 {% endblock %}

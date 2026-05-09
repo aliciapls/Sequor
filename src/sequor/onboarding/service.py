@@ -8,6 +8,7 @@ keys and tenant schema, sends a verification email, and returns the result.
 import structlog
 from uuid import UUID
 
+import bcrypt
 from sequor.email.utils import mask_email as _mask_email
 
 from sqlalchemy import select
@@ -17,6 +18,14 @@ from sequor.db.models import Account, BackupContact, Tenant
 from sequor.schemas import OnboardingRequest
 
 logger = structlog.get_logger()
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 # Pre-defined routing rule templates that map to database JSONB values.
 # Each template defines which categories get auto-replied vs escalated.
@@ -184,6 +193,7 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         email=request.backup_email,
         tier="primary",
         active=True,
+        password_hash=hash_password(request.owner_password),
     )
     session.add(backup)
     await session.flush()

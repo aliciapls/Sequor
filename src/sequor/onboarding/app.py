@@ -375,6 +375,54 @@ async def whatsapp_inbound(request: Request):
             if not results or results[0].get("status") == "no_account":
                 return JSONResponse(status_code=200, content={"status": "ignored"})
 
+            # Wire AI pipeline: classify → RAG → auto-reply or escalate (WhatsApp)
+            for result in results:
+                if result.get("status") == "created" and not result.get("human_override"):
+                    try:
+                        from sequor.ai.client import get_ollama_client
+                        from sequor.ai.classifier import MessageClassifier
+                        from sequor.ai.rag_pipeline import RAGPipeline
+                        from sequor.ai.vector_store import VectorStore
+                        from sequor.whatsapp.auto_reply import (
+                            WhatsAppAutoReplyService,
+                            WhatsAppMessageContext,
+                        )
+                        from sequor.whatsapp.sender import get_whatsapp_sender
+                        from sequor.ai.learning import LearningLoop
+                        from uuid import UUID as _UUID
+
+                        llm = get_ollama_client()
+                        vector_store = VectorStore(engine)
+                        classifier = MessageClassifier(llm_client=llm)
+                        rag = RAGPipeline(vector_store=vector_store, llm_client=llm)
+                        whatsapp_sender = get_whatsapp_sender()
+                        learning = LearningLoop(engine=engine)
+
+                        svc = WhatsAppAutoReplyService(
+                            classifier=classifier,
+                            rag_pipeline=rag,
+                            whatsapp_sender=whatsapp_sender,
+                            learning_loop=learning,
+                        )
+
+                        ctx = WhatsAppMessageContext(
+                            tenant_id=_UUID(result["tenant_id"]),
+                            account_id=_UUID(result["account_id"]),
+                            contact_phone=result.get("contact_phone", ""),
+                            message_id=_UUID(result["message_id"]),
+                            body_text=result.get("body_text", ""),
+                            channel="whatsapp",
+                            external_message_id=result.get("external_message_id"),
+                            session_expired=result.get("session_expired", False),
+                        )
+                        ai_result = await svc.process_message(ctx)
+                        result["ai_routing"] = ai_result.routing_target
+                        result["ai_confidence"] = ai_result.confidence_score
+                        result["ai_message_sent"] = ai_result.message_sent
+                        result["ai_sent_via_template"] = ai_result.sent_via_template
+                    except Exception:
+                        _logger.exception("whatsapp.inbound.ai_pipeline_failed")
+
             await session.commit()
 
         # Convert UUIDs to strings for JSON serialization
@@ -392,6 +440,407 @@ async def whatsapp_inbound(request: Request):
     except Exception:
         _logger.exception("whatsapp.inbound.error")
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+# ── Auth API ──────────────────────────────────────────────────────────────────
+
+
+@app.post("/api/v1/auth/login")
+async def auth_login(request: Request):
+    """Verify operator credentials and return a JWT in an HttpOnly cookie."""
+    body = await request.json()
+    email = body.get("email", "")
+    password = body.get("password", "")
+
+    if not email or not password:
+        return JSONResponse(status_code=400, content={"detail": "Email and password required"})
+
+    from sequor.db.database import get_engine
+    from sequor.db.crud import SessionCrud
+    from sequor.auth import verify_password, create_access_token_for_operator
+    from sqlalchemy import select
+    from sequor.db.models import BackupContact
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        crud = SessionCrud(session)
+
+        # Find operator by email
+        result = await session.execute(
+            select(BackupContact).where(BackupContact.email == email)
+        )
+        operator = result.scalars().first()
+
+        if not operator:
+            return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+
+        if not operator.password_hash:
+            return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+
+        if not verify_password(password, operator.password_hash):
+            return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+
+        # Create JWT
+        token = create_access_token_for_operator(
+            operator_id=str(operator.id),
+            tenant_id=str(operator.tenant_id),
+            account_id=str(operator.account_id),
+            name=operator.name,
+            email=operator.email,
+            role="admin" if operator.tier.value == "primary" else "operator",
+        )
+
+        # Get account name for the response
+        from sequor.db.models import Account
+        acct_result = await session.execute(
+            select(Account).where(Account.id == operator.account_id)
+        )
+        account = acct_result.scalars().first()
+        account_name = account.name if account else ""
+
+        await session.commit()
+
+    from fastapi.responses import JSONResponse as JR
+    response = JR(content={
+        "status": "ok",
+        "operator": {
+            "id": str(operator.id),
+            "name": operator.name,
+            "email": operator.email,
+            "tenant_id": str(operator.tenant_id),
+            "account_id": str(operator.account_id),
+            "account_name": account_name,
+            "role": "admin" if operator.tier.value == "primary" else "operator",
+        }
+    })
+    response.set_cookie(
+        key="sequor_session",
+        value=token,
+        httponly=True,
+        secure=settings.app_env == "production",
+        samesite="lax",
+        path="/",
+        max_age=60 * 60 * 24,  # 24 hours
+    )
+    return response
+
+
+@app.post("/api/v1/auth/logout")
+async def auth_logout():
+    """Clear the session cookie."""
+    from fastapi.responses import JSONResponse as JR
+    response = JR(content={"status": "ok"})
+    response.delete_cookie("sequor_session", path="/")
+    return response
+
+
+@app.get("/api/v1/auth/me")
+async def auth_me(request: Request):
+    """Return current operator info from the session cookie."""
+    token = request.cookies.get("sequor_session")
+    if not token:
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+
+    from sequor.auth import decode_token
+    payload = decode_token(token)
+    if not payload:
+        return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
+
+    return JSONResponse(content={
+        "operator": {
+            "id": payload.get("operator_id"),
+            "name": payload.get("name"),
+            "email": payload.get("email"),
+            "tenant_id": payload.get("tenant_id"),
+            "account_id": payload.get("account_id"),
+            "role": payload.get("role"),
+        }
+    })
+
+
+# ── Portal API (authenticated) ──────────────────────────────────────────────────
+
+def _get_session_operator(request: Request) -> dict | None:
+    """Extract operator from the session JWT cookie. Returns None if not authenticated."""
+    token = request.cookies.get("sequor_session")
+    if not token:
+        return None
+    from sequor.auth import decode_token
+    payload = decode_token(token)
+    if not payload:
+        return None
+    return payload
+
+
+def _require_auth(request: Request) -> dict:
+    """Get current operator or raise 401."""
+    operator = _get_session_operator(request)
+    if not operator:
+        from fastapi.responses import JSONResponse
+        raise JSONResponse(status_code=401, content={"detail": "Authentication required"})
+    return operator
+
+
+@app.get("/api/v1/portal/dashboard")
+async def portal_api_dashboard(request: Request):
+    """Return dashboard stats for the authenticated operator's account."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+    account_id = operator["account_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select, func
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Message, Escalation, Response
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        # Messages received in last 7 days
+        week_ago = func.now() - func.make_interval(days=7)
+        msg_count = await session.scalar(
+            select(func.count(Message.id)).where(
+                Message.tenant_id == tenant_id,
+                Message.direction == "inbound",
+                Message.received_at >= week_ago,
+            )
+        )
+
+        # Auto-replied in last 7 days
+        auto_reply_count = await session.scalar(
+            select(func.count(Response.id)).where(
+                Response.tenant_id == tenant_id,
+                Response.was_auto_sent == True,
+                Response.sent_at >= week_ago,
+            )
+        )
+
+        # Open escalations
+        open_esc_count = await session.scalar(
+            select(func.count(Escalation.id)).where(
+                Escalation.tenant_id == tenant_id,
+                Escalation.status.in_(["pending", "acknowledged", "notification_pending"]),
+            )
+        )
+
+        # Messages today
+        today_start = func.date_trunc("day", func.now())
+        today_count = await session.scalar(
+            select(func.count(Message.id)).where(
+                Message.tenant_id == tenant_id,
+                Message.direction == "inbound",
+                Message.received_at >= today_start,
+            )
+        )
+
+        await session.commit()
+
+    return JSONResponse(content={
+        "stats": {
+            "messages_this_week": msg_count or 0,
+            "messages_today": today_count or 0,
+            "auto_replied_this_week": auto_reply_count or 0,
+            "open_escalations": open_esc_count or 0,
+        }
+    })
+
+
+@app.get("/api/v1/portal/messages")
+async def portal_api_messages(request: Request, limit: int = 50, offset: int = 0):
+    """Return recent messages for the authenticated operator's account."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select, desc
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Message, Contact
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Message, Contact)
+            .join(Contact, Message.contact_id == Contact.id)
+            .where(Message.tenant_id == tenant_id)
+            .order_by(desc(Message.received_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = result.all()
+        await session.commit()
+
+    messages = []
+    for msg, contact in rows:
+        messages.append({
+            "id": str(msg.id),
+            "direction": msg.direction.value,
+            "channel": msg.channel.value,
+            "body_text": msg.body_text or "",
+            "subject": msg.subject,
+            "received_at": msg.received_at.isoformat() if msg.received_at else None,
+            "contact": {
+                "id": str(contact.id),
+                "name": contact.name,
+                "phone": contact.phone,
+                "email": contact.email,
+            }
+        })
+
+    return JSONResponse(content={"messages": messages, "limit": limit, "offset": offset})
+
+
+@app.get("/api/v1/portal/escalations")
+async def portal_api_escalations(request: Request, limit: int = 50, offset: int = 0):
+    """Return escalations for the authenticated operator's account."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select, desc
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Escalation, Message, Contact, BackupContact
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Escalation, Message, Contact, BackupContact)
+            .join(Message, Escalation.message_id == Message.id)
+            .join(Contact, Message.contact_id == Contact.id)
+            .join(BackupContact, Escalation.backup_contact_id == BackupContact.id)
+            .where(Escalation.tenant_id == tenant_id)
+            .order_by(desc(Escalation.assigned_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = result.all()
+        await session.commit()
+
+    escalations = []
+    for esc, msg, contact, backup in rows:
+        escalations.append({
+            "id": str(esc.id),
+            "status": esc.status.value,
+            "priority": esc.priority.value,
+            "assigned_at": esc.assigned_at.isoformat() if esc.assigned_at else None,
+            "acknowledged_at": esc.acknowledged_at.isoformat() if esc.acknowledged_at else None,
+            "resolved_at": esc.resolved_at.isoformat() if esc.resolved_at else None,
+            "resolution_summary": esc.resolution_summary,
+            "message": {
+                "id": str(msg.id),
+                "body_text": msg.body_text or "",
+                "subject": msg.subject,
+                "received_at": msg.received_at.isoformat() if msg.received_at else None,
+            },
+            "contact": {
+                "id": str(contact.id),
+                "name": contact.name,
+                "phone": contact.phone,
+            },
+            "assigned_to": {
+                "id": str(backup.id),
+                "name": backup.name,
+            },
+        })
+
+    return JSONResponse(content={"escalations": escalations, "limit": limit, "offset": offset})
+
+
+@app.get("/api/v1/portal/escalations/{esc_id}")
+async def portal_api_escalation_detail(request: Request, esc_id: str):
+    """Return a single escalation with full details."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Escalation, Message, Contact, BackupContact
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Escalation, Message, Contact, BackupContact)
+            .join(Message, Escalation.message_id == Message.id)
+            .join(Contact, Message.contact_id == Contact.id)
+            .join(BackupContact, Escalation.backup_contact_id == BackupContact.id)
+            .where(Escalation.tenant_id == tenant_id, Escalation.id == esc_id)
+        )
+        row = result.first()
+        await session.commit()
+
+    if not row:
+        return JSONResponse(status_code=404, content={"detail": "Escalation not found"})
+
+    esc, msg, contact, backup = row
+    return JSONResponse(content={
+        "escalation": {
+            "id": str(esc.id),
+            "status": esc.status.value,
+            "priority": esc.priority.value,
+            "assigned_at": esc.assigned_at.isoformat() if esc.assigned_at else None,
+            "acknowledged_at": esc.acknowledged_at.isoformat() if esc.acknowledged_at else None,
+            "resolved_at": esc.resolved_at.isoformat() if esc.resolved_at else None,
+            "resolution_summary": esc.resolution_summary,
+            "message": {
+                "id": str(msg.id),
+                "body_text": msg.body_text or "",
+                "subject": msg.subject,
+                "channel": msg.channel.value,
+                "direction": msg.direction.value,
+                "received_at": msg.received_at.isoformat() if msg.received_at else None,
+            },
+            "contact": {
+                "id": str(contact.id),
+                "name": contact.name,
+                "phone": contact.phone,
+                "email": contact.email,
+            },
+            "assigned_to": {
+                "id": str(backup.id),
+                "name": backup.name,
+            },
+        }
+    })
+
+
+@app.get("/api/v1/portal/contacts")
+async def portal_api_contacts(request: Request, limit: int = 100, offset: int = 0):
+    """Return contacts for the authenticated operator's account."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select, desc
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Contact
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Contact)
+            .where(Contact.tenant_id == tenant_id)
+            .order_by(desc(Contact.last_seen))
+            .limit(limit)
+            .offset(offset)
+        )
+        contacts = result.scalars().all()
+        await session.commit()
+
+    return JSONResponse(content={
+        "contacts": [
+            {
+                "id": str(c.id),
+                "name": c.name,
+                "email": c.email,
+                "phone": c.phone,
+                "company": c.company,
+                "tags": c.tags or [],
+                "channel_preference": c.channel_preference.value,
+                "last_seen": c.last_seen.isoformat() if c.last_seen else None,
+            }
+            for c in contacts
+        ]
+    })
 
 
 # ── Portal Routes ──────────────────────────────────────────────────────────────
@@ -414,7 +863,9 @@ async def portal_signup():
 async def portal_logout():
     """Clear session and redirect to login."""
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/portal/login", status_code=302)
+    response = RedirectResponse(url="/portal/login", status_code=302)
+    response.delete_cookie("sequor_session", path="/")
+    return response
 
 
 def _portal_guard(request: Request):

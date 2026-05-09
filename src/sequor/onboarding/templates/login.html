@@ -353,26 +353,13 @@
         <button type="submit" class="btn-signin" id="login-btn">Sign in</button>
     </form>
 
-    <div class="login-divider">or use demo account</div>
-
-    <div class="demo-box">
-        <div class="demo-box-title">Pre-created account</div>
-        <div class="demo-cred">Email: <strong>demo@sequor.com</strong></div>
-        <div class="demo-cred">Password: <code>demo1234</code></div>
-    </div>
-
     <div class="login-footer">
         Don't have an account? <a href="/portal/signup">Sign up free</a>
     </div>
 </div>
 
 <script>
-    var DEMO_ACCOUNTS = [
-        { email: 'demo@sequor.com', password: 'demo1234', name: 'Alex Chen', company: 'Demo Company' },
-        { email: 'owner@integrationtest.com', password: 'demo1234', name: 'Demo Operator', company: 'Integration Test Corp' }
-    ];
-
-    document.getElementById('login-form').addEventListener('submit', function(e) {
+    document.getElementById('login-form').addEventListener('submit', async function(e) {
         e.preventDefault();
         var email = document.getElementById('email').value;
         var password = document.getElementById('password').value;
@@ -383,30 +370,28 @@
         btn.disabled = true;
         errorDiv.style.display = 'none';
 
-        setTimeout(function() {
-            var account = null;
-            for (var i = 0; i < DEMO_ACCOUNTS.length; i++) {
-                var a = DEMO_ACCOUNTS[i];
-                if (a.email === email && a.password === password) {
-                    account = a;
-                    break;
-                }
-            }
-            if (account) {
-                var token = 'demo_token_' + Date.now();
-                try {
-                    sessionStorage.setItem('sequor_operator', JSON.stringify(account));
-                    sessionStorage.setItem('sequor_token', token);
-                    document.cookie = 'sequor_session=' + token + '; path=/; SameSite=Lax';
-                } catch (err) {}
+        try {
+            var res = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email, password: password }),
+                credentials: 'same-origin',
+            });
+            var data = await res.json();
+            if (res.ok) {
                 window.location.href = '/portal/dashboard';
             } else {
-                errorDiv.textContent = 'Invalid email or password. Try: demo@sequor.com / demo1234';
+                errorDiv.textContent = data.detail || 'Invalid email or password';
                 errorDiv.style.display = 'block';
                 btn.textContent = 'Sign in';
                 btn.disabled = false;
             }
-        }, 800);
+        } catch (err) {
+            errorDiv.textContent = 'Unable to connect. Please try again.';
+            errorDiv.style.display = 'block';
+            btn.textContent = 'Sign in';
+            btn.disabled = false;
+        }
     });
 </script>
 </body>

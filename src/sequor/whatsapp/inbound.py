@@ -145,6 +145,8 @@ class InboundWhatsAppProcessor:
             "account_id": str(account_id),
             "human_override": human_override,
             "session_expired": session_expired,
+            "body_text": inbound.body_text,
+            "external_message_id": inbound.message_id,
         }
 
     async def _resolve_account(self, to_phone: str) -> dict | None:

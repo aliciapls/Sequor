@@ -738,7 +738,7 @@
                         <div class="sidebar-user-email" id="user-email">owner@integrationtest.com</div>
                     </div>
                 </a>
-                <button class="sidebar-logout" onclick="sessionStorage.clear();window.location.href='/portal/login';" title="Sign out">
+                <button class="sidebar-logout" onclick="(async function(){try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}catch(_){}window.location.href='/portal/login';})();" title="Sign out">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 </button>
             </div>
@@ -795,13 +795,21 @@
         }
     });
 
-    // Populate user info from session
-    const operator = JSON.parse(sessionStorage.getItem('sequor_operator') || '{}');
-    if (operator.name) {
-        document.getElementById('user-name').textContent = operator.name;
-        document.getElementById('user-email').textContent = operator.email;
-        document.getElementById('user-avatar').textContent = operator.name.charAt(0).toUpperCase();
-    }
+    // Populate user info from API
+    (async function() {
+        try {
+            const res = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+            if (res.ok) {
+                const data = await res.json();
+                const op = data.operator;
+                if (op && op.name) {
+                    document.getElementById('user-name').textContent = op.name;
+                    document.getElementById('user-email').textContent = op.email;
+                    document.getElementById('user-avatar').textContent = op.name.charAt(0).toUpperCase();
+                }
+            }
+        } catch (_) {}
+    })();
 
     {% block page_script %}{% endblock %}
 </script>

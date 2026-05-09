@@ -49,63 +49,49 @@
 {% endblock %}
 {% block page_script %}
 (async function() {
-    const escalations = [
-        {
-            id: 'ESC-001', channel: 'email', from: 'client@firm.com', fromName: 'Rachel Tan',
-            body: 'Hi, I received an invoice for $4,500 but our agreement was $3,800. Can you clarify?',
-            priority: 'high', status: 'pending',
-            aiReason: 'Pricing dispute — human review required to avoid incorrect concessions',
-            assigned: 'Alex Chen', time: '14m ago'
-        },
-        {
-            id: 'ESC-002', channel: 'whatsapp', from: '+65 9123 4567', fromName: 'David Lee',
-            body: 'Hi, I need the onboarding documents for my team. We signed up yesterday.',
-            priority: 'medium', status: 'in_progress',
-            aiReason: 'Request for documents not in knowledge base — routing to account manager',
-            assigned: 'Priya S.', time: '3h ago'
-        },
-        {
-            id: 'ESC-003', channel: 'email', from: 'legal@partner.co', fromName: 'Legal Dept',
-            body: 'Re: Contract amendment — we need to discuss clause 7.3 before signing.',
-            priority: 'high', status: 'pending',
-            aiReason: 'Legal matter — auto-escalated by policy keyword "contract" + "legal"',
-            assigned: 'Unassigned', time: '5h ago'
-        },
-        {
-            id: 'ESC-004', channel: 'whatsapp', from: '+65 8876 5432', fromName: 'Mei Ling',
-            body: 'Is the quarterly report ready? We need it for our board meeting next Monday.',
-            priority: 'low', status: 'resolved',
-            aiReason: 'Status inquiry — routed to backup who confirmed delivery timeline',
-            assigned: 'Alex Chen', time: '1d ago'
-        },
-        {
-            id: 'ESC-005', channel: 'email', from: 'ops@supply.com', fromName: 'Supply Ops',
-            body: 'Delivery delayed by 2 days. Affected order #ORD-8823. Tracking attached.',
-            priority: 'medium', status: 'resolved',
-            aiReason: 'Operational update — routine but flagged for ops manager visibility',
-            assigned: 'Priya S.', time: '1d ago'
-        },
-    ];
+    function timeAgo(isoString) {
+        if (!isoString) return '';
+        var diff = Date.now() - new Date(isoString).getTime();
+        var mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return mins + 'm ago';
+        var hrs = Math.floor(mins / 60);
+        if (hrs < 24) return hrs + 'h ago';
+        return Math.floor(hrs / 24) + 'd ago';
+    }
 
-    const tbody = document.getElementById('escalations-tbody');
-    tbody.innerHTML = escalations.map(e => `
-        <tr>
-            <td><span style="font-size:12px;font-weight:700;color:var(--slate-500);">${e.id}</span></td>
-            <td><span class="badge ${e.channel === 'whatsapp' ? 'badge-green' : 'badge-blue'}">${e.channel}</span></td>
-            <td>
-                <div style="font-size:13px;font-weight:500;">${e.fromName}</div>
-                <div class="text-sm text-muted">${e.from}</div>
-            </td>
-            <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.body}</td>
-            <td><span class="badge ${e.priority === 'high' ? 'badge-red' : e.priority === 'medium' ? 'badge-amber' : 'badge-slate'}">${e.priority}</span></td>
-            <td><span class="badge ${e.status === 'resolved' ? 'badge-green' : e.status === 'in_progress' ? 'badge-blue' : 'badge-amber'}">${e.status}</span></td>
-            <td style="font-size:11px;max-width:180px;color:var(--slate-500);font-style:italic;">${e.aiReason}</td>
-            <td style="font-size:12px;">${e.assigned}</td>
-            <td class="text-sm text-muted">${e.time}</td>
-            <td>
-                <a href="/portal/escalations/${e.id}" class="btn btn-primary btn-sm">${e.status === 'resolved' ? 'View' : 'Respond'}</a>
-            </td>
-        </tr>
-    `).join('');
+    var tbody = document.getElementById('escalations-tbody');
+    try {
+        var res = await fetch('/api/v1/portal/escalations?limit=50', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        var escalations = data.escalations || [];
+        if (escalations.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--slate-400);">No escalations</td></tr>';
+            return;
+        }
+        tbody.innerHTML = escalations.map(function(e) {
+            var contactName = (e.contact && e.contact.name) ? e.contact.name : 'Unknown';
+            var contactRef = (e.contact && e.contact.phone) ? e.contact.phone : '';
+            var msgBody = (e.message && e.message.body_text) ? e.message.body_text : '';
+            var priorityBadge = e.priority === 'high' ? 'badge-red' : e.priority === 'medium' ? 'badge-amber' : 'badge-slate';
+            var statusBadge = e.status === 'resolved' ? 'badge-green' : e.status === 'acknowledged' || e.status === 'in_progress' ? 'badge-blue' : 'badge-amber';
+            var actionLabel = (e.status === 'resolved' || e.status === 'closed') ? 'View' : 'Respond';
+            return '<tr>' +
+                '<td><span style="font-size:12px;font-weight:700;color:var(--slate-500);">ESC</span></td>' +
+                '<td><span class="badge badge-blue">—</span></td>' +
+                '<td><div style="font-size:13px;font-weight:500;">' + contactName + '</div><div class="text-sm text-muted">' + contactRef + '</div></td>' +
+                '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + msgBody + '</td>' +
+                '<td><span class="badge ' + priorityBadge + '">' + (e.priority || '') + '</span></td>' +
+                '<td><span class="badge ' + statusBadge + '">' + (e.status || '') + '</span></td>' +
+                '<td style="font-size:11px;max-width:180px;color:var(--slate-500);font-style:italic;">' + (e.resolution_summary || '—') + '</td>' +
+                '<td style="font-size:12px;">' + ((e.assigned_to && e.assigned_to.name) ? e.assigned_to.name : 'Unassigned') + '</td>' +
+                '<td class="text-sm text-muted">' + timeAgo(e.assigned_at) + '</td>' +
+                '<td><a href="/portal/escalations" class="btn btn-primary btn-sm">' + actionLabel + '</a></td>' +
+            '</tr>';
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load escalations</td></tr>';
+    }
 })();
 {% endblock %}

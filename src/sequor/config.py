@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Encryption (base64-encoded 32-byte master key)
     encryption_master_key: str = ""
 
+    # Auth
+    jwt_secret: str = ""
+
     # WhatsApp Business (Meta Cloud API)
     whatsapp_access_token: str = ""
     whatsapp_phone_number_id: str = ""
