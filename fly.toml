@@ -6,6 +6,7 @@ primary_region = "sin"
 
 [env]
   PORT = "8080"
+  APP_ENV = "production"
 
 [http_service]
   internal_port = 8080
@@ -13,3 +14,19 @@ primary_region = "sin"
   auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 0
+
+[deploy]
+  release_command = """
+    python -c '
+    import asyncio
+    from sequor.db.database import init_db
+    asyncio.run(init_db())
+    print("DB ready.")
+    '
+  """
+
+[health_check]
+  interval = 10
+  timeout = 5
+  grace_period = 5
+  path = "/"

@@ -9,13 +9,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
-# Copy source and startup script
+# Copy source
 COPY src/ src/
-COPY start.sh /usr/local/bin/start
-RUN chmod +x /usr/local/bin/start
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-EXPOSE 8080
+# Run migrations + start app
+COPY start.sh /usr/local/bin/start
+RUN chmod +x /usr/local/bin/start
 ENTRYPOINT ["/usr/local/bin/start"]
