@@ -9,6 +9,10 @@
     </div>
 </div>
 
+<div id="sub-loading" style="text-align:center;padding:60px;color:var(--slate-400);">
+    Loading subscription details…
+</div>
+<div id="sub-content" style="display:none;">
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;">
     <div>
         <!-- Current plan -->
@@ -17,42 +21,33 @@
             <div class="card-body">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
                     <div>
-                        <div style="display:inline-flex;align-items:center;gap:8px;background:var(--duck-100);padding:6px 14px;border-radius:8px;">
-                            <span style="font-size:16px;">🚀</span>
-                            <span style="font-size:16px;font-weight:700;color:var(--duck-800);">Starter Plan</span>
+                        <div id="plan-badge" style="display:inline-flex;align-items:center;gap:8px;background:var(--duck-100);padding:6px 14px;border-radius:8px;">
+                            <span style="font-size:16px;font-weight:700;color:var(--duck-800);">—</span>
                         </div>
-                        <div class="text-sm text-muted" style="margin-top:6px;">Billed monthly · Next billing: Jun 5, 2026</div>
+                        <div id="plan-billing-cycle" class="text-sm text-muted" style="margin-top:6px;"></div>
                     </div>
                     <div style="text-align:right;">
-                        <div style="font-size:28px;font-weight:700;color:var(--slate-800);">$35</div>
-                        <div class="text-sm text-muted">per month</div>
+                        <div id="plan-price" style="font-size:28px;font-weight:700;color:var(--slate-800);">—</div>
+                        <div id="plan-price-label" class="text-sm text-muted"></div>
                     </div>
                 </div>
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px;background:var(--slate-50);border-radius:8px;">
+                <div id="plan-limits" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px;background:var(--slate-50);border-radius:8px;">
                     <div style="text-align:center;">
-                        <div style="font-size:20px;font-weight:700;color:var(--slate-800);">200</div>
+                        <div id="limit-messages" style="font-size:20px;font-weight:700;color:var(--slate-800);">—</div>
                         <div class="text-sm text-muted">messages/mo</div>
                     </div>
                     <div style="text-align:center;">
-                        <div style="font-size:20px;font-weight:700;color:var(--slate-800);">1</div>
-                        <div class="text-sm text-muted">user</div>
+                        <div id="limit-operators" style="font-size:20px;font-weight:700;color:var(--slate-800);">—</div>
+                        <div class="text-sm text-muted">team members</div>
                     </div>
                     <div style="text-align:center;">
-                        <div style="font-size:20px;font-weight:700;color:var(--slate-800);">5</div>
+                        <div id="limit-documents" style="font-size:20px;font-weight:700;color:var(--slate-800);">—</div>
                         <div class="text-sm text-muted">documents</div>
                     </div>
                 </div>
                 <div style="margin-top:16px;">
-                    <div class="text-sm" style="margin-bottom:6px;font-weight:500;">Included features</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                        <span class="badge badge-green">✓ WhatsApp + Email</span>
-                        <span class="badge badge-green">✓ Auto-reply AI</span>
-                        <span class="badge badge-green">✓ RAG Document Search</span>
-                        <span class="badge badge-green">✓ SLA Tracking</span>
-                        <span class="badge badge-green">✓ Audit Trail</span>
-                        <span class="badge badge-slate">✗ Team accounts</span>
-                        <span class="badge badge-slate">✗ Priority RAG</span>
-                    </div>
+                    <div class="text-sm" style="margin-bottom:6px;font-weight:500;">Plan features</div>
+                    <div id="plan-features" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
                 </div>
             </div>
         </div>
@@ -60,86 +55,58 @@
         <!-- Usage this month -->
         <div class="card mb-6">
             <div class="card-header">
-                <div class="card-title">Usage — May 2026</div>
-                <span class="text-sm text-muted">Resets in 26 days</span>
+                <div class="card-title">Usage This Month</div>
             </div>
             <div class="card-body">
                 <div style="margin-bottom:20px;">
                     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
                         <span class="text-sm font-weight-500">Messages</span>
-                        <span class="text-sm"><strong>142</strong> / 200</span>
+                        <span id="usage-messages-label" class="text-sm"><strong>—</strong></span>
                     </div>
                     <div style="height:8px;background:var(--slate-100);border-radius:4px;overflow:hidden;">
-                        <div style="width:71%;height:100%;background:var(--duck-500);border-radius:4px;"></div>
+                        <div id="usage-messages-bar" style="height:100%;background:var(--duck-500);border-radius:4px;width:0%;"></div>
                     </div>
                 </div>
                 <div style="margin-bottom:20px;">
                     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
                         <span class="text-sm">Documents</span>
-                        <span class="text-sm"><strong>5</strong> / 5</span>
+                        <span id="usage-documents-label" class="text-sm"><strong>—</strong></span>
                     </div>
                     <div style="height:8px;background:var(--slate-100);border-radius:4px;overflow:hidden;">
-                        <div style="width:100%;height:100%;background:var(--duck-500);border-radius:4px;"></div>
+                        <div id="usage-documents-bar" style="height:100%;background:var(--duck-500);border-radius:4px;width:0%;"></div>
                     </div>
                 </div>
                 <div>
                     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
                         <span class="text-sm">Team members</span>
-                        <span class="text-sm"><strong>1</strong> / 1</span>
+                        <span id="usage-operators-label" class="text-sm"><strong>—</strong></span>
                     </div>
                     <div style="height:8px;background:var(--slate-100);border-radius:4px;overflow:hidden;">
-                        <div style="width:100%;height:100%;background:var(--duck-500);border-radius:4px;"></div>
+                        <div id="usage-operators-bar" style="height:100%;background:var(--duck-500);border-radius:4px;width:0%;"></div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Billing history -->
+        <!-- Billing history placeholder -->
         <div class="card">
             <div class="card-header"><div class="card-title">Billing History</div></div>
-            <div class="table-wrapper">
-                <table class="data-table">
-                    <thead>
-                        <tr><th>Date</th><th>Description</th><th>Amount</th><th>Status</th><th>Invoice</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="text-sm">May 5, 2026</td>
-                            <td class="text-sm">Starter Plan — Monthly</td>
-                            <td class="text-sm">$35.00</td>
-                            <td><span class="badge badge-green">Paid</span></td>
-                            <td><button class="btn btn-secondary btn-sm">PDF</button></td>
-                        </tr>
-                        <tr>
-                            <td class="text-sm">Apr 5, 2026</td>
-                            <td class="text-sm">Starter Plan — Monthly</td>
-                            <td class="text-sm">$35.00</td>
-                            <td><span class="badge badge-green">Paid</span></td>
-                            <td><button class="btn btn-secondary btn-sm">PDF</button></td>
-                        </tr>
-                        <tr>
-                            <td class="text-sm">Mar 5, 2026</td>
-                            <td class="text-sm">Starter Plan — Monthly</td>
-                            <td class="text-sm">$35.00</td>
-                            <td><span class="badge badge-green">Paid</span></td>
-                            <td><button class="btn btn-secondary btn-sm">PDF</button></td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="card-body" style="text-align:center;padding:32px;color:var(--slate-400);font-size:14px;">
+                Billing history is managed through Stripe. Contact support for invoice requests.
             </div>
         </div>
     </div>
 
     <!-- Upgrade card -->
-    <div>
+    <div id="upgrade-card" style="display:none;">
         <div class="card" style="border:2px solid var(--duck-400);">
             <div class="card-header" style="background:var(--duck-50);">
                 <div class="card-title" style="color:var(--duck-800);">Upgrade to Professional</div>
                 <span class="badge badge-blue">Recommended</span>
             </div>
             <div class="card-body">
-                <div style="font-size:28px;font-weight:700;color:var(--slate-800);margin-bottom:4px;">$55<span style="font-size:14px;font-weight:400;color:var(--slate-400);">/month</span></div>
-                <div class="text-sm text-muted" style="margin-bottom:16px;">Up to 5 team members · Unlimited messages</div>
+                <div style="font-size:28px;font-weight:700;color:var(--slate-800);margin-bottom:4px;">$55<span style="font-size:14px;font-weight:400;color:var(--slate-400);">/seat/mo</span></div>
+                <div class="text-sm text-muted" style="margin-bottom:16px;">5+ seats · Unlimited messages</div>
                 <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">
                     <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
                         <span style="color:var(--green-500);">✓</span> Unlimited messages
@@ -160,10 +127,103 @@
                         <span style="color:var(--green-500);">✓</span> PDPA compliance report
                     </div>
                 </div>
-                <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px;">Upgrade Now</button>
-                <div class="text-sm text-muted" style="text-align:center;margin-top:8px;">7-day free trial · No card required</div>
+                <button id="upgrade-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:11px;">Upgrade Now</button>
+                <div class="text-sm text-muted" style="text-align:center;margin-top:8px;">Contact us to upgrade your plan</div>
             </div>
         </div>
     </div>
 </div>
+</div>
+
+<script>
+(function() {
+    async function loadSubscription() {
+        try {
+            var res = await fetch('/api/v1/portal/subscription', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            var data = await res.json();
+
+            document.getElementById('sub-loading').style.display = 'none';
+            document.getElementById('sub-content').style.display = 'block';
+
+            var plan = data.plan;
+            var usage = data.usage;
+
+            // Plan badge
+            var planName = plan.display_name || plan.name;
+            document.querySelector('#plan-badge span').textContent = planName + ' Plan';
+            document.getElementById('plan-billing-cycle').textContent = 'Billed monthly';
+
+            // Price
+            var priceMap = { free: '$0', starter: '$35/seat', professional: '$55/seat', enterprise: 'Custom' };
+            document.getElementById('plan-price').textContent = priceMap[plan.name] || plan.name;
+            document.getElementById('plan-price-label').textContent = plan.name === 'free' ? 'forever free' : 'per seat / month';
+
+            // Limits
+            document.getElementById('limit-messages').textContent = plan.message_limit ? plan.message_limit.toLocaleString() : 'Unlimited';
+            document.getElementById('limit-operators').textContent = plan.operator_limit ? plan.operator_limit.toLocaleString() : 'Unlimited';
+            document.getElementById('limit-documents').textContent = plan.document_limit ? plan.document_limit.toLocaleString() : 'Unlimited';
+
+            // Features
+            var allFeatures = [
+                { key: 'WhatsApp + Email', free: true, starter: true, professional: true },
+                { key: 'Auto-reply AI', free: true, starter: true, professional: true },
+                { key: 'RAG Document Search', free: false, starter: true, professional: true },
+                { key: 'SLA Tracking', free: false, starter: true, professional: true },
+                { key: 'Audit Trail', free: false, starter: true, professional: true },
+                { key: 'Team accounts', free: false, starter: true, professional: true },
+                { key: 'Priority RAG', free: false, starter: false, professional: true },
+            ];
+            var featDiv = document.getElementById('plan-features');
+            featDiv.innerHTML = '';
+            allFeatures.forEach(function(f) {
+                var has = f[plan.name] || false;
+                var span = document.createElement('span');
+                span.className = has ? 'badge badge-green' : 'badge badge-slate';
+                span.textContent = (has ? '✓' : '✗') + ' ' + f.key;
+                featDiv.appendChild(span);
+            });
+
+            // Usage
+            var msgLimit = plan.message_limit;
+            var docLimit = plan.document_limit;
+            var opLimit = plan.operator_limit;
+
+            document.getElementById('usage-messages-label').innerHTML =
+                '<strong>' + usage.messages_this_month.toLocaleString() + '</strong>' +
+                (msgLimit ? ' / ' + msgLimit.toLocaleString() : ' / Unlimited');
+            document.getElementById('usage-documents-label').innerHTML =
+                '<strong>' + usage.document_count + '</strong>' +
+                (docLimit ? ' / ' + docLimit : ' / Unlimited');
+            document.getElementById('usage-operators-label').innerHTML =
+                '<strong>' + usage.operator_count + '</strong>' +
+                (opLimit ? ' / ' + opLimit : ' / Unlimited');
+
+            if (msgLimit) {
+                document.getElementById('usage-messages-bar').style.width =
+                    Math.min(100, (usage.messages_this_month / msgLimit) * 100) + '%';
+            } else {
+                document.getElementById('usage-messages-bar').style.width = '5%';
+                document.getElementById('usage-messages-bar').style.background = 'var(--green-500)';
+            }
+            if (docLimit) {
+                document.getElementById('usage-documents-bar').style.width =
+                    Math.min(100, (usage.document_count / docLimit) * 100) + '%';
+            }
+            if (opLimit) {
+                document.getElementById('usage-operators-bar').style.width =
+                    Math.min(100, (usage.operator_count / opLimit) * 100) + '%';
+            }
+
+            // Upgrade card
+            if (data.upgrade_available) {
+                document.getElementById('upgrade-card').style.display = 'block';
+            }
+        } catch (e) {
+            document.getElementById('sub-loading').textContent = 'Failed to load subscription details.';
+        }
+    }
+    loadSubscription();
+})();
+</script>
 {% endblock %}

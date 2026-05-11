@@ -906,6 +906,116 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
     })
 
 
+@app.get("/api/v1/portal/channels")
+async def portal_api_channels(request: Request):
+    """Return channel configuration for the authenticated operator's account."""
+    operator = _require_auth(request)
+    from sequor.config import settings
+
+    # Build webhook URLs from the request
+    scheme = "https" if request.url.scheme == "https" else "http"
+    host = request.headers.get("host", "localhost")
+    whatsapp_webhook = f"{scheme}://{host}/api/v1/whatsapp/inbound"
+    email_webhook = f"{scheme}://{host}/api/v1/email/inbound"
+
+    return JSONResponse(content={
+        "whatsapp": {
+            "phone_number_id": settings.whatsapp_phone_number_id or "",
+            "business_account_id": settings.whatsapp_business_account_id or "",
+            "webhook_url": whatsapp_webhook,
+            "configured": bool(settings.whatsapp_phone_number_id and settings.whatsapp_access_token),
+        },
+        "email": {
+            "from_domain": settings.email_from_domain or "",
+            "webhook_url": email_webhook,
+            "configured": bool(settings.sendgrid_api_key),
+        },
+    })
+
+
+@app.get("/api/v1/portal/subscription")
+async def portal_api_subscription(request: Request):
+    """Return subscription and usage data for the authenticated operator's account."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+    account_id = operator["account_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select, func
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Tenant, Account, Message, Document, BackupContact
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        # Get tenant and account info
+        tenant_result = await session.execute(
+            select(Tenant).where(Tenant.id == tenant_id)
+        )
+        tenant = tenant_result.scalars().first()
+
+        account_result = await session.execute(
+            select(Account).where(Account.id == account_id)
+        )
+        account = account_result.scalars().first()
+
+        # Count operators (BackupContact records) for this account
+        operator_count = await session.scalar(
+            select(func.count(BackupContact.id)).where(
+                BackupContact.account_id == account_id
+            )
+        )
+
+        # Messages this month
+        month_start = func.date_trunc("month", func.now())
+        messages_this_month = await session.scalar(
+            select(func.count(Message.id)).where(
+                Message.tenant_id == tenant_id,
+                Message.direction == "inbound",
+                Message.received_at >= month_start,
+            )
+        )
+
+        # Documents uploaded
+        document_count = await session.scalar(
+            select(func.count(Document.id)).where(Document.tenant_id == tenant_id)
+        )
+
+        await session.commit()
+
+    # Plan limits by plan type
+    plan_limits = {
+        "free": {"messages": 50, "operators": 1, "documents": 3},
+        "starter": {"messages": 200, "operators": 3, "documents": 5},
+        "professional": {"messages": None, "operators": 5, "documents": None},
+        "enterprise": {"messages": None, "operators": None, "documents": None},
+    }
+
+    plan_name = tenant.plan.value if tenant else "free"
+    limits = plan_limits.get(plan_name, plan_limits["free"])
+    message_limit = limits["messages"]
+    operator_limit = limits["operators"]
+    document_limit = limits["documents"]
+
+    # Stripe checkout URL for upgrades (Stripe portal is configured separately)
+    upgrade_available = plan_name in ("free", "starter")
+
+    return JSONResponse(content={
+        "plan": {
+            "name": plan_name,
+            "display_name": plan_name.capitalize(),
+            "message_limit": message_limit,
+            "operator_limit": operator_limit,
+            "document_limit": document_limit,
+        },
+        "usage": {
+            "messages_this_month": messages_this_month or 0,
+            "operator_count": operator_count or 0,
+            "document_count": document_count or 0,
+        },
+        "upgrade_available": upgrade_available,
+    })
+
+
 # ── Portal Routes ──────────────────────────────────────────────────────────────
 
 @app.get("/portal/login", response_class=HTMLResponse)
