@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: sequor
+    dockerfilePath: ./Dockerfile
+    dockerCommand: /bin/bash -c "python -c 'import asyncio; from sequor.db.database import init_db; asyncio.run(init_db())' && uvicorn sequor.onboarding.app:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+databases:
+  - name: sequor-db
+    plan: free
