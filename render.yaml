@@ -1,8 +1,8 @@
 services:
   - type: web
     name: sequor
+    runtime: docker
     dockerfilePath: ./Dockerfile
-    dockerCommand: /bin/bash -c "python -c 'import asyncio; from sequor.db.database import init_db; asyncio.run(init_db())' && uvicorn sequor.onboarding.app:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /
     plan: free
     envVars:
@@ -10,6 +10,8 @@ services:
         value: production
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: JWT_SECRET
+        value: "ccfa814c5c0eef94d4876d43d0ce6bd4d724613dab4addcf70c6d44ab8a5b666"
 
 databases:
   - name: sequor-db
