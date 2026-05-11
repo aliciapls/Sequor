@@ -72,23 +72,33 @@
 {% endblock %}
 {% block page_script %}
 (async function() {
-    const docs = [
-        { name: 'Company Pricing 2026', type: 'PDF', phrases: 3, size: '1.2 MB', uploaded: 'Today', status: 'Active', statusClass: 'badge-green' },
-        { name: 'Refund Policy', type: 'PDF', phrases: 2, size: '340 KB', uploaded: 'Yesterday', status: 'Active', statusClass: 'badge-green' },
-        { name: 'Service Level Agreement', type: 'DOCX', phrases: 1, size: '890 KB', uploaded: '3 days ago', status: 'Active', statusClass: 'badge-green' },
-        { name: 'Onboarding Guide', type: 'PDF', phrases: 2, size: '2.1 MB', uploaded: '1 week ago', status: 'Active', statusClass: 'badge-green' },
-        { name: 'Q4 2025 Report', type: 'PDF', phrases: 0, size: '4.5 MB', uploaded: '2 weeks ago', status: 'Inactive', statusClass: 'badge-slate' },
-    ];
-    document.getElementById('docs-tbody').innerHTML = docs.map(d => `
-        <tr>
-            <td><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:18px;">📄</span><span style="font-weight:500;">${d.name}</span></div></td>
-            <td><span class="badge badge-slate">${d.type}</span></td>
-            <td><span style="font-size:12px;color:var(--duck-600);font-weight:600;">${d.phrases} phrase${d.phrases !== 1 ? 's' : ''}</span></td>
-            <td class="text-sm text-muted">${d.size}</td>
-            <td class="text-sm text-muted">${d.uploaded}</td>
-            <td><span class="badge ${d.statusClass}">${d.status}</span></td>
-            <td><button class="btn btn-secondary btn-sm">Edit</button></td>
-        </tr>
-    `).join('');
+    var tbody = document.getElementById('docs-tbody');
+    try {
+        var res = await fetch('/api/v1/portal/documents?limit=100', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        var docs = data.documents || [];
+        if (docs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">No documents uploaded yet. Go to the Onboarding section to add your first document.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = docs.map(function(d) {
+            var initial = d.name ? d.name.charAt(0).toUpperCase() : '?';
+            var docType = d.document_type ? d.document_type.toUpperCase() : '—';
+            var statusBadge = d.status === 'active' ? 'badge-green' : 'badge-slate';
+            var uploadDate = d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : '—';
+            return '<tr>' +
+                '<td><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:18px;">📄</span><span style="font-weight:500;">' + (d.name || '—') + '</span></div></td>' +
+                '<td><span class="badge badge-slate">' + docType + '</span></td>' +
+                '<td><span style="font-size:12px;color:var(--duck-600);font-weight:600;">—</span></td>' +
+                '<td class="text-sm text-muted">—</td>' +
+                '<td class="text-sm text-muted">' + uploadDate + '</td>' +
+                '<td><span class="badge ' + statusBadge + '">' + (d.status || '—') + '</span></td>' +
+                '<td><button class="btn btn-secondary btn-sm">Edit</button></td>' +
+            '</tr>';
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load documents</td></tr>';
+    }
 })();
 {% endblock %}

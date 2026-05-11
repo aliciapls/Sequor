@@ -83,24 +83,7 @@
 function showAddModal() { document.getElementById('add-modal').style.display='flex'; }
 
 (async function() {
-    const mappings = [
-        { phrase: 'pricing', aliases: 'how much, cost, fee, charge', doc: 'Company Pricing 2026.pdf', boost: '+20%', type: 'Auto-reply', usage: 142 },
-        { phrase: 'refund', aliases: 'money back, cancel, get a refund', doc: 'Refund Policy.pdf', boost: '+15%', type: 'Auto-reply', usage: 38 },
-        { phrase: 'sla', aliases: 'uptime, service level, guarantee', doc: 'Service Level Agreement.docx', boost: '+25%', type: 'Include in context', usage: 12 },
-        { phrase: 'onboarding', aliases: 'setup, get started, how to begin', doc: 'Onboarding Guide.pdf', boost: '+20%', type: 'Auto-reply', usage: 67 },
-        { phrase: 'contract', aliases: 'agreement, terms, sign', doc: 'Service Level Agreement.docx', boost: '+30%', type: 'Escalate', usage: 24 },
-        { phrase: 'invoice', aliases: 'bill, payment, receipt', doc: 'Company Pricing 2026.pdf', boost: '+10%', type: 'Include in context', usage: 89 },
-    ];
-    document.getElementById('mappings-tbody').innerHTML = mappings.map(m => `
-        <tr>
-            <td><span style="font-weight:600;color:var(--duck-700);">"${m.phrase}"</span></td>
-            <td class="text-sm text-muted">${m.aliases}</td>
-            <td><span style="font-size:12px;">📄 ${m.doc}</span></td>
-            <td><span class="badge badge-green">${m.boost}</span></td>
-            <td><span class="badge ${m.type === 'Auto-reply' ? 'badge-green' : m.type === 'Escalate' ? 'badge-red' : 'badge-blue'}">${m.type}</span></td>
-            <td class="text-sm">${m.usage} triggers</td>
-            <td><button class="btn btn-secondary btn-sm">Edit</button></td>
-        </tr>
-    `).join('');
+    var tbody = document.getElementById('mappings-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Key phrase maps will appear here once your documents are processed and the AI has identified key topics.</td></tr>';
 })();
 {% endblock %}

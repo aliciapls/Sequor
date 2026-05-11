@@ -1,5 +1,5 @@
 {% extends "_portal.html" %}
-{% block title %}ESC-001 — Sequor Portal{% endblock %}
+{% block title %}Escalation Detail — Sequor Portal{% endblock %}
 {% block topbar_title %}<a href="/portal/escalations" style="color:var(--slate-500);text-decoration:none;font-size:13px;">← Escalations</a>{% endblock %}
 {% block topbar_actions %}
 <button class="topbar-btn topbar-btn-ghost" onclick="dismissEscalation()">Dismiss</button>
@@ -9,12 +9,12 @@
 <div class="page-header">
     <div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-            <span style="font-size:13px;font-weight:700;color:var(--slate-500);">ESC-001</span>
-            <span class="badge badge-red">High Priority</span>
-            <span class="badge badge-amber">Pending</span>
+            <span style="font-size:13px;font-weight:700;color:var(--slate-500);" id="esc-id-badge">ESC</span>
+            <span class="badge badge-red" id="esc-priority-badge">—</span>
+            <span class="badge badge-amber" id="esc-status-badge">—</span>
         </div>
-        <h1 style="font-size:20px;">Invoice Pricing Discrepancy</h1>
-        <p class="text-muted text-sm">From Rachel Tan · client@firm.com · via email · 14 minutes ago</p>
+        <h1 style="font-size:20px;" id="esc-subject">Loading...</h1>
+        <p class="text-muted text-sm" id="esc-meta">—</p>
     </div>
 </div>
 
@@ -27,46 +27,29 @@
         </div>
         <div class="card-body" style="padding:0;">
             <!-- Original message -->
-            <div style="padding:20px 24px;border-bottom:1px solid var(--slate-100);">
+            <div style="padding:20px 24px;border-bottom:1px solid var(--slate-100);" id="message-section">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-                    <div style="width:32px;height:32px;border-radius:50%;background:var(--duck-200);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--duck-800);">R</div>
+                    <div style="width:32px;height:32px;border-radius:50%;background:var(--duck-200);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--duck-800);" id="contact-avatar">?</div>
                     <div>
-                        <div style="font-size:13px;font-weight:600;">Rachel Tan</div>
-                        <div class="text-sm text-muted">client@firm.com · via email · 14m ago</div>
+                        <div style="font-size:13px;font-weight:600;" id="contact-name-display">—</div>
+                        <div class="text-sm text-muted" id="contact-meta-display">—</div>
                     </div>
                 </div>
-                <div style="font-size:14px;color:var(--slate-700);line-height:1.7;">
-                    Hi,<br><br>
-                    I received an invoice for <strong>$4,500</strong> but our agreement was for <strong>$3,800</strong>. Our finance team is questioning this and has put payment on hold.<br><br>
-                    Can you clarify what the discrepancy is for? Attaching the original quote for reference.<br><br>
-                    Thanks,<br>
-                    Rachel
-                </div>
-                <div style="margin-top:12px;display:flex;gap:8px;">
-                    <div style="padding:6px 10px;background:var(--slate-50);border:1px solid var(--slate-200);border-radius:6px;font-size:12px;color:var(--slate-600);">
-                        📎 invoice_v2.pdf
-                    </div>
-                    <div style="padding:6px 10px;background:var(--slate-50);border:1px solid var(--slate-200);border-radius:6px;font-size:12px;color:var(--slate-600);">
-                        📎 quote_agreement.pdf
-                    </div>
+                <div style="font-size:14px;color:var(--slate-700);line-height:1.7;" id="message-body-display">
+                    Loading...
                 </div>
             </div>
 
             <!-- AI Classification -->
-            <div style="padding:16px 24px;background:var(--duck-50);border-bottom:1px solid var(--duck-100);">
+            <div style="padding:16px 24px;background:var(--duck-50);border-bottom:1px solid var(--duck-100);" id="ai-classification-section">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
                     <div style="width:20px;height:20px;border-radius:50%;background:var(--duck-500);display:flex;align-items:center;justify-content:center;">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
                     <span style="font-size:12px;font-weight:700;color:var(--duck-800);">AI Classification</span>
                 </div>
-                <div style="font-size:13px;color:var(--duck-700);">
-                    <strong>Type:</strong> Billing Inquiry — Pricing Dispute<br>
-                    <strong>Confidence:</strong> 94%<br>
-                    <strong>Routed to:</strong> Backup (Alex Chen) — Finance category
-                </div>
-                <div style="margin-top:8px;font-size:12px;color:var(--duck-600);padding:8px 10px;background:white;border-radius:6px;border:1px solid var(--duck-200);font-style:italic;">
-                    "Pricing dispute — human review required to avoid incorrect concessions. Client may escalate if wrong information sent."
+                <div style="font-size:13px;color:var(--duck-700);" id="ai-classification-body">
+                    Loading...
                 </div>
             </div>
 
@@ -99,20 +82,8 @@ Best regards</textarea>
         <!-- SLA Status -->
         <div class="card">
             <div class="card-header"><div class="card-title">SLA Status</div></div>
-            <div class="card-body">
-                <div style="margin-bottom:12px;">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                        <span class="text-sm">Time remaining</span>
-                        <span class="text-sm" style="font-weight:600;color:var(--green-500);">3h 46m remaining</span>
-                    </div>
-                    <div style="height:6px;background:var(--slate-100);border-radius:3px;overflow:hidden;">
-                        <div style="width:35%;height:100%;background:var(--green-500);border-radius:3px;"></div>
-                    </div>
-                </div>
-                <div class="text-sm text-muted" style="margin-bottom:8px;">SLA: 4 hours · Created: 14m ago</div>
-                <div style="padding:8px 10px;background:var(--amber-50);border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e;">
-                    ⚠️ High priority escalations have 1h SLA — 46m remaining
-                </div>
+            <div class="card-body" id="sla-section">
+                <div style="text-align:center;padding:20px;color:var(--slate-400);">Loading SLA status...</div>
             </div>
         </div>
 
@@ -120,97 +91,160 @@ Best regards</textarea>
         <div class="card">
             <div class="card-header"><div class="card-title">AI Decision Reasoning</div></div>
             <div class="card-body">
-                <div style="font-size:13px;color:var(--slate-600);line-height:1.7;">
+                <div style="font-size:13px;color:var(--slate-600);line-height:1.7;" id="ai-reasoning-body">
                     <div style="margin-bottom:10px;">
-                        <div style="font-weight:600;color:var(--slate-700);margin-bottom:2px;">Why escalated</div>
-                        <div>Email contained <strong>"invoice"</strong> + <strong>"$4,500"</strong> + <strong>"$3,800"</strong> pattern. Routed to finance category which requires human sign-off.</div>
-                    </div>
-                    <div style="margin-bottom:10px;">
-                        <div style="font-weight:600;color:var(--slate-700);margin-bottom:2px;">Auto-reply considered</div>
-                        <div>Auto-reply was rejected. Sending a wrong discount or price concession could trigger a compliance issue.</div>
-                    </div>
-                    <div>
-                        <div style="font-weight:600;color:var(--slate-700);margin-bottom:2px;">Suggested approach</div>
-                        <div>Confirm the discrepancy, apologize, send corrected invoice within 2h. Finance team will resolve the root cause of the wrong amount.</div>
+                        <div style="font-weight:600;color:var(--slate-700);margin-bottom:2px;">Summary</div>
+                        <div id="ai-reasoning-summary">Loading...</div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Attachments -->
-        <div class="card">
-            <div class="card-header"><div class="card-title">Attachments</div></div>
-            <div class="card-body">
-                <div style="display:flex;flex-direction:column;gap:8px;">
-                    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--slate-50);border:1px solid var(--slate-200);border-radius:8px;">
-                        <div style="font-size:20px;">📄</div>
-                        <div>
-                            <div style="font-size:13px;font-weight:500;">invoice_v2.pdf</div>
-                            <div class="text-sm text-muted">234 KB · Uploaded today</div>
-                        </div>
-                        <button class="btn btn-secondary btn-sm" style="margin-left:auto;">Download</button>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--slate-50);border:1px solid var(--slate-200);border-radius:8px;">
-                        <div style="font-size:20px;">📄</div>
-                        <div>
-                            <div style="font-size:13px;font-weight:500;">quote_agreement.pdf</div>
-                            <div class="text-sm text-muted">128 KB · Uploaded today</div>
-                        </div>
-                        <button class="btn btn-secondary btn-sm" style="margin-left:auto;">Download</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Audit trail -->
+        <!-- Activity Log -->
         <div class="card">
             <div class="card-header"><div class="card-title">Activity Log</div></div>
-            <div class="card-body" style="padding:12px 20px;">
-                <div style="display:flex;flex-direction:column;gap:12px;">
-                    <div style="display:flex;gap:12px;">
-                        <div style="width:8px;height:8px;border-radius:50%;background:var(--green-500);margin-top:5px;flex-shrink:0;"></div>
-                        <div>
-                            <div style="font-size:12px;font-weight:600;color:var(--slate-700);">Message received</div>
-                            <div class="text-sm text-muted">14m ago · via email</div>
-                        </div>
-                    </div>
-                    <div style="display:flex;gap:12px;">
-                        <div style="width:8px;height:8px;border-radius:50%;background:var(--duck-500);margin-top:5px;flex-shrink:0;"></div>
-                        <div>
-                            <div style="font-size:12px;font-weight:600;color:var(--slate-700);">AI classified — escalated</div>
-                            <div class="text-sm text-muted">14m ago · Billing Inquiry (94% confidence)</div>
-                        </div>
-                    </div>
-                    <div style="display:flex;gap:12px;">
-                        <div style="width:8px;height:8px;border-radius:50%;background:var(--amber-500);margin-top:5px;flex-shrink:0;"></div>
-                        <div>
-                            <div style="font-size:12px;font-weight:600;color:var(--slate-700);">Assigned to Alex Chen</div>
-                            <div class="text-sm text-muted">14m ago · Finance category rule</div>
-                        </div>
-                    </div>
-                </div>
+            <div class="card-body" style="padding:12px 20px;" id="activity-log-body">
+                <div style="text-align:center;padding:20px;color:var(--slate-400);">Loading...</div>
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
 {% block page_script %}
+function timeAgo(isoString) {
+    if (!isoString) return '—';
+    var diff = Date.now() - new Date(isoString).getTime();
+    var mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    return Math.floor(hrs / 24) + 'd ago';
+}
+
+function escId() {
+    var path = window.location.pathname;
+    var parts = path.split('/');
+    return parts[parts.length - 1] || '';
+}
+
+async function loadEscalation() {
+    var id = escId();
+    if (!id) {
+        document.querySelector('.page-header').innerHTML = '<p style="color:var(--slate-400);">No escalation ID provided.</p>';
+        return;
+    }
+
+    try {
+        var res = await fetch('/api/v1/portal/escalations/' + encodeURIComponent(id), { credentials: 'same-origin' });
+        if (!res.ok) {
+            if (res.status === 401) { window.location.href = '/portal/login'; return; }
+            if (res.status === 404) {
+                document.querySelector('.page-header').innerHTML = '<p style="color:var(--slate-400);">Escalation not found.</p>';
+                return;
+            }
+            throw new Error('Failed');
+        }
+        var data = await res.json();
+        renderEscalation(data.escalation || {});
+    } catch (e) {
+        document.querySelector('.page-header').innerHTML = '<p style="color:var(--red-500);">Failed to load escalation.</p>';
+    }
+}
+
+function renderEscalation(esc) {
+    // Header
+    document.getElementById('esc-id-badge').textContent = 'ESC';
+    var prioBadge = document.getElementById('esc-priority-badge');
+    prioBadge.textContent = (esc.priority || '—').toUpperCase();
+    prioBadge.className = 'badge ' + (esc.priority === 'high' ? 'badge-red' : esc.priority === 'medium' ? 'badge-amber' : 'badge-slate');
+    var statusBadge = document.getElementById('esc-status-badge');
+    statusBadge.textContent = (esc.status || '—').replace('_', ' ');
+    statusBadge.className = 'badge ' + (esc.status === 'resolved' || esc.status === 'closed' ? 'badge-green' : esc.status === 'acknowledged' ? 'badge-blue' : 'badge-amber');
+
+    var msg = esc.message || {};
+    var contact = esc.contact || {};
+    document.getElementById('esc-subject').textContent = msg.subject || 'Escalation';
+    document.getElementById('esc-meta').textContent =
+        'From: ' + (contact.name || contact.email || '—') +
+        ' · ' + (contact.email || '') +
+        ' · ' + (msg.channel || '—') +
+        ' · ' + timeAgo(msg.received_at);
+
+    // Message section
+    document.getElementById('contact-avatar').textContent = (contact.name ? contact.name.charAt(0).toUpperCase() : '?');
+    document.getElementById('contact-name-display').textContent = contact.name || '—';
+    document.getElementById('contact-meta-display').textContent = (contact.email || '') + ' · ' + (msg.channel || '—') + ' · ' + timeAgo(msg.received_at);
+    document.getElementById('message-body-display').textContent = msg.body_text || '—';
+
+    // AI classification
+    document.getElementById('ai-classification-body').innerHTML =
+        '<strong>Status:</strong> ' + (esc.status || '—').replace('_', ' ') + '<br>' +
+        '<strong>Priority:</strong> ' + (esc.priority || '—') + '<br>' +
+        '<strong>Assigned to:</strong> ' + ((esc.assigned_to && esc.assigned_to.name) ? esc.assigned_to.name : 'Unassigned');
+
+    // SLA
+    var slaSection = document.getElementById('sla-section');
+    if (esc.status === 'resolved' || esc.status === 'closed') {
+        slaSection.innerHTML = '<div style="text-align:center;padding:20px;color:var(--green-500);font-weight:600;">✓ Escalation resolved ' + timeAgo(esc.resolved_at) + '</div>';
+    } else {
+        slaSection.innerHTML =
+            '<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span class="text-sm">Status</span><span class="text-sm" style="font-weight:600;">' + (esc.status || '—').replace('_', ' ') + '</span></div>' +
+            '<div class="text-sm text-muted" style="margin-top:8px;">Assigned: ' + timeAgo(esc.assigned_at) + '</div>';
+    }
+
+    // AI reasoning
+    document.getElementById('ai-reasoning-summary').textContent = esc.resolution_summary || 'No resolution summary available yet.';
+
+    // Activity log
+    var actBody = document.getElementById('activity-log-body');
+    var events = [];
+    if (msg.received_at) events.push({ icon: 'green', label: 'Message received', meta: timeAgo(msg.received_at) + (msg.channel ? ' · via ' + msg.channel : '') });
+    if (esc.assigned_at) events.push({ icon: 'duck', label: 'Escalation assigned to ' + ((esc.assigned_to && esc.assigned_to.name) ? esc.assigned_to.name : 'backup'), meta: timeAgo(esc.assigned_at) });
+    if (esc.acknowledged_at) events.push({ icon: 'blue', label: 'Acknowledged', meta: timeAgo(esc.acknowledged_at) });
+    if (esc.resolved_at) events.push({ icon: 'green', label: 'Resolved', meta: timeAgo(esc.resolved_at) });
+
+    if (events.length === 0) {
+        actBody.innerHTML = '<div style="text-align:center;padding:20px;color:var(--slate-400);">No activity recorded</div>';
+    } else {
+        actBody.innerHTML = events.map(function(ev) {
+            return '<div style="display:flex;gap:12px;margin-bottom:12px;">' +
+                '<div style="width:8px;height:8px;border-radius:50%;background:var(--' + (ev.icon === 'green' ? 'green-500' : ev.icon === 'duck' ? 'duck-500' : 'amber-500') + ');margin-top:5px;flex-shrink:0;"></div>' +
+                '<div><div style="font-size:12px;font-weight:600;color:var(--slate-700);">' + ev.label + '</div>' +
+                '<div class="text-sm text-muted">' + ev.meta + '</div></div></div>';
+        }).join('');
+    }
+}
+
 function sendResponse() {
-    const text = document.getElementById('response-text').value;
+    var text = document.getElementById('response-text').value;
     if (!text.trim()) { alert('Please enter a response'); return; }
-    const btn = event.target;
+    var btn = event.target;
     btn.textContent = 'Sending...';
     btn.disabled = true;
-    setTimeout(() => {
+    setTimeout(function() {
         btn.textContent = 'Sent ✓';
         btn.style.background = '#dcfce7';
         btn.style.color = '#166534';
-        document.getElementById('response-text').value = '';
     }, 1000);
 }
 
 function resolveEscalation() {
-    alert('Escalation ESC-001 marked as resolved. Client will receive your response via email.');
+    var id = escId();
+    if (!id) return;
+    if (!confirm('Mark this escalation as resolved?')) return;
+    var btn = event.target;
+    btn.textContent = 'Resolving...';
+    btn.disabled = true;
+    fetch('/api/v1/portal/escalations/' + encodeURIComponent(id) + '/resolve', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolution_summary: document.getElementById('response-text').value || 'Resolved' })
+    }).then(function(r) {
+        if (r.ok) { window.location.href = '/portal/escalations'; }
+        else { btn.textContent = 'Error'; btn.disabled = false; }
+    }).catch(function() { btn.textContent = 'Error'; btn.disabled = false; });
 }
 
 function dismissEscalation() {
@@ -218,4 +252,6 @@ function dismissEscalation() {
         window.location.href = '/portal/escalations';
     }
 }
+
+loadEscalation();
 {% endblock %}

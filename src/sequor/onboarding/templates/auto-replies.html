@@ -71,25 +71,33 @@
 {% endblock %}
 {% block page_script %}
 (async function() {
-    const replies = [
-        { time: '2m ago', channel: 'whatsapp', from: 'Almanie', msg: 'Hi! What are your business hours?', trigger: '"business hours" → Onboarding Guide.pdf', response: 'Our business hours are Monday to Friday, 9am to 6pm SGT.', confidence: 94, feedback: '👍' },
-        { time: '18m ago', channel: 'email', from: 'client@firm.com', msg: 'Question about Q3 invoice…', trigger: '"invoice" → Pricing 2026.pdf', response: 'Thank you for your query. Your Q3 invoice is attached…', confidence: 87, feedback: '👍' },
-        { time: '1h ago', channel: 'whatsapp', from: 'Priya Sharma', msg: 'Is the report ready?', trigger: '"report" → Q4 Report.pdf', response: 'Yes, the Q4 report is ready and has been shared via email.', confidence: 91, feedback: '—' },
-        { time: '2h ago', channel: 'email', from: 'partner@corp.com', msg: 'RE: Contract review — following up', trigger: '"contract" → SLA.docx', response: 'I have escalated this to our legal team for review…', confidence: 82, feedback: '👍' },
-        { time: '3h ago', channel: 'whatsapp', from: 'David Lee', msg: 'Need the refund policy please', trigger: '"refund policy" → Refund Policy.pdf', response: 'Our refund policy allows full refunds within 30 days…', confidence: 96, feedback: '👍' },
-        { time: '5h ago', channel: 'email', from: 'ops@supply.com', msg: 'Delivery update for order #ORD-8821', trigger: '"delivery" → FAQ.pdf', response: 'Thank you for the update. I have forwarded this to our ops team…', confidence: 78, feedback: '—' },
-    ];
-    document.getElementById('replies-tbody').innerHTML = replies.map(r => `
-        <tr>
-            <td class="text-sm text-muted">${r.time}</td>
-            <td><span class="badge ${r.channel === 'whatsapp' ? 'badge-green' : 'badge-blue'}">${r.channel}</span></td>
-            <td class="text-sm">${r.from}</td>
-            <td class="text-sm truncate" style="max-width:150px;" title="${r.msg}">"${r.msg}"</td>
-            <td class="text-sm text-duck">${r.trigger}</td>
-            <td class="text-sm truncate" style="max-width:160px;" title="${r.response}">${r.response}</td>
-            <td><span class="badge ${r.confidence >= 90 ? 'badge-green' : r.confidence >= 80 ? 'badge-blue' : 'badge-amber'}">${r.confidence}%</span></td>
-            <td class="text-sm">${r.feedback}</td>
-        </tr>
-    `).join('');
+    var tbody = document.getElementById('replies-tbody');
+    try {
+        var res = await fetch('/api/v1/portal/messages?limit=50', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        var messages = (data.messages || []).filter(function(m) { return m.direction === 'outbound'; });
+        if (messages.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--slate-400);">No auto-replies sent yet</td></tr>';
+            return;
+        }
+        tbody.innerHTML = messages.map(function(r) {
+            var channelBadge = r.channel === 'whatsapp' ? 'badge-green' : 'badge-blue';
+            var contactName = (r.contact && r.contact.name) ? r.contact.name : ((r.contact && r.contact.email) ? r.contact.email : '—');
+            var timeStr = r.sent_at ? new Date(r.sent_at).toLocaleString() : '—';
+            return '<tr>' +
+                '<td class="text-sm text-muted">' + timeStr + '</td>' +
+                '<td><span class="badge ' + channelBadge + '">' + (r.channel || '—') + '</span></td>' +
+                '<td class="text-sm">' + contactName + '</td>' +
+                '<td class="text-sm truncate" style="max-width:150px;" title="' + (r.body_text || '') + '">"' + (r.body_text || '') + '"</td>' +
+                '<td class="text-sm text-duck">—</td>' +
+                '<td class="text-sm">—</td>' +
+                '<td><span class="badge badge-slate">—</span></td>' +
+                '<td class="text-sm">—</td>' +
+            '</tr>';
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load replies</td></tr>';
+    }
 })();
 {% endblock %}

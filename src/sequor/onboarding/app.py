@@ -745,6 +745,32 @@ async def portal_api_escalations(request: Request, limit: int = 50, offset: int 
     return JSONResponse(content={"escalations": escalations, "limit": limit, "offset": offset})
 
 
+@app.post("/api/v1/portal/escalations/{esc_id}/resolve")
+async def portal_api_escalation_resolve(request: Request, esc_id: str):
+    """Mark an escalation as resolved."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    body = await request.json() or {}
+    resolution_summary = body.get("resolution_summary", "Resolved via portal")
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import update
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Escalation
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            update(Escalation)
+            .where(Escalation.tenant_id == tenant_id, Escalation.id == esc_id)
+            .values(status="resolved", resolution_summary=resolution_summary)
+        )
+        await session.commit()
+
+    return JSONResponse(content={"status": "ok"})
+
+
 @app.get("/api/v1/portal/escalations/{esc_id}")
 async def portal_api_escalation_detail(request: Request, esc_id: str):
     """Return a single escalation with full details."""
@@ -839,6 +865,43 @@ async def portal_api_contacts(request: Request, limit: int = 100, offset: int = 
                 "last_seen": c.last_seen.isoformat() if c.last_seen else None,
             }
             for c in contacts
+        ]
+    })
+
+
+@app.get("/api/v1/portal/documents")
+async def portal_api_documents(request: Request, limit: int = 100, offset: int = 0):
+    """Return documents for the authenticated operator's account."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select, desc
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Document
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Document)
+            .where(Document.tenant_id == tenant_id)
+            .order_by(desc(Document.uploaded_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        docs = result.scalars().all()
+        await session.commit()
+
+    return JSONResponse(content={
+        "documents": [
+            {
+                "id": str(d.id),
+                "name": d.name,
+                "document_type": d.document_type.value if d.document_type else None,
+                "status": d.status.value if d.status else None,
+                "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None,
+            }
+            for d in docs
         ]
     })
 
