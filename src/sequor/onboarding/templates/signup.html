@@ -19,7 +19,6 @@
             --duck-600: #1E758F;
             --duck-700: #175A73;
             --duck-800: #14475D;
-            --duck-900: #123A4D;
             --slate-50: #f8fafc;
             --slate-100: #f1f5f9;
             --slate-200: #e2e8f0;
@@ -42,7 +41,7 @@
             -webkit-font-smoothing: antialiased;
         }
 
-        /* ── Header / Nav ── */
+        /* ── Header ── */
         .header {
             background: rgba(255,255,255,0.97);
             border-bottom: 1px solid var(--duck-100);
@@ -89,11 +88,7 @@
             letter-spacing: -0.3px;
         }
 
-        .nav-buttons {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+        .nav-buttons { display: flex; align-items: center; gap: 10px; }
 
         .btn-ghost {
             padding: 8px 18px;
@@ -109,11 +104,7 @@
             border: 1.5px solid var(--slate-200);
         }
 
-        .btn-ghost:hover {
-            background: var(--slate-50);
-            border-color: var(--slate-300);
-            color: var(--slate-800);
-        }
+        .btn-ghost:hover { background: var(--slate-50); border-color: var(--slate-300); color: var(--slate-800); }
 
         .btn-nav-primary {
             padding: 8px 18px;
@@ -129,10 +120,7 @@
             border: none;
         }
 
-        .btn-nav-primary:hover {
-            background: linear-gradient(135deg, var(--duck-600), var(--duck-800));
-            box-shadow: 0 4px 12px rgba(45, 114, 150, 0.3);
-        }
+        .btn-nav-primary:hover { background: linear-gradient(135deg, var(--duck-600), var(--duck-800)); box-shadow: 0 4px 12px rgba(45, 114, 150, 0.3); }
 
         /* ── Hero ── */
         .hero {
@@ -141,10 +129,7 @@
             text-align: center;
         }
 
-        .hero-inner {
-            max-width: 720px;
-            margin: 0 auto;
-        }
+        .hero-inner { max-width: 720px; margin: 0 auto; }
 
         .hero-badge {
             display: inline-block;
@@ -164,13 +149,8 @@
             font-weight: 700;
             color: var(--duck-800);
             letter-spacing: -1.5px;
-            line-height: 1.15;
+            line-height: 1.18;
             margin-bottom: 16px;
-        }
-
-        .hero h1 em {
-            font-style: normal;
-            color: var(--duck-500);
         }
 
         .hero p {
@@ -203,11 +183,7 @@
             box-shadow: 0 4px 12px rgba(60, 142, 175, 0.3);
         }
 
-        .btn-primary-lg:hover {
-            background: linear-gradient(135deg, var(--duck-600), var(--duck-800));
-            box-shadow: 0 6px 20px rgba(45, 114, 150, 0.38);
-            transform: translateY(-1px);
-        }
+        .btn-primary-lg:hover { background: linear-gradient(135deg, var(--duck-600), var(--duck-800)); box-shadow: 0 6px 20px rgba(45, 114, 150, 0.38); transform: translateY(-1px); }
 
         .btn-outline-lg {
             padding: 12px 28px;
@@ -223,16 +199,10 @@
             border: 1.5px solid var(--duck-300);
         }
 
-        .btn-outline-lg:hover {
-            background: var(--duck-50);
-            border-color: var(--duck-400);
-        }
+        .btn-outline-lg:hover { background: var(--duck-50); border-color: var(--duck-400); }
 
         /* ── Metrics strip ── */
-        .metrics-strip {
-            background: var(--duck-800);
-            padding: 28px 24px;
-        }
+        .metrics-strip { background: var(--duck-800); padding: 28px 24px; }
 
         .metrics-inner {
             max-width: 900px;
@@ -243,29 +213,14 @@
             flex-wrap: wrap;
         }
 
-        .metric {
-            text-align: center;
-        }
+        .metric { text-align: center; }
 
-        .metric-value {
-            font-size: 32px;
-            font-weight: 700;
-            color: white;
-            letter-spacing: -0.5px;
-        }
+        .metric-value { font-size: 32px; font-weight: 700; color: white; letter-spacing: -0.5px; }
 
-        .metric-label {
-            font-size: 13px;
-            color: var(--duck-300);
-            margin-top: 2px;
-        }
+        .metric-label { font-size: 13px; color: var(--duck-300); margin-top: 2px; }
 
-        /* ── Features / How it works ── */
-        .features {
-            padding: 80px 24px;
-            max-width: 1080px;
-            margin: 0 auto;
-        }
+        /* ── Features ── */
+        .features { padding: 80px 24px; max-width: 1080px; margin: 0 auto; }
 
         .section-label {
             text-align: center;
@@ -294,11 +249,7 @@
             margin: 0 auto 52px;
         }
 
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 24px;
-        }
+        .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 
         .feature-card {
             background: var(--slate-50);
@@ -308,10 +259,7 @@
             transition: all 0.15s;
         }
 
-        .feature-card:hover {
-            border-color: var(--duck-200);
-            box-shadow: 0 4px 16px rgba(29, 90, 119, 0.06);
-        }
+        .feature-card:hover { border-color: var(--duck-200); box-shadow: 0 4px 16px rgba(29, 90, 119, 0.06); }
 
         .feature-icon {
             width: 44px;
@@ -321,33 +269,19 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
             margin-bottom: 14px;
         }
 
-        .feature-card h3 {
-            font-size: 15px;
-            font-weight: 700;
-            color: var(--slate-800);
-            margin-bottom: 6px;
-        }
+        .feature-icon svg { width: 22px; height: 22px; color: var(--duck-600); }
 
-        .feature-card p {
-            font-size: 13.5px;
-            color: var(--slate-500);
-            line-height: 1.6;
-        }
+        .feature-card h3 { font-size: 15px; font-weight: 700; color: var(--slate-800); margin-bottom: 6px; }
+
+        .feature-card p { font-size: 13.5px; color: var(--slate-500); line-height: 1.6; }
 
         /* ── Dashboard preview ── */
-        .dashboard-preview {
-            background: linear-gradient(180deg, var(--slate-50), var(--duck-50));
-            padding: 64px 24px;
-        }
+        .dashboard-preview { background: linear-gradient(180deg, var(--slate-50), var(--duck-50)); padding: 64px 24px; }
 
-        .dashboard-inner {
-            max-width: 960px;
-            margin: 0 auto;
-        }
+        .dashboard-inner { max-width: 960px; margin: 0 auto; }
 
         .dashboard-label {
             text-align: center;
@@ -377,25 +311,12 @@
             background: white;
         }
 
-        .dashboard-frame iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
+        .dashboard-frame iframe { width: 100%; height: 100%; border: none; }
 
         /* ── Pricing ── */
-        .pricing {
-            padding: 80px 24px;
-            max-width: 1040px;
-            margin: 0 auto;
-        }
+        .pricing { padding: 80px 24px; max-width: 1040px; margin: 0 auto; }
 
-        .pricing-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
-            align-items: start;
-        }
+        .pricing-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; align-items: start; }
 
         .pricing-card {
             background: white;
@@ -406,10 +327,7 @@
             transition: all 0.15s;
         }
 
-        .pricing-card:hover {
-            border-color: var(--duck-200);
-            box-shadow: 0 4px 16px rgba(29, 90, 119, 0.06);
-        }
+        .pricing-card:hover { border-color: var(--duck-200); box-shadow: 0 4px 16px rgba(29, 90, 119, 0.06); }
 
         .pricing-card.featured {
             border-color: var(--duck-400);
@@ -431,60 +349,21 @@
             letter-spacing: 0.3px;
         }
 
-        .pricing-name {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--slate-700);
-            margin-bottom: 6px;
-        }
+        .pricing-name { font-size: 14px; font-weight: 700; color: var(--slate-700); margin-bottom: 6px; }
 
-        .pricing-desc {
-            font-size: 12px;
-            color: var(--slate-400);
-            margin-bottom: 16px;
-        }
+        .pricing-desc { font-size: 12px; color: var(--slate-400); margin-bottom: 16px; }
 
-        .pricing-price {
-            font-size: 36px;
-            font-weight: 700;
-            color: var(--slate-800);
-            letter-spacing: -0.5px;
-        }
+        .pricing-price { font-size: 36px; font-weight: 700; color: var(--slate-800); letter-spacing: -0.5px; }
 
-        .pricing-price span {
-            font-size: 14px;
-            font-weight: 400;
-            color: var(--slate-400);
-        }
+        .pricing-price span { font-size: 14px; font-weight: 400; color: var(--slate-400); }
 
-        .pricing-divider {
-            height: 1px;
-            background: var(--slate-100);
-            margin: 16px 0;
-        }
+        .pricing-divider { height: 1px; background: var(--slate-100); margin: 16px 0; }
 
-        .pricing-features {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-bottom: 20px;
-        }
+        .pricing-features { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
 
-        .pricing-features li {
-            font-size: 13px;
-            color: var(--slate-600);
-            display: flex;
-            align-items: flex-start;
-            gap: 7px;
-        }
+        .pricing-features li { font-size: 13px; color: var(--slate-600); display: flex; align-items: flex-start; gap: 7px; }
 
-        .pricing-features li::before {
-            content: '✓';
-            color: var(--duck-500);
-            font-weight: 700;
-            flex-shrink: 0;
-        }
+        .pricing-features li::before { content: ''; width: 16px; height: 16px; background: var(--duck-500); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E"); mask-repeat: no-repeat; mask-size: contain; flex-shrink: 0; margin-top: 1px; }
 
         .btn-pricing {
             width: 100%;
@@ -501,60 +380,22 @@
             border: none;
         }
 
-        .btn-pricing-outline {
-            background: white;
-            color: var(--duck-700);
-            border: 1.5px solid var(--duck-200);
-        }
+        .btn-pricing-outline { background: white; color: var(--duck-700); border: 1.5px solid var(--duck-200); }
+        .btn-pricing-outline:hover { background: var(--duck-50); border-color: var(--duck-300); }
 
-        .btn-pricing-outline:hover {
-            background: var(--duck-50);
-            border-color: var(--duck-300);
-        }
-
-        .btn-pricing-primary {
-            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
-            color: white;
-            box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25);
-        }
-
-        .btn-pricing-primary:hover {
-            background: linear-gradient(135deg, var(--duck-600), var(--duck-800));
-            box-shadow: 0 4px 12px rgba(45, 114, 150, 0.32);
-        }
+        .btn-pricing-primary { background: linear-gradient(135deg, var(--duck-500), var(--duck-700)); color: white; box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25); }
+        .btn-pricing-primary:hover { background: linear-gradient(135deg, var(--duck-600), var(--duck-800)); box-shadow: 0 4px 12px rgba(45, 114, 150, 0.32); }
 
         /* ── CTA ── */
-        .cta {
-            background: linear-gradient(135deg, var(--duck-700), var(--duck-900));
-            padding: 72px 24px;
-            text-align: center;
-        }
+        .cta { background: linear-gradient(135deg, var(--duck-700), var(--duck-900)); padding: 72px 24px; text-align: center; }
 
-        .cta-inner {
-            max-width: 560px;
-            margin: 0 auto;
-        }
+        .cta-inner { max-width: 560px; margin: 0 auto; }
 
-        .cta h2 {
-            font-size: 30px;
-            font-weight: 700;
-            color: white;
-            letter-spacing: -0.5px;
-            margin-bottom: 12px;
-        }
+        .cta h2 { font-size: 30px; font-weight: 700; color: white; letter-spacing: -0.5px; margin-bottom: 12px; }
 
-        .cta p {
-            font-size: 16px;
-            color: var(--duck-200);
-            margin-bottom: 32px;
-        }
+        .cta p { font-size: 16px; color: var(--duck-200); margin-bottom: 32px; }
 
-        .cta-actions {
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
+        .cta-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 
         .btn-white-lg {
             padding: 13px 28px;
@@ -571,11 +412,7 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
 
-        .btn-white-lg:hover {
-            background: var(--duck-50);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.2);
-        }
+        .btn-white-lg:hover { background: var(--duck-50); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
 
         .btn-white-outline-lg {
             padding: 12px 28px;
@@ -591,16 +428,10 @@
             border: 1.5px solid rgba(255,255,255,0.4);
         }
 
-        .btn-white-outline-lg:hover {
-            background: rgba(255,255,255,0.1);
-            border-color: rgba(255,255,255,0.6);
-        }
+        .btn-white-outline-lg:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.6); }
 
         /* ── Footer ── */
-        .footer {
-            background: var(--slate-900);
-            padding: 40px 24px 32px;
-        }
+        .footer { background: var(--slate-900); padding: 40px 24px 32px; }
 
         .footer-inner {
             max-width: 1080px;
@@ -612,11 +443,7 @@
             gap: 20px;
         }
 
-        .footer-brand {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .footer-brand { display: flex; align-items: center; gap: 8px; }
 
         .footer-logo-icon {
             width: 28px;
@@ -631,24 +458,11 @@
             font-size: 13px;
         }
 
-        .footer-logo-text {
-            font-size: 16px;
-            font-weight: 700;
-            color: white;
-        }
+        .footer-logo-text { font-size: 16px; font-weight: 700; color: white; }
 
-        .footer-links {
-            display: flex;
-            gap: 24px;
-        }
+        .footer-links { display: flex; gap: 24px; }
 
-        .footer-links a {
-            font-size: 13px;
-            color: var(--slate-400);
-            text-decoration: none;
-            transition: color 0.12s;
-        }
-
+        .footer-links a { font-size: 13px; color: var(--slate-400); text-decoration: none; transition: color 0.12s; }
         .footer-links a:hover { color: white; }
 
         .footer-copy {
@@ -689,9 +503,9 @@
 <!-- Hero -->
 <section class="hero">
     <div class="hero-inner">
-        <div class="hero-badge">AI-Powered Communication</div>
-        <h1>Your team, <em>always covered.</em><br>Never miss a client message.</h1>
-        <p>Sequor sits in front of your WhatsApp and email, auto-replies using your documents, and escalates what needs human attention — so your team never drops the ball.</p>
+        <div class="hero-badge">For Professional Services Teams</div>
+        <h1>Instant AI replies from your documents.<br>Escalations that actually need it.</h1>
+        <p>Connect WhatsApp and email. Upload your FAQs, pricing, and policies. Sequor reads your documents and replies to clients automatically — routing only the questions that need a human.</p>
         <div class="hero-actions">
             <a href="/portal/signup" class="btn-primary-lg">Get started free</a>
             <a href="/portal/login" class="btn-outline-lg">Sign in</a>
@@ -711,7 +525,7 @@
             <div class="metric-label">SLA guarantee on escalations</div>
         </div>
         <div class="metric">
-            <div class="metric-value">2min</div>
+            <div class="metric-value">5 min</div>
             <div class="metric-label">Average setup time</div>
         </div>
         <div class="metric">
@@ -729,34 +543,46 @@
 
     <div class="features-grid">
         <div class="feature-card">
-            <div class="feature-icon">📱</div>
-            <h3>WhatsApp + Email</h3>
-            <p>Connect WhatsApp Business and email in minutes. All inbound messages route through Sequor's AI layer.</p>
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <h3>WhatsApp + Email in one place</h3>
+            <p>Connect both channels in minutes. All inbound messages route through Sequor's AI layer — no more switching between apps.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">🤖</div>
-            <h3>AI Auto-Replies</h3>
-            <p>When a client asks about pricing, refund policy, or business hours, Sequor retrieves the right answer from your documents and replies instantly.</p>
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/><path d="M22 2L12 12"/></svg>
+            </div>
+            <h3>Auto-replies from your own documents</h3>
+            <p>Upload your FAQs, pricing, policies, and contracts. When a client asks about these, Sequor drafts a reply from the right source — instantly.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">📂</div>
-            <h3>Document Hub</h3>
-            <p>Upload your FAQs, pricing sheets, policies, and contracts. Sequor links them to key phrases so the right answer reaches the right client.</p>
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </div>
+            <h3>Document Hub with key phrase maps</h3>
+            <p>Upload and manage the documents Sequor uses. Set key phrase triggers so the right information reaches the right client automatically.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">⚠️</div>
-            <h3>Smart Escalations</h3>
-            <p>Legal, billing, and complex queries are flagged and routed to the right person — with full context so nothing slips through.</p>
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <h3>Smart escalations with full context</h3>
+            <p>Legal, billing, and complex queries are flagged and routed to the right person with all the context needed to respond in one move.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">📊</div>
-            <h3>Operator Dashboard</h3>
-            <p>See all messages, escalations, and auto-replies in one place. Track response times, client satisfaction, and team performance.</p>
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            </div>
+            <h3>Operator dashboard</h3>
+            <p>See all messages, escalations, and auto-replies in one place. Track response times, SLA health, and team performance.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">🔒</div>
-            <h3>PDPA Compliant</h3>
-            <p>All message data is encrypted and handled per Singapore PDPA requirements. Audit logs, data residency, and access controls built in.</p>
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <h3>PDPA compliant by default</h3>
+            <p>All message data is encrypted at rest and in transit. Audit logs, access controls, and data residency built in — Singapore PDPA requirements met out of the box.</p>
         </div>
     </div>
 </section>
@@ -775,20 +601,21 @@
 <!-- Pricing -->
 <section class="pricing">
     <div class="section-label">Pricing</div>
-    <h2 class="section-title">Simple, transparent pricing</h2>
-    <p class="section-subtitle">Start free. Upgrade when you need more. No hidden fees.</p>
+    <h2 class="section-title">Start free. Scale when you're ready.</h2>
+    <p class="section-subtitle">No hidden fees. No minimums. Cancel anytime.</p>
 
     <div class="pricing-grid">
         <div class="pricing-card">
             <div class="pricing-name">Free</div>
-            <div class="pricing-desc">For individuals getting started</div>
+            <div class="pricing-desc">For individuals exploring Sequor</div>
             <div class="pricing-price">$0<span>/mo</span></div>
             <div class="pricing-divider"></div>
             <ul class="pricing-features">
                 <li>50 messages/mo</li>
-                <li>1 channel (email)</li>
+                <li>WhatsApp + Email</li>
                 <li>5 documents</li>
                 <li>Basic auto-reply</li>
+                <li>30-day audit log</li>
             </ul>
             <a href="/portal/signup" class="btn-pricing btn-pricing-outline">Get started</a>
         </div>
@@ -799,39 +626,42 @@
             <div class="pricing-price">$15<span>/mo</span></div>
             <div class="pricing-divider"></div>
             <ul class="pricing-features">
-                <li>100 messages/mo</li>
+                <li>200 messages/mo</li>
                 <li>WhatsApp + Email</li>
                 <li>10 documents</li>
                 <li>RAG auto-replies</li>
+                <li>30-day audit log</li>
             </ul>
             <a href="/portal/signup" class="btn-pricing btn-pricing-outline">Get started</a>
         </div>
 
         <div class="pricing-card featured">
             <div class="pricing-name">Starter</div>
-            <div class="pricing-desc">For small teams</div>
-            <div class="pricing-price">$35<span>/mo</span></div>
+            <div class="pricing-desc">For small teams (3-5 seats)</div>
+            <div class="pricing-price">$35<span>/seat/mo</span></div>
             <div class="pricing-divider"></div>
             <ul class="pricing-features">
-                <li>200 messages/mo</li>
+                <li>Unlimited messages</li>
                 <li>WhatsApp + Email</li>
                 <li>5 team members</li>
                 <li>RAG + SLA tracking</li>
-                <li>Audit trail</li>
+                <li>90-day audit trail</li>
+                <li>Priority support</li>
             </ul>
             <a href="/portal/signup" class="btn-pricing btn-pricing-primary">Get started</a>
         </div>
 
         <div class="pricing-card">
             <div class="pricing-name">Professional</div>
-            <div class="pricing-desc">For growing teams</div>
-            <div class="pricing-price">$55<span>/mo</span></div>
+            <div class="pricing-desc">For growing teams (5+ seats)</div>
+            <div class="pricing-price">$55<span>/seat/mo</span></div>
             <div class="pricing-divider"></div>
             <ul class="pricing-features">
                 <li>Unlimited messages</li>
                 <li>WhatsApp + Email</li>
-                <li>Unlimited documents</li>
+                <li>Unlimited team members</li>
                 <li>Priority RAG processing</li>
+                <li>12-month audit trail</li>
                 <li>Advanced analytics</li>
                 <li>PDPA compliance report</li>
             </ul>
@@ -844,7 +674,7 @@
 <section class="cta">
     <div class="cta-inner">
         <h2>Start covering your clients today</h2>
-        <p>Set up in 2 minutes. No credit card required. Cancel anytime.</p>
+        <p>Connect your channels and documents in under 5 minutes. No credit card required.</p>
         <div class="cta-actions">
             <a href="/portal/signup" class="btn-white-lg">Get started free</a>
             <a href="/portal/login" class="btn-white-outline-lg">Sign in</a>
@@ -866,7 +696,7 @@
             <a href="#">Contact</a>
         </div>
         <div class="footer-copy">
-            &copy; 2026 Sequor. All rights reserved. Built for teams who never miss a beat.
+            &copy; 2026 Sequor. Built for professional services teams in Singapore and SEA.
         </div>
     </div>
 </footer>
