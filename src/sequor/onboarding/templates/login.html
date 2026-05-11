@@ -359,6 +359,15 @@
 </div>
 
 <script>
+    (function() {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('signup') === 'success') {
+            var successDiv = document.getElementById('login-success');
+            successDiv.textContent = 'Account created! Sign in with your new credentials.';
+            successDiv.style.display = 'block';
+        }
+    })();
+
     document.getElementById('login-form').addEventListener('submit', async function(e) {
         e.preventDefault();
         var email = document.getElementById('email').value;

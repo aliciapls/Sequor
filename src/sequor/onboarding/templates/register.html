@@ -190,99 +190,6 @@
         .btn-signup:active { transform: translateY(0); }
         .btn-signup:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
 
-        .signup-divider {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            margin: 24px 0;
-            color: var(--slate-400);
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .signup-divider::before,
-        .signup-divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: var(--slate-200);
-        }
-
-        .demo-box {
-            background: linear-gradient(135deg, var(--duck-50), white);
-            border: 1px solid var(--duck-200);
-            border-radius: 12px;
-            padding: 16px 18px;
-            text-align: center;
-        }
-
-        .demo-box-title {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--duck-800);
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-
-        .demo-box-title::before {
-            content: '';
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--duck-500);
-        }
-
-        .demo-cred {
-            font-size: 13px;
-            color: var(--slate-600);
-            margin-bottom: 4px;
-        }
-
-        .demo-cred strong {
-            color: var(--slate-800);
-            font-weight: 600;
-        }
-
-        .demo-cred code {
-            background: var(--slate-100);
-            padding: 2px 8px;
-            border-radius: 5px;
-            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-            font-size: 12px;
-            color: var(--duck-800);
-            font-weight: 600;
-        }
-
-        .demo-signin-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin-top: 10px;
-            padding: 9px 18px;
-            background: white;
-            color: var(--duck-700);
-            border: 1.5px solid var(--duck-200);
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            font-family: inherit;
-            text-decoration: none;
-            cursor: pointer;
-            transition: all 0.15s;
-            width: 100%;
-        }
-
-        .demo-signin-btn:hover {
-            background: var(--duck-50);
-            border-color: var(--duck-300);
-        }
-
         .signup-footer {
             text-align: center;
             margin-top: 28px;
@@ -336,7 +243,6 @@
     <p class="signup-subtitle">Get started in 2 minutes — no credit card required</p>
 
     <div id="signup-error" class="alert alert-error" style="display:none;"></div>
-    <div id="signup-success" class="alert alert-success" style="display:none;"></div>
 
     <form id="signup-form">
         <div class="form-row">
@@ -361,21 +267,21 @@
         </div>
 
         <div class="form-group">
-            <label class="form-label" for="phone">Phone number</label>
-            <input type="tel" id="phone" class="form-input" placeholder="+1 (555) 000-0000" autocomplete="tel">
+            <label class="form-label" for="password">Password</label>
+            <input type="password" id="password" class="form-input" placeholder="Min. 8 characters" minlength="8" required>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="routing_rule">How should messages be handled?</label>
+            <select id="routing_rule" class="form-select">
+                <option value="full_ai">AI reads your documents and replies automatically</option>
+                <option value="faq_only">Only FAQ documents trigger auto-replies</option>
+                <option value="all_to_backup">All messages go to a human backup</option>
+            </select>
         </div>
 
         <button type="submit" class="btn-signup" id="signup-btn">Create account</button>
     </form>
-
-    <div class="signup-divider">or try the demo</div>
-
-    <div class="demo-box">
-        <div class="demo-box-title">Pre-created account</div>
-        <div class="demo-cred">Email: <strong>demo@sequor.com</strong></div>
-        <div class="demo-cred">Password: <code>demo1234</code></div>
-        <a href="/portal/login" class="demo-signin-btn">Sign in with demo</a>
-    </div>
 
     <div class="signup-footer">
         Already have an account? <a href="/portal/login">Sign in</a>
@@ -383,44 +289,59 @@
 </div>
 
 <script>
-    document.getElementById('signup-form').addEventListener('submit', function(e) {
+    document.getElementById('signup-form').addEventListener('submit', async function(e) {
         e.preventDefault();
         var btn = document.getElementById('signup-btn');
         var errorDiv = document.getElementById('signup-error');
-        var successDiv = document.getElementById('signup-success');
 
         btn.textContent = 'Creating account…';
         btn.disabled = true;
         errorDiv.style.display = 'none';
-        successDiv.style.display = 'none';
 
-        setTimeout(function() {
-            var firstName = document.getElementById('first_name').value;
-            var lastName = document.getElementById('last_name').value;
-            var company = document.getElementById('company').value;
-            var email = document.getElementById('email').value;
+        var firstName = document.getElementById('first_name').value.trim();
+        var lastName = document.getElementById('last_name').value.trim();
+        var company = document.getElementById('company').value.trim();
+        var email = document.getElementById('email').value.trim();
+        var password = document.getElementById('password').value;
+        var routingRule = document.getElementById('routing_rule').value;
 
-            var account = {
-                name: firstName + ' ' + lastName,
-                email: email,
-                company: company
-            };
+        var payload = {
+            org_name: company,
+            owner_email: email,
+            owner_password: password,
+            account_name: company,
+            ownership_type: 'individual',
+            backup_name: firstName + ' ' + lastName,
+            backup_email: email,
+            escalation_sla_hours: 4,
+            routing_rule: routingRule
+        };
 
-            var token = 'demo_token_' + Date.now();
-            try {
-                sessionStorage.setItem('sequor_operator', JSON.stringify(account));
-                sessionStorage.setItem('sequor_token', token);
-                document.cookie = 'sequor_session=' + token + '; path=/; SameSite=Lax';
-            } catch (err) {}
+        try {
+            var res = await fetch('/api/v1/onboarding', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
 
-            successDiv.textContent = 'Account created! Redirecting to your portal…';
-            successDiv.style.display = 'block';
+            var data = await res.json();
+
+            if (!res.ok) {
+                errorDiv.textContent = data.detail || 'Account creation failed. Please try again.';
+                errorDiv.style.display = 'block';
+                btn.textContent = 'Create account';
+                btn.disabled = false;
+                return;
+            }
+
             btn.textContent = 'Account created!';
-
-            setTimeout(function() {
-                window.location.href = '/portal/dashboard';
-            }, 1000);
-        }, 1200);
+            window.location.href = '/portal/login?signup=success';
+        } catch (err) {
+            errorDiv.textContent = 'Network error. Please check your connection and try again.';
+            errorDiv.style.display = 'block';
+            btn.textContent = 'Create account';
+            btn.disabled = false;
+        }
     });
 </script>
 </body>
