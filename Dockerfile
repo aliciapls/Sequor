@@ -5,17 +5,15 @@ WORKDIR /app
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install dependencies
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
-
-# Copy source and startup script
+# Copy source first (needed for editable install via pyproject.toml)
 COPY src/ src/
-COPY start.sh /usr/local/bin/start
-RUN chmod +x /usr/local/bin/start
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies
+RUN uv sync --frozen --no-dev
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/start"]
+ENTRYPOINT ["uvicorn", "sequor.onboarding.app:app", "--host", "0.0.0.0", "--port", "8080"]
