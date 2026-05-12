@@ -101,7 +101,7 @@
     <div id="upgrade-card" style="display:none;">
         <div class="card" style="border:2px solid var(--duck-400);">
             <div class="card-header" style="background:var(--duck-50);">
-                <div class="card-title" style="color:var(--duck-800);">Upgrade to Professional</div>
+                <div class="card-title" style="color:var(--duck-800);">Upgrade to Starter</div>
                 <span class="badge badge-blue">Recommended</span>
             </div>
             <div class="card-body">
@@ -128,7 +128,7 @@
                     </div>
                 </div>
                 <button id="upgrade-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:11px;">Upgrade Now</button>
-                <div class="text-sm text-muted" style="text-align:center;margin-top:8px;">Contact us to upgrade your plan</div>
+                <div class="text-sm text-muted" style="text-align:center;margin-top:8px;">Secure checkout via Stripe</div>
             </div>
         </div>
     </div>
@@ -218,6 +218,29 @@
             // Upgrade card
             if (data.upgrade_available) {
                 document.getElementById('upgrade-card').style.display = 'block';
+                document.getElementById('upgrade-btn').addEventListener('click', async function() {
+                    var btn = document.getElementById('upgrade-btn');
+                    btn.disabled = true;
+                    btn.textContent = 'Redirecting to Stripe...';
+                    try {
+                        var res = await fetch('/api/v1/portal/upgrade', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                        });
+                        var result = await res.json();
+                        if (result.checkout_url) {
+                            window.location.href = result.checkout_url;
+                        } else {
+                            alert('Unable to start checkout. Please try again.');
+                            btn.disabled = false;
+                            btn.textContent = 'Upgrade Now';
+                        }
+                    } catch (e) {
+                        alert('Unable to start checkout. Please try again.');
+                        btn.disabled = false;
+                        btn.textContent = 'Upgrade Now';
+                    }
+                });
             }
         } catch (e) {
             document.getElementById('sub-loading').textContent = 'Failed to load subscription details.';

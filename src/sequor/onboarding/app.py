@@ -1016,7 +1016,40 @@ async def portal_api_subscription(request: Request):
     })
 
 
-# ── Portal Routes ──────────────────────────────────────────────────────────────
+@app.post("/api/v1/portal/upgrade")
+async def portal_api_upgrade(request: Request):
+    """Create a Stripe Checkout session for plan upgrade."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+    email = operator.get("email", "")
+
+    from sequor.billing.service import create_checkout_session
+    success_url = str(request.url_for("portal_subscription")) + "?upgrade=success"
+    cancel_url = str(request.url_for("portal_subscription")) + "?upgrade=cancelled"
+
+    checkout_url = await create_checkout_session(
+        tenant_id=UUID(tenant_id),
+        owner_email=email,
+        success_url=success_url,
+        cancel_url=cancel_url,
+    )
+
+    if not checkout_url:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Checkout is not available. Please try again later."},
+        )
+
+    return JSONResponse(content={"checkout_url": checkout_url})
+
+
+@app.get("/portal/subscription")
+async def portal_subscription(request: Request):
+    token = request.cookies.get("sequor_session")
+    if not token:
+        return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("subscription.html", {"request": request})
+
 
 @app.get("/portal/login", response_class=HTMLResponse)
 async def portal_login():
@@ -1130,14 +1163,6 @@ async def portal_channels(request: Request):
     if not token:
         return templates.TemplateResponse("login.html", {"request": request})
     return templates.TemplateResponse("channels.html", {"request": request})
-
-
-@app.get("/portal/subscription")
-async def portal_subscription(request: Request):
-    token = request.cookies.get("sequor_session")
-    if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("subscription.html", {"request": request})
 
 
 @app.get("/portal/settings")
