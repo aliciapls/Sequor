@@ -3,6 +3,7 @@ services:
     name: sequor
     runtime: docker
     dockerfilePath: ./Dockerfile
+    # redeploy trigger
     healthCheckPath: /
     plan: free
     envVars:
