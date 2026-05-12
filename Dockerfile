@@ -16,4 +16,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8080
-ENTRYPOINT ["uvicorn", "sequor.onboarding.app:app", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["sh", "-c", "uvicorn sequor.onboarding.app:app --host 0.0.0.0 --port ${PORT:-8080}"]
