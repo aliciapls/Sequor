@@ -3,7 +3,6 @@ services:
     name: sequor
     runtime: docker
     dockerfilePath: ./Dockerfile
-    # debug
     healthCheckPath: /
     plan: free
     envVars:
