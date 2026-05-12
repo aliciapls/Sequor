@@ -577,8 +577,8 @@ def _require_auth(request: Request) -> dict:
     """Get current operator or raise 401."""
     operator = _get_session_operator(request)
     if not operator:
-        from fastapi.responses import JSONResponse
-        raise JSONResponse(status_code=401, content={"detail": "Authentication required"})
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Authentication required")
     return operator
 
 
