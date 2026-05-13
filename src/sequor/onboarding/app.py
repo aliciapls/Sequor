@@ -528,6 +528,62 @@ async def auth_login(request: Request):
     return response
 
 
+@app.post("/api/v1/admin/backfill-blind-indexes")
+async def backfill_blind_indexes(request: Request):
+    """Backfill email_blind_index for all existing BackupContact records.
+
+    This is a one-time migration to support the new encrypted email login.
+    """
+    _require_auth(request)  # require authentication
+
+    from sequor.db.database import get_engine
+    from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
+    from sequor.db.encryption_keys import KeyManager
+    from sequor.db.models import BackupContact
+    from sqlalchemy import select, update
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    engine = get_engine()
+    updated = 0
+    errors = []
+
+    async with AsyncSession(engine) as session:
+        # Get all contacts missing blind index
+        result = await session.execute(
+            select(BackupContact).where(BackupContact.email_blind_index == None)
+        )
+        contacts = result.scalars().all()
+
+        for contact in contacts:
+            try:
+                # Get tenant key
+                km = KeyManager(settings.encryption_master_key)
+                tenant_key = await km.get_tenant_key(session, contact.tenant_id)
+                set_tenant_key(tenant_key)
+
+                # Decrypt email (EncryptedString.process_result_value decrypts using context key)
+                email = contact.email
+
+                # Compute and store blind index
+                blind_index = compute_email_blind_index(email)
+                await session.execute(
+                    update(BackupContact)
+                    .where(BackupContact.id == contact.id)
+                    .values(email_blind_index=blind_index)
+                )
+                updated += 1
+            except Exception as e:
+                errors.append(f"{contact.id}: {e}")
+
+        await session.commit()
+
+    return JSONResponse(content={
+        "status": "ok",
+        "backfilled": updated,
+        "errors": errors,
+    })
+
+
 @app.post("/api/v1/auth/logout")
 async def auth_logout():
     """Clear the session cookie."""
