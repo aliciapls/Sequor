@@ -74,7 +74,34 @@ class Settings(BaseSettings):
             raise ValueError("default_confidence_threshold must be between 0.0 and 1.0")
         return v
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _prefer_env_database_url(cls, v: str) -> str:
+        """Prefer DATABASE_URL env var over .env file value."""
+        import os
+        if os.environ.get("DATABASE_URL"):
+            return os.environ["DATABASE_URL"]
+        return v
+
+    @field_validator("jwt_secret", mode="before")
+    @classmethod
+    def _prefer_env_jwt_secret(cls, v: str) -> str:
+        import os
+
+        if os.environ.get("JWT_SECRET"):
+            return os.environ["JWT_SECRET"]
+        return v
+
+    @field_validator("encryption_master_key", mode="before")
+    @classmethod
+    def _prefer_env_encryption_key(cls, v: str) -> str:
+        import os
+
+        if os.environ.get("ENCRYPTION_MASTER_KEY"):
+            return os.environ["ENCRYPTION_MASTER_KEY"]
+        return v
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()
