@@ -481,6 +481,7 @@ async def debug_login(email: str, password: str):
         if operator:
             step["operator_id"] = str(operator.id)
             step["tenant_id"] = str(operator.tenant_id)
+            step["stored_password_hash"] = operator.password_hash[:30] if operator.password_hash else None
         else:
             # Show what blind indexes ARE stored for emails containing "@example.com"
             all_result = await session.execute(
