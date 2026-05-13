@@ -450,6 +450,24 @@ async def ping():
     return JSONResponse(content={"ok": True})
 
 
+@app.get("/api/v1/debug/bcrypt-test")
+async def bcrypt_test(password: str = "TestPass"):
+    """Test bcrypt hash and verify on the server."""
+    import bcrypt
+    try:
+        hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+        verified = bcrypt.checkpw(password.encode(), hashed)
+        return JSONResponse(content={
+            "bcrypt_version": bcrypt.__version__,
+            "password": password,
+            "hash": hashed.decode(),
+            "hash_bytes_len": len(hashed),
+            "verify_result": verified,
+        })
+    except Exception as e:
+        return JSONResponse(content={"error": str(e), "bcrypt_version": bcrypt.__version__})
+
+
 @app.get("/api/v1/debug/login")
 async def debug_login(email: str, password: str):
     """Step-by-step debug of login failure."""
