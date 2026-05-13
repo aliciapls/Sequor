@@ -499,7 +499,8 @@ async def debug_login(email: str, password: str):
             if not pw_ok:
                 return JSONResponse(content={"step": "verify_password", "result": step})
         except Exception as e:
-            return JSONResponse(content={"step": "verify_password", "error": str(e)})
+            step["error"] = str(e)
+            return JSONResponse(content={"step": "verify_password", "result": step})
 
         # Step 4: Get tenant key
         try:
