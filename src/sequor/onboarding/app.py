@@ -26,14 +26,18 @@ _logger = structlog.get_logger()
 _signup_limiter = IPRateLimiter(max_requests=5, window_seconds=3600)
 _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
 
-app = FastAPI(title="Sequor Onboarding", version="0.1.0")
+from contextlib import asynccontextmanager
 
 
-@app.on_event("startup")
-async def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Ensure all database tables exist before handling requests."""
     from sequor.db.database import init_db
     await init_db()
+    yield
+
+
+app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=lifespan)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
