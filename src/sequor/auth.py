@@ -14,24 +14,23 @@ from typing import Any
 
 import structlog
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from sequor.config import settings
 
 logger = structlog.get_logger()
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
 
+import bcrypt
+
 
 def hash_password(password: str) -> str:
-    return _pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return _pwd_context.verify(password, password_hash)
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
 def create_access_token(
