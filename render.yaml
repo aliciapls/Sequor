@@ -12,6 +12,8 @@ services:
         value: "1"
       - key: JWT_SECRET
         value: "ccfa814c5c0eef94d4876d43d0ce6bd4d724613dab4addcf70c6d44ab8a5b666"
+      - key: ENCRYPTION_MASTER_KEY
+        value: "qP6dumbNwBfXIQ8z32PbK6sZTfcv39ELJzPSGZxKN/g="
 
 databases:
   - name: sequor-db
