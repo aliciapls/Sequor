@@ -74,6 +74,33 @@ def compute_blind_index(tenant_key: bytes, plaintext: str) -> str:
     return mac.hexdigest()
 
 
+def compute_email_blind_index(email: str) -> str:
+    """Compute a global blind index for email lookups.
+
+    Uses a key derived from the encryption master key so that login
+    can compute the blind index without knowing the tenant key.
+    """
+    from sequor.config import settings
+
+    if not settings.encryption_master_key:
+        raise RuntimeError("ENCRYPTION_MASTER_KEY is not configured")
+    import hashlib
+    import hmac
+    from base64 import b64decode
+    master_key = b64decode(settings.encryption_master_key)
+    # Derive a fixed global lookup key from the master key
+    info = b"sequor-global-email-lookup"
+    hkdf = HKDF(
+        algorithm=SHA256(),
+        length=32,
+        salt=None,
+        info=info,
+    )
+    lookup_key = hkdf.derive(master_key)
+    mac = hmac.new(lookup_key, email.lower().strip().encode("utf-8"), hashlib.sha256)
+    return mac.hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # SQLAlchemy TypeDecorator
 # ---------------------------------------------------------------------------

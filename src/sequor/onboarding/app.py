@@ -458,6 +458,7 @@ async def auth_login(request: Request):
     from sequor.db.database import get_engine
     from sequor.db.crud import SessionCrud
     from sequor.auth import verify_password, create_access_token_for_operator
+    from sequor.db.encrypted_column import compute_email_blind_index
     from sqlalchemy import select
     from sequor.db.models import BackupContact
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -466,9 +467,10 @@ async def auth_login(request: Request):
     async with AsyncSession(engine) as session:
         crud = SessionCrud(session)
 
-        # Find operator by email
+        # Find operator by email blind index
+        blind_index = compute_email_blind_index(email)
         result = await session.execute(
-            select(BackupContact).where(BackupContact.email == email)
+            select(BackupContact).where(BackupContact.email_blind_index == blind_index)
         )
         operator = result.scalars().first()
 

@@ -276,6 +276,8 @@ class BackupContact(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(EncryptedString(field_name="backup_email"), nullable=False)
+    # Blind index for login lookups — HMAC of email with global lookup key
+    email_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="backup_phone"), nullable=True)
     tier: Mapped[ContactTier] = mapped_column(
         Enum(ContactTier, name="contact_tier", create_constraint=True), nullable=False
@@ -290,6 +292,7 @@ class BackupContact(Base):
         Index("ix_backup_contacts_tenant_id", "tenant_id"),
         Index("ix_backup_contacts_account_id", "account_id"),
         Index("ix_backup_contacts_tier", "tier"),
+        Index("ix_backup_contacts_email_blind_index", "email_blind_index"),
     )
 
     def __repr__(self) -> str:

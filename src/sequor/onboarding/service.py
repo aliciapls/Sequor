@@ -186,11 +186,14 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     await session.flush()
 
     # 4. Create BackupContact (encrypted columns require tenant key set above)
+    from sequor.db.encrypted_column import compute_email_blind_index
+
     backup = BackupContact(
         tenant_id=tenant.id,
         account_id=account.id,
         name=request.backup_name,
         email=request.backup_email,
+        email_blind_index=compute_email_blind_index(request.backup_email),
         tier="primary",
         active=True,
         password_hash=hash_password(request.owner_password),
