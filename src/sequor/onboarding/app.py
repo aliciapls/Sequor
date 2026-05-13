@@ -454,30 +454,43 @@ async def ping():
 async def bcrypt_test(password: str = "TestPass", hash: str = None):
     """Test bcrypt hash and verify on the server."""
     import bcrypt as bcrypt_module
+    from passlib.context import CryptContext
     import sys
     result = {
         "bcrypt_module": sys.modules.get("bcrypt", None).__name__ if sys.modules.get("bcrypt") else "not_found",
         "bcrypt_file": getattr(sys.modules.get("bcrypt", None), "__file__", "unknown"),
         "password": password,
     }
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     try:
-        # Test basic hash + verify
+        # Test basic hash + verify with bcrypt direct
         hashed = bcrypt_module.hashpw(password.encode(), bcrypt_module.gensalt())
         verified = bcrypt_module.checkpw(password.encode(), hashed)
         result["bcrypt_version"] = bcrypt_module.__version__
         result["password_bytes_len"] = len(password.encode())
         result["hash"] = hashed.decode()
         result["hash_str_len"] = len(hashed.decode())
-        result["verify_result"] = verified
-        # If a hash is provided, also test it
+        result["bcrypt_direct_verify"] = verified
+        # Test with passlib
+        try:
+            passlib_ok = pwd_context.verify(password, hashed.decode())
+            result["passlib_verify"] = passlib_ok
+        except Exception as e_pl:
+            result["passlib_error"] = str(e_pl)
+        # If a hash is provided, also test it with both
         if hash:
             try:
                 verified2 = bcrypt_module.checkpw(password.encode(), hash.encode())
-                result["hash_verify"] = verified2
-                result["hash_provided"] = hash
+                result["hash_verify_bcrypt"] = verified2
             except Exception as e2:
-                result["hash_verify_error"] = str(e2)
-                result["hash_provided"] = hash
+                result["hash_verify_bcrypt_error"] = str(e2)
+            try:
+                passlib_ok2 = pwd_context.verify(password, hash)
+                result["hash_verify_passlib"] = passlib_ok2
+            except Exception as e3:
+                result["hash_verify_passlib_error"] = str(e3)
+            result["hash_provided"] = hash
+            result["hash_provided_len"] = len(hash)
         return JSONResponse(content=result)
     except Exception as e:
         import traceback
