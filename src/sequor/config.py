@@ -1,7 +1,16 @@
-"""Application configuration loaded from .env."""
+"""Application configuration loaded from .env and environment variables."""
+
+import os
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+
+# Read critical env vars BEFORE Settings() instantiation so they take precedence
+# over any .env file values. This ensures actual environment variables always win.
+_DATABASE_URL = os.environ.get("DATABASE_URL", "")
+_JWT_SECRET = os.environ.get("JWT_SECRET", "")
+_ENCRYPTION_MASTER_KEY = os.environ.get("ENCRYPTION_MASTER_KEY", "")
 
 
 class Settings(BaseSettings):
@@ -10,8 +19,8 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
-    # Database
-    database_url: str = "postgresql://localhost:5432/sequor"
+    # Database — use env var if set (from above preload), otherwise empty
+    database_url: str = _DATABASE_URL or "postgresql://localhost:5432/sequor"
 
     # LLM (Ollama — free, local AI)
     ollama_base_url: str = "http://localhost:11434"
@@ -38,10 +47,10 @@ class Settings(BaseSettings):
     email_retry_backoff_seconds: str = "0,300,1800"
 
     # Encryption (base64-encoded 32-byte master key)
-    encryption_master_key: str = ""
+    encryption_master_key: str = _ENCRYPTION_MASTER_KEY
 
     # Auth
-    jwt_secret: str = ""
+    jwt_secret: str = _JWT_SECRET
 
     # WhatsApp Business (Meta Cloud API)
     whatsapp_access_token: str = ""
@@ -72,33 +81,6 @@ class Settings(BaseSettings):
     def _validate_confidence_threshold(cls, v: float) -> float:
         if not (0.0 <= v <= 1.0):
             raise ValueError("default_confidence_threshold must be between 0.0 and 1.0")
-        return v
-
-    @field_validator("database_url", mode="before")
-    @classmethod
-    def _prefer_env_database_url(cls, v: str) -> str:
-        """Prefer DATABASE_URL env var over .env file value."""
-        import os
-        if os.environ.get("DATABASE_URL"):
-            return os.environ["DATABASE_URL"]
-        return v
-
-    @field_validator("jwt_secret", mode="before")
-    @classmethod
-    def _prefer_env_jwt_secret(cls, v: str) -> str:
-        import os
-
-        if os.environ.get("JWT_SECRET"):
-            return os.environ["JWT_SECRET"]
-        return v
-
-    @field_validator("encryption_master_key", mode="before")
-    @classmethod
-    def _prefer_env_encryption_key(cls, v: str) -> str:
-        import os
-
-        if os.environ.get("ENCRYPTION_MASTER_KEY"):
-            return os.environ["ENCRYPTION_MASTER_KEY"]
         return v
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
