@@ -591,6 +591,7 @@ async def auth_login(request: Request):
     from sequor.db.crud import SessionCrud
     from sequor.auth import verify_password, create_access_token_for_operator
     from sequor.db.encrypted_column import compute_email_blind_index
+    from sequor.config import settings
     from sqlalchemy import select
     from sequor.db.models import BackupContact
     from sqlalchemy.ext.asyncio import AsyncSession
