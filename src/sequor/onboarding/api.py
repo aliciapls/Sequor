@@ -29,6 +29,10 @@ async def handle_signup(request_data: dict) -> dict:
     """
     logger.info("onboarding.signup.start", org_name=request_data.get("org_name"))
 
+    # Ensure all tables exist before proceeding
+    from sequor.db.database import init_db
+    await init_db()
+
     # 1. Validate input
     req = OnboardingRequest(**request_data)
 
