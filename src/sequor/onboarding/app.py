@@ -66,7 +66,7 @@ async def create_account(request: Request):
         return JSONResponse(status_code=422, content={"detail": str(e)})
     except Exception as e:
         _logger.exception("onboarding.signup.error")
-        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        return JSONResponse(status_code=500, content={"detail": str(e)})
 
 
 @app.post("/api/v1/onboarding/upload")
