@@ -482,6 +482,13 @@ async def debug_login(email: str, password: str):
             step["operator_id"] = str(operator.id)
             step["tenant_id"] = str(operator.tenant_id)
         else:
+            # Show what blind indexes ARE stored for emails containing "@example.com"
+            all_result = await session.execute(
+                select(BackupContact.email_blind_index, BackupContact.id).limit(20)
+            )
+            stored = [(str(r[0]), str(r[1])) for r in all_result.fetchall()]
+            step["all_stored_indexes"] = stored
+            step["looking_for"] = blind_index
             return JSONResponse(content={"step": "find_operator", "result": step})
 
         # Step 3: Verify password
