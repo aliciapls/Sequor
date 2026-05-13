@@ -16,12 +16,6 @@ services:
         value: "ccfa814c5c0eef94d4876d43d0ce6bd4d724613dab4addcf70c6d44ab8a5b666"
       - key: ENCRYPTION_MASTER_KEY
         value: "qP6dumbNwBfXIQ8z32PbK6sZTfcv39ELJzPSGZxKN/g="
-      - key: STRIPE_API_KEY
-        value: "sk_test_51TWIi1EWalmO6aQKXtdeZkn9ltcLB3MSDZG7RYiqSkw4IyNgluJi17XG37XS0XaPtALeAu5TMjXVxydA1I3QeAE300TM3Qf5Qk"
-      - key: STRIPE_WEBHOOK_SECRET
-        value: "whsec_1MJ9dRszfM9rwoOJX49tUJ9LoqPbv8K"
-      - key: STRIPE_STARTER_PRICE_ID
-        value: "price_1TWIn2EWalmO6aQKUHGYdg0y"
 
 databases:
   - name: sequor-db
