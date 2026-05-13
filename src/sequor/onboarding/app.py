@@ -591,8 +591,41 @@ async def backfill_blind_indexes(request: Request):
     })
 
 
+@app.get("/api/v1/debug/login-debug")
+async def login_debug(email: str, password: str):
+    """Debug login: returns what the login flow finds."""
+    from sequor.db.database import get_engine
+    from sequor.db.encrypted_column import compute_email_blind_index
+    from sequor.auth import verify_password
+    from sqlalchemy import select
+    from sequor.db.models import BackupContact
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        blind_index = compute_email_blind_index(email)
+        result = await session.execute(
+            select(BackupContact).where(BackupContact.email_blind_index == blind_index)
+        )
+        operator = result.scalars().first()
+
+        if not operator:
+            return JSONResponse(content={"found": False, "blind_index": blind_index})
+
+        # Check password
+        pw_ok = verify_password(password, operator.password_hash)
+
+        return JSONResponse(content={
+            "found": True,
+            "operator_id": str(operator.id),
+            "tenant_id": str(operator.tenant_id),
+            "email_ciphertext": operator.email[:30] + "..." if operator.email else None,
+            "password_hash": operator.password_hash[:30] + "...",
+            "password_ok": pw_ok,
+        })
+
+
 @app.post("/api/v1/auth/logout")
-async def auth_logout():
     """Clear the session cookie."""
     from fastapi.responses import JSONResponse as JR
     response = JR(content={"status": "ok"})
