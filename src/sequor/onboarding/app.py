@@ -483,6 +483,13 @@ async def auth_login(request: Request):
         if not verify_password(password, operator.password_hash):
             return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
 
+        # Set tenant key so operator.email decryption works below
+        from sequor.db.encryption_keys import KeyManager
+        km = KeyManager(settings.encryption_master_key)
+        tenant_key = await km.get_tenant_key(session, operator.tenant_id)
+        from sequor.db.encrypted_column import set_tenant_key
+        set_tenant_key(tenant_key)
+
         # Create JWT
         token = create_access_token_for_operator(
             operator_id=str(operator.id),
