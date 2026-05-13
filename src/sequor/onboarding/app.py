@@ -525,6 +525,13 @@ async def debug_login(email: str, password: str):
 
         # Step 3: Verify password
         try:
+            # Diagnostic: show exact types and lengths
+            step["password_type"] = type(password).__name__
+            step["password_len"] = len(password)
+            step["password_hash_type"] = type(operator.password_hash).__name__
+            step["password_hash_len"] = len(operator.password_hash) if operator.password_hash else 0
+            step["password_hash_first10"] = operator.password_hash[:10] if operator.password_hash else None
+            # Now try verify_password
             pw_ok = verify_password(password, operator.password_hash)
             step["password_ok"] = pw_ok
             if not pw_ok:
