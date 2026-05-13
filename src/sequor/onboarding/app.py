@@ -453,23 +453,26 @@ async def ping():
 @app.get("/api/v1/debug/bcrypt-test")
 async def bcrypt_test(password: str = "TestPass", hash: str = None):
     """Test bcrypt hash and verify on the server."""
-    import bcrypt
+    import bcrypt as bcrypt_module
+    import sys
+    result = {
+        "bcrypt_module": sys.modules.get("bcrypt", None).__name__ if sys.modules.get("bcrypt") else "not_found",
+        "bcrypt_file": getattr(sys.modules.get("bcrypt", None), "__file__", "unknown"),
+        "password": password,
+    }
     try:
         # Test basic hash + verify
-        hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-        verified = bcrypt.checkpw(password.encode(), hashed)
-        result = {
-            "bcrypt_version": bcrypt.__version__,
-            "password": password,
-            "password_bytes_len": len(password.encode()),
-            "hash": hashed.decode(),
-            "hash_str_len": len(hashed.decode()),
-            "verify_result": verified,
-        }
+        hashed = bcrypt_module.hashpw(password.encode(), bcrypt_module.gensalt())
+        verified = bcrypt_module.checkpw(password.encode(), hashed)
+        result["bcrypt_version"] = bcrypt_module.__version__
+        result["password_bytes_len"] = len(password.encode())
+        result["hash"] = hashed.decode()
+        result["hash_str_len"] = len(hashed.decode())
+        result["verify_result"] = verified
         # If a hash is provided, also test it
         if hash:
             try:
-                verified2 = bcrypt.checkpw(password.encode(), hash.encode())
+                verified2 = bcrypt_module.checkpw(password.encode(), hash.encode())
                 result["hash_verify"] = verified2
                 result["hash_provided"] = hash
             except Exception as e2:
@@ -478,7 +481,9 @@ async def bcrypt_test(password: str = "TestPass", hash: str = None):
         return JSONResponse(content=result)
     except Exception as e:
         import traceback
-        return JSONResponse(content={"error": str(e), "trace": traceback.format_exc(), "bcrypt_version": bcrypt.__version__})
+        result["error"] = str(e)
+        result["trace"] = traceback.format_exc()
+        return JSONResponse(content=result)
 
 
 @app.get("/api/v1/debug/login")
