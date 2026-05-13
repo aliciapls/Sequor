@@ -42,11 +42,23 @@ async def init_db() -> None:
 
     engine = get_engine()
     async with engine.begin() as conn:
-        # Enable pgvector extension before creating tables
         from sqlalchemy import text
+        # Enable pgvector extension before creating tables
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
         await conn.run_sync(Base.metadata.create_all)
+
+        # Migration: add email_blind_index column if missing (backfill for existing accounts)
+        result = await conn.execute(
+            text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'backup_contacts' AND column_name = 'email_blind_index'
+            """)
+        )
+        if result.fetchone() is None:
+            await conn.execute(text(
+                "ALTER TABLE backup_contacts ADD COLUMN email_blind_index VARCHAR(64)"
+            ))
 
 
 async def drop_all(*, force: bool = False) -> None:
