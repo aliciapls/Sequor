@@ -445,6 +445,73 @@ async def whatsapp_inbound(request: Request):
 # ── Auth API ──────────────────────────────────────────────────────────────────
 
 
+@app.get("/api/v1/debug/ping")
+async def ping():
+    return JSONResponse(content={"ok": True})
+
+
+@app.get("/api/v1/debug/login")
+async def debug_login(email: str, password: str):
+    """Step-by-step debug of login failure."""
+    from sequor.db.database import get_engine
+    from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
+    from sequor.auth import verify_password
+    from sequor.db.encryption_keys import KeyManager
+    from sqlalchemy import select
+    from sequor.db.models import BackupContact
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    step = {"email": email}
+
+    # Step 1: Compute blind index
+    try:
+        blind_index = compute_email_blind_index(email)
+        step["blind_index"] = blind_index
+    except Exception as e:
+        return JSONResponse(content={"step": "compute_blind_index", "error": str(e)})
+
+    # Step 2: Find operator
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(BackupContact).where(BackupContact.email_blind_index == blind_index)
+        )
+        operator = result.scalars().first()
+        step["operator_found"] = operator is not None
+        if operator:
+            step["operator_id"] = str(operator.id)
+            step["tenant_id"] = str(operator.tenant_id)
+        else:
+            return JSONResponse(content={"step": "find_operator", "result": step})
+
+        # Step 3: Verify password
+        try:
+            pw_ok = verify_password(password, operator.password_hash)
+            step["password_ok"] = pw_ok
+            if not pw_ok:
+                return JSONResponse(content={"step": "verify_password", "result": step})
+        except Exception as e:
+            return JSONResponse(content={"step": "verify_password", "error": str(e)})
+
+        # Step 4: Get tenant key
+        try:
+            km = KeyManager(settings.encryption_master_key)
+            tenant_key = await km.get_tenant_key(session, operator.tenant_id)
+            step["tenant_key_ok"] = True
+            set_tenant_key(tenant_key)
+        except Exception as e:
+            return JSONResponse(content={"step": "get_tenant_key", "error": str(e), "result": step})
+
+        # Step 5: Decrypt email
+        try:
+            decrypted_email = operator.email
+            step["decrypted_email"] = decrypted_email
+        except Exception as e:
+            return JSONResponse(content={"step": "decrypt_email", "error": str(e), "result": step})
+
+        return JSONResponse(content={"step": "all_ok", "result": step})
+
+
 @app.post("/api/v1/auth/login")
 async def auth_login(request: Request):
     """Verify operator credentials and return a JWT in an HttpOnly cookie."""
