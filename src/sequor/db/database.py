@@ -38,6 +38,7 @@ async def init_db() -> None:
         RoutingOutcome,
         Tenant,
     )
+    from sequor.db.encryption_keys import TenantEncryptionKey  # noqa: F401 — register table
 
     engine = get_engine()
     async with engine.begin() as conn:
@@ -68,6 +69,7 @@ async def drop_all(*, force: bool = False) -> None:
         RoutingOutcome,
         Tenant,
     )
+    from sequor.db.encryption_keys import TenantEncryptionKey  # noqa: F401
 
     engine = get_engine()
     async with engine.begin() as conn:
