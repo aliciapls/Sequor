@@ -878,11 +878,14 @@ async def portal_api_dashboard(request: Request):
     from sqlalchemy import select, func
     from sqlalchemy.ext.asyncio import AsyncSession
     from sequor.db.models import Message, Escalation, Response
+    from datetime import datetime, timedelta, timezone
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
-        # Messages received in last 7 days
-        week_ago = func.now() - func.make_interval(days=7)
+        now = datetime.now(timezone.utc)
+        week_ago = now - timedelta(days=7)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
         msg_count = await session.scalar(
             select(func.count(Message.id)).where(
                 Message.tenant_id == tenant_id,
@@ -891,7 +894,6 @@ async def portal_api_dashboard(request: Request):
             )
         )
 
-        # Auto-replied in last 7 days
         auto_reply_count = await session.scalar(
             select(func.count(Response.id)).where(
                 Response.tenant_id == tenant_id,
@@ -900,7 +902,6 @@ async def portal_api_dashboard(request: Request):
             )
         )
 
-        # Open escalations
         open_esc_count = await session.scalar(
             select(func.count(Escalation.id)).where(
                 Escalation.tenant_id == tenant_id,
@@ -908,8 +909,6 @@ async def portal_api_dashboard(request: Request):
             )
         )
 
-        # Messages today
-        today_start = func.date_trunc("day", func.now())
         today_count = await session.scalar(
             select(func.count(Message.id)).where(
                 Message.tenant_id == tenant_id,
@@ -1229,6 +1228,7 @@ async def portal_api_subscription(request: Request):
     from sqlalchemy import select, func
     from sqlalchemy.ext.asyncio import AsyncSession
     from sequor.db.models import Tenant, Account, Message, Document, BackupContact
+    from datetime import datetime, timezone
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
@@ -1251,7 +1251,8 @@ async def portal_api_subscription(request: Request):
         )
 
         # Messages this month
-        month_start = func.date_trunc("month", func.now())
+        now = datetime.now(timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         messages_this_month = await session.scalar(
             select(func.count(Message.id)).where(
                 Message.tenant_id == tenant_id,
