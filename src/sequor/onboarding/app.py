@@ -506,6 +506,7 @@ async def debug_login(email: str, password: str):
     from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
     from sequor.auth import verify_password
     from sequor.db.encryption_keys import KeyManager
+    from sequor.config import settings
     from sqlalchemy import select
     from sequor.db.models import BackupContact
     from sqlalchemy.ext.asyncio import AsyncSession
