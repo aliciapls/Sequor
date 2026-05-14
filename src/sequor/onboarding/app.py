@@ -1181,7 +1181,7 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
             {
                 "id": str(d.id),
                 "name": d.name,
-                "document_type": d.document_type.value if d.document_type else None,
+                "document_type": d.type.value if d.type else None,
                 "status": d.status.value if d.status else None,
                 "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None,
             }
@@ -1266,11 +1266,11 @@ async def portal_api_subscription(request: Request):
             select(func.count(Document.id)).where(Document.tenant_id == tenant_id)
         )
 
-        await session.commit()
+        # Capture tenant fields inside session before it closes (avoids lazy-load failure)
+        tenant_plan = tenant.plan.value if tenant else "free"
+        tenant_name = tenant.name if tenant else ""
 
-    # Capture tenant plan inside session before it closes (avoids lazy-load after session ends)
-    tenant_plan = tenant.plan.value if tenant else "free"
-    tenant_name = tenant.name if tenant else ""
+        await session.commit()
 
     # Plan limits by plan type
     plan_limits = {
