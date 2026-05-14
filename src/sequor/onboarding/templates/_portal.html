@@ -689,7 +689,7 @@
             <a href="/portal/escalations" id="nav-escalations">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 Escalations
-                <span class="nav-badge" id="escalation-count">2</span>
+                <span class="nav-badge" id="escalation-count">0</span>
             </a>
             <a href="/portal/auto-replies" id="nav-auto-replies">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
@@ -734,8 +734,8 @@
                 <a href="/portal/settings" class="sidebar-user" style="flex:1;text-decoration:none;">
                     <div class="sidebar-user-avatar" id="user-avatar">D</div>
                     <div class="sidebar-user-info">
-                        <div class="sidebar-user-name" id="user-name">Demo Operator</div>
-                        <div class="sidebar-user-email" id="user-email">owner@integrationtest.com</div>
+                        <div class="sidebar-user-name" id="user-name">—</div>
+                        <div class="sidebar-user-email" id="user-email">—</div>
                     </div>
                 </a>
                 <button class="sidebar-logout" onclick="(async function(){try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}catch(_){}window.location.href='/portal/login';})();" title="Sign out">

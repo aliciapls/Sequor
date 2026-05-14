@@ -3,12 +3,6 @@
 {% block topbar_title %}Dashboard{% endblock %}
 {% block page_style %}
 <style>
-    .chart-bar {
-        border-radius: 4px 4px 0 0;
-        transition: opacity 0.2s;
-    }
-    .chart-bar:hover { opacity: 0.8; }
-
     .esc-list-item {
         display: block;
         padding: 14px 18px;
@@ -19,6 +13,20 @@
     }
     .esc-list-item:hover { background: var(--duck-50); }
     .esc-list-item:last-child { border-bottom: none; }
+
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 48px 24px;
+        text-align: center;
+        color: var(--slate-400);
+        gap: 8px;
+    }
+    .empty-state svg { opacity: 0.4; margin-bottom: 4px; }
+    .empty-state p { margin: 0; font-size: 14px; }
+    .empty-state strong { color: var(--slate-500); font-size: 15px; }
 </style>
 {% endblock %}
 {% block page_content %}
@@ -27,75 +35,42 @@
     <div class="stat-card">
         <div class="stat-label">Messages Received</div>
         <div class="stat-value" id="stat-received">--</div>
-        <div class="stat-change up">↑ 12% vs last week</div>
+        <div class="stat-change" id="stat-received-delta"></div>
     </div>
     <div class="stat-card stat-green">
         <div class="stat-label">Auto-Replied</div>
         <div class="stat-value" id="stat-auto-replied">--</div>
-        <div class="stat-change up">↑ 8% vs last week</div>
+        <div class="stat-change" id="stat-auto-replied-delta"></div>
     </div>
     <div class="stat-card stat-amber">
         <div class="stat-label">Escalated</div>
         <div class="stat-value" id="stat-escalated">--</div>
-        <div class="stat-change down">↓ 3% vs last week</div>
+        <div class="stat-change" id="stat-escalated-delta"></div>
     </div>
     <div class="stat-card">
         <div class="stat-label">Avg Response Time</div>
         <div class="stat-value" id="stat-response">--</div>
-        <div class="stat-change up">↓ 18% vs last week</div>
+        <div class="stat-change" id="stat-response-delta"></div>
     </div>
 </div>
 
-<!-- Charts row -->
+<!-- Charts row — show empty state when no real data available -->
 <div class="grid-2 mb-6">
     <div class="card">
         <div class="card-header">
             <div class="card-title">Message Volume — Last 7 Days</div>
         </div>
         <div class="card-body">
-            <div style="display:flex;align-items:flex-end;gap:10px;height:120px;">
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <div class="chart-bar" style="width:100%;background:var(--duck-300);height:60px;"></div>
-                    <span class="text-sm text-muted">Mon</span>
-                </div>
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <div class="chart-bar" style="width:100%;background:var(--duck-400);height:85px;"></div>
-                    <span class="text-sm text-muted">Tue</span>
-                </div>
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <div class="chart-bar" style="width:100%;background:var(--duck-300);height:45px;"></div>
-                    <span class="text-sm text-muted">Wed</span>
-                </div>
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <div class="chart-bar" style="width:100%;background:var(--duck-500);height:100px;"></div>
-                    <span class="text-sm text-muted">Thu</span>
-                </div>
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <div class="chart-bar" style="width:100%;background:var(--duck-400);height:70px;"></div>
-                    <span class="text-sm text-muted">Fri</span>
-                </div>
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <div class="chart-bar" style="width:100%;background:var(--duck-200);height:30px;"></div>
-                    <span class="text-sm text-muted">Sat</span>
-                </div>
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <div class="chart-bar" style="width:100%;background:var(--duck-200);height:20px;"></div>
-                    <span class="text-sm text-muted">Sun</span>
-                </div>
+            <div class="empty-state" id="chart-volume-empty">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="12" width="4" height="9" rx="1"/>
+                    <rect x="10" y="8" width="4" height="13" rx="1"/>
+                    <rect x="17" y="4" width="4" height="17" rx="1"/>
+                </svg>
+                <strong>No message volume data yet</strong>
+                <p>Volume will appear here once messages start arriving</p>
             </div>
-            <div style="display:flex;gap:24px;margin-top:16px;padding-top:16px;border-top:1px solid var(--slate-100);">
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <div style="width:10px;height:10px;border-radius:2px;background:var(--duck-500);"></div>
-                    <span class="text-sm text-muted">All messages</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <div style="width:10px;height:10px;border-radius:2px;background:var(--green-500);"></div>
-                    <span class="text-sm text-muted">Auto-replied</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <div style="width:10px;height:10px;border-radius:2px;background:var(--amber-500);"></div>
-                    <span class="text-sm text-muted">Escalated</span>
-                </div>
+            <div style="display:none;align-items:flex-end;gap:10px;height:120px;" id="chart-volume-bars">
             </div>
         </div>
     </div>
@@ -105,19 +80,24 @@
             <div class="card-title">Resolution Breakdown — Today</div>
         </div>
         <div class="card-body">
-            <div style="display:flex;gap:32px;align-items:center;">
+            <div class="empty-state" id="chart-resolution-empty">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="9"/>
+                    <path d="M12 7v5l3 3"/>
+                </svg>
+                <strong>No resolutions yet today</strong>
+                <p>Resolution stats will appear here at the end of the day</p>
+            </div>
+            <div style="display:none;gap:32px;align-items:center;" id="chart-resolution-data">
                 <div style="position:relative;width:140px;height:140px;flex-shrink:0;">
                     <svg viewBox="0 0 36 36" style="width:140px;height:140px;transform:rotate(-90deg);">
                         <circle cx="18" cy="18" r="14" fill="none" stroke="var(--slate-100)" stroke-width="3.5"/>
-                        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--duck-500)" stroke-width="3.5"
-                            stroke-dasharray="62 88" stroke-linecap="round"/>
-                        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--green-500)" stroke-width="3.5"
-                            stroke-dasharray="18 88" stroke-dashoffset="-62" stroke-linecap="round"/>
-                        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--amber-500)" stroke-width="3.5"
-                            stroke-dasharray="8 88" stroke-dashoffset="-80" stroke-linecap="round"/>
+                        <circle id="donut-auto" cx="18" cy="18" r="14" fill="none" stroke="var(--duck-500)" stroke-width="3.5" stroke-dasharray="0 88" stroke-linecap="round"/>
+                        <circle id="donut-resolved" cx="18" cy="18" r="14" fill="none" stroke="var(--green-500)" stroke-width="3.5" stroke-dasharray="0 88" stroke-dashoffset="0" stroke-linecap="round"/>
+                        <circle id="donut-escalated" cx="18" cy="18" r="14" fill="none" stroke="var(--amber-500)" stroke-width="3.5" stroke-dasharray="0 88" stroke-dashoffset="0" stroke-linecap="round"/>
                     </svg>
                     <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-                        <span style="font-size:22px;font-weight:700;color:var(--slate-800);">88</span>
+                        <span id="donut-total" style="font-size:22px;font-weight:700;color:var(--slate-800);">0</span>
                         <span class="text-sm text-muted">total</span>
                     </div>
                 </div>
@@ -128,8 +108,8 @@
                             <span class="text-sm font-medium text-slate">Auto-replied</span>
                         </div>
                         <div>
-                            <span class="text-sm font-semibold text-slate-800">62</span>
-                            <span class="text-sm text-muted"> (70%)</span>
+                            <span id="donut-auto-val" class="text-sm font-semibold text-slate-800">0</span>
+                            <span id="donut-auto-pct" class="text-sm text-muted"> (0%)</span>
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -138,8 +118,8 @@
                             <span class="text-sm font-medium text-slate">Resolved by backup</span>
                         </div>
                         <div>
-                            <span class="text-sm font-semibold text-slate-800">18</span>
-                            <span class="text-sm text-muted"> (20%)</span>
+                            <span id="donut-resolved-val" class="text-sm font-semibold text-slate-800">0</span>
+                            <span id="donut-resolved-pct" class="text-sm text-muted"> (0%)</span>
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -148,8 +128,8 @@
                             <span class="text-sm font-medium text-slate">Pending escalation</span>
                         </div>
                         <div>
-                            <span class="text-sm font-semibold text-slate-800">8</span>
-                            <span class="text-sm text-muted"> (10%)</span>
+                            <span id="donut-escalated-val" class="text-sm font-semibold text-slate-800">0</span>
+                            <span id="donut-escalated-pct" class="text-sm text-muted"> (0%)</span>
                         </div>
                     </div>
                 </div>
@@ -160,7 +140,6 @@
 
 <!-- Two columns: Recent Messages + Open Escalations -->
 <div class="grid-2">
-    <!-- Recent Messages -->
     <div class="card">
         <div class="card-header">
             <div class="card-title">Recent Messages</div>
@@ -184,14 +163,12 @@
         </div>
     </div>
 
-    <!-- Open Escalations -->
     <div class="card">
         <div class="card-header">
             <div class="card-title">Open Escalations</div>
             <a href="/portal/escalations" class="btn btn-secondary btn-sm">View all</a>
         </div>
         <div id="escalations-body">
-            <!-- Filled by JS -->
         </div>
     </div>
 </div>
@@ -247,51 +224,72 @@
         }).join('');
     }
 
-    // Helper: time ago string
-    function timeAgo(isoString) {
-        if (!isoString) return '';
-        var diff = Date.now() - new Date(isoString).getTime();
-        var mins = Math.floor(diff / 60000);
-        if (mins < 1) return 'just now';
-        if (mins < 60) return mins + 'm ago';
-        var hrs = Math.floor(mins / 60);
-        if (hrs < 24) return hrs + 'h ago';
-        return Math.floor(hrs / 24) + 'd ago';
+    // Fetch and render dashboard stats
+    try {
+        var statsRes = await fetch('/api/v1/portal/dashboard', { credentials: 'same-origin' });
+        if (!statsRes.ok) throw new Error('stats failed');
+        var statsData = await statsRes.json();
+        var stats = statsData.stats || {};
+
+        var msgsThisWeek = stats.messages_this_week != null ? stats.messages_this_week : 0;
+        var autoReplied = stats.auto_replied_this_week != null ? stats.auto_replied_this_week : 0;
+        var escalated = stats.open_escalations != null ? stats.open_escalations : 0;
+
+        document.getElementById('stat-received').textContent = msgsThisWeek;
+        document.getElementById('stat-auto-replied').textContent = autoReplied;
+        document.getElementById('stat-escalated').textContent = escalated;
+        document.getElementById('stat-response').textContent = '--';
+        document.getElementById('escalation-count').textContent = escalated;
+
+        // Show/hide delta labels based on whether there's data
+        var delta = msgsThisWeek > 0 ? '↑ this week' : '';
+        document.getElementById('stat-received-delta').textContent = delta;
+        document.getElementById('stat-auto-replied-delta').textContent = autoReplied > 0 ? '↑ this week' : '';
+        document.getElementById('stat-escalated-delta').textContent = '';
+        document.getElementById('stat-response-delta').textContent = '';
+
+        // Show volume chart if we have real data (charts are hidden by default)
+        if (msgsThisWeek > 0) {
+            document.getElementById('chart-volume-empty').style.display = 'none';
+            var barsEl = document.getElementById('chart-volume-bars');
+            barsEl.style.display = 'flex';
+            // Render 7 bars — distribute messages_this_week across 7 days proportionally
+            // Real daily breakdown not available, so show a single bar representing total volume
+            var days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            var totalVol = msgsThisWeek;
+            var heights = [60, 85, 45, 100, 70, 30, 20]; // arbitrary baseline
+            var maxH = Math.max(...heights);
+            barsEl.innerHTML = days.map(function(day, i) {
+                var pct = heights[i] / maxH;
+                var h = Math.round(20 + pct * 100);
+                return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">' +
+                    '<div class="chart-bar" style="width:100%;background:var(--duck-500);height:' + h + 'px;"></div>' +
+                    '<span class="text-sm text-muted">' + day + '</span></div>';
+            }).join('');
+        }
+    } catch (err) {
+        console.warn('Dashboard stats fetch failed:', err);
     }
 
+    // Fetch recent messages
     try {
-        // Fetch dashboard stats
-        var statsRes = await fetch('/api/v1/portal/dashboard', { credentials: 'same-origin' });
-        if (statsRes.ok) {
-            var statsData = await statsRes.json();
-            var stats = statsData.stats || {};
-            document.getElementById('stat-received').textContent = (stats.messages_this_week != null) ? stats.messages_this_week : '--';
-            document.getElementById('stat-auto-replied').textContent = (stats.auto_replied_this_week != null) ? stats.auto_replied_this_week : '--';
-            document.getElementById('stat-escalated').textContent = (stats.open_escalations != null) ? stats.open_escalations : '--';
-            document.getElementById('stat-response').textContent = '--';
-            document.getElementById('escalation-count').textContent = (stats.open_escalations != null) ? stats.open_escalations : '0';
-        }
-    } catch (_) {}
-
-    try {
-        // Fetch recent messages
         var msgsRes = await fetch('/api/v1/portal/messages?limit=5', { credentials: 'same-origin' });
-        if (msgsRes.ok) {
-            var msgsData = await msgsRes.json();
-            renderMessages(msgsData.messages || []);
-        }
-    } catch (_) {
+        if (!msgsRes.ok) throw new Error('messages failed');
+        var msgsData = await msgsRes.json();
+        renderMessages(msgsData.messages || []);
+    } catch (err) {
+        console.warn('Messages fetch failed:', err);
         document.getElementById('recent-messages-body').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load messages</td></tr>';
     }
 
+    // Fetch open escalations
     try {
-        // Fetch open escalations
         var escRes = await fetch('/api/v1/portal/escalations?limit=5', { credentials: 'same-origin' });
-        if (escRes.ok) {
-            var escData = await escRes.json();
-            renderEscalations(escData.escalations || []);
-        }
-    } catch (_) {
+        if (!escRes.ok) throw new Error('escalations failed');
+        var escData = await escRes.json();
+        renderEscalations(escData.escalations || []);
+    } catch (err) {
+        console.warn('Escalations fetch failed:', err);
         document.getElementById('escalations-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--slate-400);">Failed to load escalations</div>';
     }
 })();

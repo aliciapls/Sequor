@@ -1,0 +1,138 @@
+{% extends "_portal.html" %}
+{% block title %}Account Settings — Sequor Portal{% endblock %}
+{% block topbar_title %}Account Settings{% endblock %}
+{% block page_style %}
+<style>
+    .settings-section { margin-bottom: 32px; }
+    .settings-section h3 {
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--slate-400);
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--slate-100);
+    }
+    .settings-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--slate-50);
+    }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-label { font-size: 14px; color: var(--slate-600); }
+    .settings-value { font-size: 14px; font-weight: 500; color: var(--slate-800); text-align: right; }
+    .settings-value.mono { font-family: monospace; font-size: 13px; }
+    .badge-role {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+    .badge-role.admin { background: var(--duck-100); color: var(--duck-700); }
+    .badge-role.operator { background: var(--slate-100); color: var(--slate-600); }
+    .settings-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 60px;
+        color: var(--slate-400);
+    }
+    .settings-error {
+        padding: 16px;
+        background: var(--red-50);
+        color: var(--red-600);
+        border-radius: 8px;
+        font-size: 14px;
+        margin-bottom: 16px;
+        display: none;
+    }
+</style>
+{% endblock %}
+{% block page_content %}
+<div id="settings-error" class="settings-error"></div>
+<div id="settings-content" class="settings-loading">Loading…</div>
+{% endblock %}
+{% block page_script %}
+(async function() {
+    var errorEl = document.getElementById('settings-error');
+    var contentEl = document.getElementById('settings-content');
+
+    function showError(msg) {
+        errorEl.textContent = msg;
+        errorEl.style.display = 'block';
+        contentEl.style.display = 'none';
+    }
+
+    try {
+        var meRes = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+        if (!meRes.ok) { showError('Failed to load account info. Please log in again.'); return; }
+        var meData = await meRes.json();
+        var op = meData.operator || {};
+        var roleClass = op.role === 'admin' ? 'admin' : 'operator';
+        var accountId = op.account_id || '';
+        var tenantId = op.tenant_id || '';
+
+        contentEl.className = 'card';
+        contentEl.innerHTML = `
+            <div class="settings-section">
+                <h3>Account</h3>
+                <div class="settings-row">
+                    <span class="settings-label">Account ID</span>
+                    <span class="settings-value mono">${accountId}</span>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Tenant ID</span>
+                    <span class="settings-value mono">${tenantId}</span>
+                </div>
+            </div>
+            <div class="settings-section">
+                <h3>Operator</h3>
+                <div class="settings-row">
+                    <span class="settings-label">Name</span>
+                    <span class="settings-value">${op.name || '—'}</span>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Email</span>
+                    <span class="settings-value">${op.email || '—'}</span>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Role</span>
+                    <span class="badge-role ${roleClass}">${op.role || '—'}</span>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">Operator ID</span>
+                    <span class="settings-value mono">${op.id || '—'}</span>
+                </div>
+            </div>
+            <div class="settings-section">
+                <h3>Subscription</h3>
+                <div class="settings-row">
+                    <span class="settings-label">Plan</span>
+                    <span class="settings-value">Loading…</span>
+                </div>
+            </div>
+        `;
+
+        // Try to load subscription info
+        try {
+            var subRes = await fetch('/api/v1/portal/subscription', { credentials: 'same-origin' });
+            if (subRes.ok) {
+                var subData = await subRes.json();
+                var subRows = contentEl.querySelectorAll('.settings-row');
+                var subLast = subRows[subRows.length - 1];
+                if (subData.subscription) {
+                    subLast.querySelector('.settings-value').textContent =
+                        subData.subscription.plan_name || subData.subscription.plan || '—';
+                }
+            }
+        } catch (_) {}
+    } catch (err) {
+        showError('Failed to load settings. Please try refreshing.');
+    }
+})();
+{% endblock %}

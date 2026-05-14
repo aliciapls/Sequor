@@ -1455,4 +1455,4 @@ async def portal_settings(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
         return templates.TemplateResponse("login.html", {"request": request})
-    return HTMLResponse(status_code=200, content="<html><body style='font-family:Inter,system-ui;padding:60px;text-align:center;'><h2 style='color:#1a4a63;'>Settings</h2><p style='color:#64748b;'>Account settings coming soon.</p><a href='/portal/dashboard' style='color:#3c8eaf;'>← Back to dashboard</a></body></html>")
+    return templates.TemplateResponse("settings.html", {"request": request})
