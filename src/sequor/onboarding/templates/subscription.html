@@ -215,8 +215,10 @@
                     Math.min(100, (usage.operator_count / opLimit) * 100) + '%';
             }
 
-            // Upgrade card
-            if (data.upgrade_available) {
+            // Upgrade card — only show for free/starter, and relabel to next plan
+            if (data.upgrade_available && plan.name !== 'professional' && plan.name !== 'enterprise') {
+                var nextPlan = plan.name === 'free' ? 'Starter' : 'Professional';
+                document.querySelector('#upgrade-card .card-title').textContent = 'Upgrade to ' + nextPlan;
                 document.getElementById('upgrade-card').style.display = 'block';
                 document.getElementById('upgrade-btn').addEventListener('click', async function() {
                     var btn = document.getElementById('upgrade-btn');

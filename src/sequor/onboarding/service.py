@@ -140,7 +140,7 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     tenant = Tenant(
         name=request.org_name,
         email_domain=owner_domain,
-        plan="starter",
+        plan="free",
         settings={},
         pdpa_consent_recorded_at=None,
     )

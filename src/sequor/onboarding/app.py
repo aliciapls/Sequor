@@ -1085,6 +1085,44 @@ async def portal_api_subscription(request: Request):
     })
 
 
+@app.get("/api/v1/portal/me")
+async def portal_api_me(request: Request):
+    """Return current operator's profile with decrypted email and account name."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+    account_id = operator["account_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import BackupContact, Account
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(BackupContact).where(BackupContact.id == operator["operator_id"])
+        )
+        contact = result.scalars().first()
+
+        acct_result = await session.execute(
+            select(Account).where(Account.id == account_id)
+        )
+        account = acct_result.scalars().first()
+
+        # Capture fields while session is open (encrypted strings need tenant key context)
+        name = contact.name if contact else operator.get("name", "")
+        email = contact.email if contact else ""
+        role = operator.get("role", "")
+        account_name = account.name if account else ""
+
+    return JSONResponse(content={
+        "name": name,
+        "email": email,
+        "role": role,
+        "account_name": account_name,
+    })
+
+
 @app.post("/api/v1/portal/upgrade")
 async def portal_api_upgrade(request: Request):
     """Create a Stripe Checkout session for plan upgrade."""

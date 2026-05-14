@@ -17,13 +17,15 @@
     .settings-row {
         display: flex;
         justify-content: space-between;
-        align-items: center;
-        padding: 12px 0;
+        align-items: flex-start;
+        gap: 24px;
+        padding: 14px 0;
         border-bottom: 1px solid var(--slate-50);
+        min-width: 0;
     }
     .settings-row:last-child { border-bottom: none; }
-    .settings-label { font-size: 14px; color: var(--slate-600); }
-    .settings-value { font-size: 14px; font-weight: 500; color: var(--slate-800); text-align: right; }
+    .settings-label { font-size: 14px; color: var(--slate-600); flex-shrink: 0; }
+    .settings-value { font-size: 14px; font-weight: 500; color: var(--slate-800); text-align: right; word-break: break-all; min-width: 0; }
     .settings-value.mono { font-family: monospace; font-size: 13px; }
     .badge-role {
         display: inline-block;
@@ -69,70 +71,54 @@
     }
 
     try {
-        var meRes = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+        // Fetch decrypted profile and subscription in parallel
+        var [meRes, subRes] = await Promise.all([
+            fetch('/api/v1/portal/me', { credentials: 'same-origin' }),
+            fetch('/api/v1/portal/subscription', { credentials: 'same-origin' }),
+        ]);
+
         if (!meRes.ok) { showError('Failed to load account info. Please log in again.'); return; }
         var meData = await meRes.json();
-        var op = meData.operator || {};
-        var roleClass = op.role === 'admin' ? 'admin' : 'operator';
-        var accountId = op.account_id || '';
-        var tenantId = op.tenant_id || '';
+        var roleClass = meData.role === 'admin' ? 'admin' : 'operator';
+
+        var planName = '—';
+        if (subRes.ok) {
+            var subData = await subRes.json();
+            planName = (subData.plan && subData.plan.display_name) || subData.plan.name || '—';
+        }
 
         contentEl.className = 'card';
         contentEl.innerHTML = `
             <div class="settings-section">
                 <h3>Account</h3>
                 <div class="settings-row">
-                    <span class="settings-label">Account ID</span>
-                    <span class="settings-value mono">${accountId}</span>
-                </div>
-                <div class="settings-row">
-                    <span class="settings-label">Tenant ID</span>
-                    <span class="settings-value mono">${tenantId}</span>
+                    <span class="settings-label">Account Name</span>
+                    <span class="settings-value">${meData.account_name || '—'}</span>
                 </div>
             </div>
             <div class="settings-section">
                 <h3>Operator</h3>
                 <div class="settings-row">
                     <span class="settings-label">Name</span>
-                    <span class="settings-value">${op.name || '—'}</span>
+                    <span class="settings-value">${meData.name || '—'}</span>
                 </div>
                 <div class="settings-row">
                     <span class="settings-label">Email</span>
-                    <span class="settings-value">${op.email || '—'}</span>
+                    <span class="settings-value">${meData.email || '—'}</span>
                 </div>
                 <div class="settings-row">
                     <span class="settings-label">Role</span>
-                    <span class="badge-role ${roleClass}">${op.role || '—'}</span>
-                </div>
-                <div class="settings-row">
-                    <span class="settings-label">Operator ID</span>
-                    <span class="settings-value mono">${op.id || '—'}</span>
+                    <span class="badge-role ${roleClass}">${meData.role || '—'}</span>
                 </div>
             </div>
             <div class="settings-section">
                 <h3>Subscription</h3>
                 <div class="settings-row">
                     <span class="settings-label">Plan</span>
-                    <span class="settings-value">Loading…</span>
+                    <span class="settings-value">${planName}</span>
                 </div>
             </div>
         `;
-
-        // Try to load subscription info
-        try {
-            var subRes = await fetch('/api/v1/portal/subscription', { credentials: 'same-origin' });
-            if (subRes.ok) {
-                var subData = await subRes.json();
-                var subRows = contentEl.querySelectorAll('.settings-row');
-                var subLast = subRows[subRows.length - 1];
-                if (subData.plan) {
-                    subLast.querySelector('.settings-value').textContent =
-                        subData.plan.display_name || subData.plan.name || '—';
-                }
-            } else {
-                subLast.querySelector('.settings-value').textContent = '—';
-            }
-        } catch (_) {}
     } catch (err) {
         showError('Failed to load settings. Please try refreshing.');
     }
