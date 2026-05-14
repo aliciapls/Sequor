@@ -101,13 +101,13 @@
     <div id="upgrade-card" style="display:none;">
         <div class="card" style="border:2px solid var(--duck-400);">
             <div class="card-header" style="background:var(--duck-50);">
-                <div class="card-title" style="color:var(--duck-800);">Upgrade to Starter</div>
+                <div id="upgrade-title" class="card-title" style="color:var(--duck-800);">Upgrade to Starter</div>
                 <span class="badge badge-blue">Recommended</span>
             </div>
             <div class="card-body">
-                <div style="font-size:28px;font-weight:700;color:var(--slate-800);margin-bottom:4px;">$55<span style="font-size:14px;font-weight:400;color:var(--slate-400);">/seat/mo</span></div>
-                <div class="text-sm text-muted" style="margin-bottom:16px;">5+ seats · Unlimited messages</div>
-                <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">
+                <div id="upgrade-price" style="font-size:28px;font-weight:700;color:var(--slate-800);margin-bottom:4px;">$35<span style="font-size:14px;font-weight:400;color:var(--slate-400);">/seat/mo</span></div>
+                <div id="upgrade-subtitle" class="text-sm text-muted" style="margin-bottom:16px;">5+ seats · Unlimited messages</div>
+                <div id="upgrade-features" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">
                     <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);">
                         <span style="color:var(--green-500);">✓</span> Unlimited messages
                     </div>
@@ -217,8 +217,50 @@
 
             // Upgrade card — only show for free/starter, and relabel to next plan
             if (data.upgrade_available && plan.name !== 'professional' && plan.name !== 'enterprise') {
+                var nextPlanKey = plan.name === 'free' ? 'starter' : 'professional';
                 var nextPlan = plan.name === 'free' ? 'Starter' : 'Professional';
-                document.querySelector('#upgrade-card .card-title').textContent = 'Upgrade to ' + nextPlan;
+                document.getElementById('upgrade-title').textContent = 'Upgrade to ' + nextPlan;
+
+                // Dynamic pricing and features per plan
+                var planDetails = {
+                    starter: {
+                        price: '$35/seat/mo',
+                        subtitle: '5+ seats · Unlimited messages',
+                        features: [
+                            'Unlimited messages',
+                            'Up to 5 team members',
+                            'Unlimited documents',
+                            'Priority RAG processing',
+                            'Advanced analytics',
+                            'PDPA compliance report',
+                        ]
+                    },
+                    professional: {
+                        price: '$55/seat/mo',
+                        subtitle: '5+ seats · Unlimited messages',
+                        features: [
+                            'Everything in Starter',
+                            'Priority RAG processing',
+                            'Advanced analytics',
+                            'SLA tracking',
+                            'Audit trail',
+                            'Team accounts',
+                        ]
+                    }
+                };
+                var details = planDetails[nextPlanKey];
+                document.getElementById('upgrade-price').innerHTML = details.price + '<span style="font-size:14px;font-weight:400;color:var(--slate-400);">/seat/mo</span>';
+                document.getElementById('upgrade-subtitle').textContent = details.subtitle;
+
+                var featDiv = document.getElementById('upgrade-features');
+                featDiv.innerHTML = '';
+                details.features.forEach(function(feat) {
+                    var div = document.createElement('div');
+                    div.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate-700);';
+                    div.innerHTML = '<span style="color:var(--green-500);">✓</span> ' + feat;
+                    featDiv.appendChild(div);
+                });
+
                 document.getElementById('upgrade-card').style.display = 'block';
                 document.getElementById('upgrade-btn').addEventListener('click', async function() {
                     var btn = document.getElementById('upgrade-btn');
