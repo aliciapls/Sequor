@@ -15,7 +15,7 @@
         <p>Messages that need human review or action</p>
     </div>
     <div class="page-header-actions">
-        <span class="badge badge-amber">5 Open</span>
+        <span class="badge badge-amber" id="escalations-count">0 Open</span>
     </div>
 </div>
 
@@ -66,6 +66,10 @@
         if (!res.ok) throw new Error('Failed');
         var data = await res.json();
         var escalations = data.escalations || [];
+        var openCount = escalations.filter(function(e) { return e.status !== 'resolved' && e.status !== 'closed'; }).length;
+        var countEl = document.getElementById('escalations-count');
+        if (countEl) { countEl.textContent = openCount + ' Open'; }
+
         if (escalations.length === 0) {
             tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--slate-400);">No escalations</td></tr>';
             return;

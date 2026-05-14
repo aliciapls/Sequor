@@ -47,8 +47,8 @@ def create_access_token(
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(hours=TOKEN_EXPIRE_HOURS)
     )
-    to_encode["exp"] = expire.isoformat()
-    to_encode["iat"] = datetime.now(timezone.utc).isoformat()
+    to_encode["exp"] = int(expire.timestamp())
+    to_encode["iat"] = int(datetime.now(timezone.utc).timestamp())
     to_encode["jti"] = secrets.token_hex(16)
 
     secret = settings.jwt_secret

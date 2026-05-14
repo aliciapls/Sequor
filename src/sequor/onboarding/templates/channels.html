@@ -81,7 +81,11 @@
     async function loadChannels() {
         try {
             var res = await fetch('/api/v1/portal/channels', { credentials: 'same-origin' });
-            if (!res.ok) return;
+            if (res.status === 401) {
+                window.location.href = '/portal/login';
+                return;
+            }
+            if (!res.ok) throw new Error('Failed');
             var data = await res.json();
 
             document.getElementById('channels-loading').style.display = 'none';

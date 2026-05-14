@@ -248,25 +248,8 @@
         document.getElementById('stat-escalated-delta').textContent = '';
         document.getElementById('stat-response-delta').textContent = '';
 
-        // Show volume chart if we have real data (charts are hidden by default)
-        if (msgsThisWeek > 0) {
-            document.getElementById('chart-volume-empty').style.display = 'none';
-            var barsEl = document.getElementById('chart-volume-bars');
-            barsEl.style.display = 'flex';
-            // Render 7 bars — distribute messages_this_week across 7 days proportionally
-            // Real daily breakdown not available, so show a single bar representing total volume
-            var days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            var totalVol = msgsThisWeek;
-            var heights = [60, 85, 45, 100, 70, 30, 20]; // arbitrary baseline
-            var maxH = Math.max(...heights);
-            barsEl.innerHTML = days.map(function(day, i) {
-                var pct = heights[i] / maxH;
-                var h = Math.round(20 + pct * 100);
-                return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">' +
-                    '<div class="chart-bar" style="width:100%;background:var(--duck-500);height:' + h + 'px;"></div>' +
-                    '<span class="text-sm text-muted">' + day + '</span></div>';
-            }).join('');
-        }
+        // Volume chart requires real daily breakdown data — currently not available from API
+        // Keep empty state until daily breakdown is added to the dashboard endpoint
     } catch (err) {
         console.warn('Dashboard stats fetch failed:', err);
     }

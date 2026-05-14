@@ -90,8 +90,8 @@
             return '<tr>' +
                 '<td><div style="display:flex;align-items:center;gap:8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--duck-500)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-weight:500;">' + (d.name || '—') + '</span></div></td>' +
                 '<td><span class="badge badge-slate">' + docType + '</span></td>' +
-                '<td><span style="font-size:12px;color:var(--duck-600);font-weight:600;">—</span></td>' +
                 '<td class="text-sm text-muted">—</td>' +
+                '<td class="text-sm text-muted"></td>' +
                 '<td class="text-sm text-muted">' + uploadDate + '</td>' +
                 '<td><span class="badge ' + statusBadge + '">' + (d.status || '—') + '</span></td>' +
                 '<td><button class="btn btn-secondary btn-sm">Edit</button></td>' +

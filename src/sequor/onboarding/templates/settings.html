@@ -125,10 +125,12 @@
                 var subData = await subRes.json();
                 var subRows = contentEl.querySelectorAll('.settings-row');
                 var subLast = subRows[subRows.length - 1];
-                if (subData.subscription) {
+                if (subData.plan) {
                     subLast.querySelector('.settings-value').textContent =
-                        subData.subscription.plan_name || subData.subscription.plan || '—';
+                        subData.plan.display_name || subData.plan.name || '—';
                 }
+            } else {
+                subLast.querySelector('.settings-value').textContent = '—';
             }
         } catch (_) {}
     } catch (err) {
