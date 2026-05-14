@@ -731,13 +731,13 @@
 
         <div class="sidebar-footer">
             <div style="display:flex;align-items:center;gap:8px;">
-                <a href="/portal/settings" class="sidebar-user" style="flex:1;text-decoration:none;">
-                    <div class="sidebar-user-avatar" id="user-avatar">D</div>
+                <div class="sidebar-user" style="flex:1;cursor:default;">
+                    <div class="sidebar-user-avatar" id="user-avatar">—</div>
                     <div class="sidebar-user-info">
                         <div class="sidebar-user-name" id="user-name">—</div>
-                        <div class="sidebar-user-email" id="user-email">—</div>
+                        <div class="sidebar-user-email" id="user-email"></div>
                     </div>
-                </a>
+                </div>
                 <button class="sidebar-logout" onclick="(async function(){try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}catch(_){}window.location.href='/portal/login';})();" title="Sign out">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 </button>
@@ -795,17 +795,21 @@
         }
     });
 
-    // Populate user info from API
+    // Populate user info from API (portal/me returns decrypted email)
     (async function() {
         try {
-            const res = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+            const res = await fetch('/api/v1/portal/me', { credentials: 'same-origin' });
             if (res.ok) {
                 const data = await res.json();
-                const op = data.operator;
-                if (op && op.name) {
-                    document.getElementById('user-name').textContent = op.name;
-                    document.getElementById('user-email').textContent = op.email;
-                    document.getElementById('user-avatar').textContent = op.name.charAt(0).toUpperCase();
+                if (data.name) {
+                    document.getElementById('user-name').textContent = data.name;
+                    document.getElementById('user-avatar').textContent = data.name.charAt(0).toUpperCase();
+                }
+                if (data.email) {
+                    document.getElementById('user-email').textContent = data.email;
+                }
+                if (data.account_name) {
+                    document.getElementById('user-email').textContent = data.account_name;
                 }
             }
         } catch (_) {}
