@@ -1268,6 +1268,10 @@ async def portal_api_subscription(request: Request):
 
         await session.commit()
 
+    # Capture tenant plan inside session before it closes (avoids lazy-load after session ends)
+    tenant_plan = tenant.plan.value if tenant else "free"
+    tenant_name = tenant.name if tenant else ""
+
     # Plan limits by plan type
     plan_limits = {
         "free": {"messages": 50, "operators": 1, "documents": 3},
@@ -1276,7 +1280,7 @@ async def portal_api_subscription(request: Request):
         "enterprise": {"messages": None, "operators": None, "documents": None},
     }
 
-    plan_name = tenant.plan.value if tenant else "free"
+    plan_name = tenant_plan
     limits = plan_limits.get(plan_name, plan_limits["free"])
     message_limit = limits["messages"]
     operator_limit = limits["operators"]
