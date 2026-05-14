@@ -1280,6 +1280,14 @@ async def portal_channels(request: Request):
     return templates.TemplateResponse("channels.html", {"request": request})
 
 
+@app.get("/portal/faq")
+async def portal_faq(request: Request):
+    token = request.cookies.get("sequor_session")
+    if not token:
+        return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("faq.html", {"request": request})
+
+
 @app.get("/portal/settings")
 async def portal_settings(request: Request):
     token = request.cookies.get("sequor_session")
