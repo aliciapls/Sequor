@@ -1093,12 +1093,20 @@ async def portal_api_me(request: Request):
     account_id = operator["account_id"]
 
     from sequor.db.database import get_engine
+    from sequor.db.encryption_keys import KeyManager
+    from sequor.db.encrypted_column import set_tenant_key
+    from sequor.config import settings
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession
     from sequor.db.models import BackupContact, Account
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        # Set tenant key so EncryptedString columns decrypt on read
+        km = KeyManager(settings.encryption_master_key)
+        tenant_key = await km.get_tenant_key(session, UUID(tenant_id))
+        set_tenant_key(tenant_key)
+
         result = await session.execute(
             select(BackupContact).where(BackupContact.id == operator["operator_id"])
         )
