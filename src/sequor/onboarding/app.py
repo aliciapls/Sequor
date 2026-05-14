@@ -499,6 +499,94 @@ async def bcrypt_test(password: str = "TestPass", hash: str = None):
         return JSONResponse(content=result)
 
 
+@app.get("/api/v1/debug/login-full")
+async def debug_login_full(email: str, password: str):
+    """Replicate exact auth_login flow to find where it breaks."""
+    from sequor.db.database import get_engine
+    from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
+    from sequor.auth import verify_password, create_access_token_for_operator
+    from sequor.db.encryption_keys import KeyManager
+    from sequor.config import settings
+    from sqlalchemy import select
+    from sequor.db.models import BackupContact, Account
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        blind_index = compute_email_blind_index(email)
+        result = await session.execute(
+            select(BackupContact).where(BackupContact.email_blind_index == blind_index)
+        )
+        operator = result.scalars().first()
+        if not operator:
+            return JSONResponse(status_code=401, content={"error": "operator not found"})
+
+        pw_ok = verify_password(password, operator.password_hash)
+        if not pw_ok:
+            return JSONResponse(status_code=401, content={"error": "wrong password"})
+
+        km = KeyManager(settings.encryption_master_key)
+        tenant_key = await km.get_tenant_key(session, operator.tenant_id)
+        set_tenant_key(tenant_key)
+
+        # Access operator fields INSIDE session
+        name = operator.name
+        em = operator.email
+        tier_val = operator.tier.value
+        op_id = str(operator.id)
+        tid = str(operator.tenant_id)
+        aid = str(operator.account_id)
+
+        await session.commit()
+
+    # Access operator fields OUTSIDE session
+    result_outside = {
+        "inside_session_ok": True,
+        "name_type": type(name).__name__,
+        "email_type": type(em).__name__,
+        "tier_value": tier_val,
+        "name_repr": repr(name[:20]) if name else None,
+        "email_repr": repr(em[:20]) if em else None,
+    }
+
+    # Try token creation
+    try:
+        token = create_access_token_for_operator(
+            operator_id=op_id,
+            tenant_id=tid,
+            account_id=aid,
+            name=name,
+            email=em,
+            role="admin" if tier_val == "primary" else "operator",
+        )
+        result_outside["token_created"] = True
+        result_outside["token_len"] = len(token)
+    except Exception as e:
+        result_outside["token_error"] = str(e)
+        result_outside["token_created"] = False
+
+    # Try JSON serialization of response dict
+    try:
+        content = {
+            "operator": {
+                "id": op_id,
+                "name": name,
+                "email": em,
+                "tenant_id": tid,
+                "account_id": aid,
+                "role": "admin" if tier_val == "primary" else "operator",
+            }
+        }
+        import json
+        json.dumps(content)
+        result_outside["json_ok"] = True
+    except Exception as e:
+        result_outside["json_error"] = str(e)
+        result_outside["json_ok"] = False
+
+    return JSONResponse(content=result_outside)
+
+
 @app.get("/api/v1/debug/login")
 async def debug_login(email: str, password: str):
     """Step-by-step debug of login failure."""
