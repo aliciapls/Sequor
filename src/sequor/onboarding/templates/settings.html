@@ -3,7 +3,7 @@
 {% block topbar_title %}Settings{% endblock %}
 {% block page_style %}
 <style>
-    .settings-section { margin-bottom: 32px; }
+    .settings-section { margin-bottom: 32px; padding: 0 20px; }
     .settings-section h3 {
         font-size: 13px;
         font-weight: 600;
@@ -17,15 +17,16 @@
     .settings-row {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
+        align-items: center;
         gap: 24px;
-        padding: 14px 0;
+        padding: 14px 20px;
         border-bottom: 1px solid var(--slate-50);
         min-width: 0;
     }
     .settings-row:last-child { border-bottom: none; }
     .settings-label { font-size: 14px; color: var(--slate-600); flex-shrink: 0; }
     .settings-value { font-size: 14px; font-weight: 500; color: var(--slate-800); text-align: right; word-break: break-all; min-width: 0; }
+    .settings-section h3 { padding: 0 20px; }
     .settings-value.mono { font-family: monospace; font-size: 13px; }
     .badge-role {
         display: inline-block;
