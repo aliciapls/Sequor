@@ -677,19 +677,16 @@ async def auth_login(request: Request):
         return JSONResponse(status_code=400, content={"detail": "Email and password required"})
 
     from sequor.db.database import get_engine
-    from sequor.db.crud import SessionCrud
+    from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
     from sequor.auth import verify_password, create_access_token_for_operator
-    from sequor.db.encrypted_column import compute_email_blind_index
+    from sequor.db.encryption_keys import KeyManager
     from sequor.config import settings
     from sqlalchemy import select
-    from sequor.db.models import BackupContact
+    from sequor.db.models import BackupContact, Account
     from sqlalchemy.ext.asyncio import AsyncSession
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
-        crud = SessionCrud(session)
-
-        # Find operator by email blind index
         blind_index = compute_email_blind_index(email)
         result = await session.execute(
             select(BackupContact).where(BackupContact.email_blind_index == blind_index)
@@ -705,25 +702,18 @@ async def auth_login(request: Request):
         if not verify_password(password, operator.password_hash):
             return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
 
-        # Set tenant key so operator.email decryption works below
-        from sequor.db.encryption_keys import KeyManager
         km = KeyManager(settings.encryption_master_key)
         tenant_key = await km.get_tenant_key(session, operator.tenant_id)
-        from sequor.db.encrypted_column import set_tenant_key
         set_tenant_key(tenant_key)
 
-        # Create JWT
-        token = create_access_token_for_operator(
-            operator_id=str(operator.id),
-            tenant_id=str(operator.tenant_id),
-            account_id=str(operator.account_id),
-            name=operator.name,
-            email=operator.email,
-            role="admin" if operator.tier.value == "primary" else "operator",
-        )
+        # Capture all fields while session is open
+        op_id = str(operator.id)
+        op_name = operator.name
+        op_email = operator.email
+        op_tier = operator.tier.value
+        op_tenant_id = str(operator.tenant_id)
+        op_account_id = str(operator.account_id)
 
-        # Get account name for the response
-        from sequor.db.models import Account
         acct_result = await session.execute(
             select(Account).where(Account.id == operator.account_id)
         )
@@ -732,17 +722,25 @@ async def auth_login(request: Request):
 
         await session.commit()
 
-    from fastapi.responses import JSONResponse as JR
-    response = JR(content={
+    token = create_access_token_for_operator(
+        operator_id=op_id,
+        tenant_id=op_tenant_id,
+        account_id=op_account_id,
+        name=op_name,
+        email=op_email,
+        role="admin" if op_tier == "primary" else "operator",
+    )
+
+    response = JSONResponse(content={
         "status": "ok",
         "operator": {
-            "id": str(operator.id),
-            "name": operator.name,
-            "email": operator.email,
-            "tenant_id": str(operator.tenant_id),
-            "account_id": str(operator.account_id),
+            "id": op_id,
+            "name": op_name,
+            "email": op_email,
+            "tenant_id": op_tenant_id,
+            "account_id": op_account_id,
             "account_name": account_name,
-            "role": "admin" if operator.tier.value == "primary" else "operator",
+            "role": "admin" if op_tier == "primary" else "operator",
         }
     })
     response.set_cookie(
@@ -752,7 +750,7 @@ async def auth_login(request: Request):
         secure=settings.app_env == "production",
         samesite="lax",
         path="/",
-        max_age=60 * 60 * 24,  # 24 hours
+        max_age=60 * 60 * 24,
     )
     return response
 
