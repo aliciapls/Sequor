@@ -1169,7 +1169,7 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
         result = await session.execute(
             select(Document)
             .where(Document.tenant_id == tenant_id)
-            .order_by(desc(Document.uploaded_at))
+            .order_by(desc(Document.indexed_at))
             .limit(limit)
             .offset(offset)
         )
@@ -1183,7 +1183,7 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
                 "name": d.name,
                 "document_type": d.type.value if d.type else None,
                 "status": d.status.value if d.status else None,
-                "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None,
+                "uploaded_at": d.indexed_at.isoformat() if d.indexed_at else None,
             }
             for d in docs
         ]
