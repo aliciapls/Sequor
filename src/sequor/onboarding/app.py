@@ -1096,9 +1096,9 @@ async def portal_api_me(request: Request):
     from sequor.db.encryption_keys import KeyManager
     from sequor.db.encrypted_column import set_tenant_key
     from sequor.config import settings
-    from sqlalchemy import select
+    from sqlalchemy import select, func
     from sqlalchemy.ext.asyncio import AsyncSession
-    from sequor.db.models import BackupContact, Account
+    from sequor.db.models import BackupContact, Account, Escalation
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
@@ -1117,6 +1117,15 @@ async def portal_api_me(request: Request):
         )
         account = acct_result.scalars().first()
 
+        # Count unresolved escalations for sidebar badge
+        count_result = await session.execute(
+            select(func.count(Escalation.id)).where(
+                Escalation.tenant_id == tenant_id,
+                Escalation.resolved == False,
+            )
+        )
+        escalation_count = count_result.scalar() or 0
+
         # Capture fields while session is open (encrypted strings need tenant key context)
         name = contact.name if contact else operator.get("name", "")
         email = contact.email if contact else ""
@@ -1128,6 +1137,7 @@ async def portal_api_me(request: Request):
         "email": email,
         "role": role,
         "account_name": account_name,
+        "escalation_count": escalation_count,
     })
 
 
