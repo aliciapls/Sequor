@@ -2,7 +2,7 @@
 {% block title %}Document Hub — Sequor Portal{% endblock %}
 {% block topbar_title %}Document Hub{% endblock %}
 {% block topbar_actions %}
-<button class="topbar-btn topbar-btn-primary" onclick="document.getElementById('upload-area').style.display='flex'">
+<button class="topbar-btn topbar-btn-primary" onclick="openUploadModal()">
     + Upload Document
 </button>
 {% endblock %}
@@ -14,12 +14,47 @@
     </div>
 </div>
 
-<!-- Upload area -->
-<div id="upload-area" style="display:none;margin-bottom:24px;" class="card">
-    <div class="card-body" style="border:2px dashed var(--duck-300);border-radius:12px;padding:40px;text-align:center;cursor:pointer;" onclick="this.closest('form').submit()">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--duck-500)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-        <div style="font-size:14px;font-weight:600;color:var(--slate-700);">Drop files here or click to browse</div>
-        <div class="text-sm text-muted" style="margin-top:4px;">PDF, DOCX, TXT — up to 25MB each</div>
+<!-- Upload Modal -->
+<div id="upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:16px;padding:32px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h2 style="font-size:18px;font-weight:700;">Upload Documents</h2>
+            <button onclick="closeUploadModal()" style="background:none;border:none;cursor:pointer;font-size:22px;color:var(--slate-400);">×</button>
+        </div>
+        <form id="upload-form" enctype="multipart/form-data" method="post" action="/api/v1/portal/documents/upload">
+            <div id="drop-zone" style="border:2px dashed var(--duck-300);border-radius:12px;padding:48px 24px;text-align:center;cursor:pointer;transition:all 0.2s;"
+                 ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
+                 onclick="document.getElementById('file-input').click()">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--duck-500)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div id="drop-text" style="font-size:15px;font-weight:600;color:var(--slate-700);">Drop files here or click to browse</div>
+                <div id="file-types" class="text-sm text-muted" style="margin-top:6px;">PDF, DOCX, TXT — up to 25MB each</div>
+                <input type="file" id="file-input" name="file" accept=".pdf,.docx,.txt" style="display:none;" onchange="handleFileSelect(event)">
+            </div>
+            <div id="selected-files" style="margin-top:16px;display:none;">
+                <div style="font-size:13px;font-weight:600;color:var(--slate-700);margin-bottom:8px;">Selected:</div>
+                <div id="file-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+            </div>
+            <div class="form-group" style="margin-top:20px;">
+                <label class="form-label">Document Type</label>
+                <select name="document_type" class="form-select" id="doc-type-select">
+                    <option value="faq">FAQ / Help</option>
+                    <option value="policy">Policy</option>
+                    <option value="price_list">Price List</option>
+                    <option value="roster">Roster / Directory</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div id="upload-progress" style="display:none;margin-top:16px;">
+                <div style="height:6px;background:var(--slate-100);border-radius:3px;overflow:hidden;">
+                    <div id="progress-bar" style="height:100%;background:var(--duck-500);width:0%;transition:width 0.3s;"></div>
+                </div>
+                <div id="upload-status" style="font-size:12px;color:var(--slate-500);margin-top:6px;text-align:center;">Uploading...</div>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:24px;">
+                <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="upload-btn">Upload</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -71,34 +106,228 @@
 </div>
 {% endblock %}
 {% block page_script %}
-(async function() {
+var selectedFiles = [];
+
+function openUploadModal() {
+    document.getElementById('upload-modal').style.display = 'flex';
+    selectedFiles = [];
+    updateFileList();
+}
+
+function closeUploadModal() {
+    document.getElementById('upload-modal').style.display = 'none';
+    selectedFiles = [];
+    document.getElementById('file-input').value = '';
+    document.getElementById('selected-files').style.display = 'none';
+    document.getElementById('drop-zone').style.borderColor = 'var(--duck-300)';
+    document.getElementById('drop-text').textContent = 'Drop files here or click to browse';
+    document.getElementById('upload-progress').style.display = 'none';
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('drop-zone').style.borderColor = 'var(--duck-500)';
+    document.getElementById('drop-zone').style.background = 'var(--duck-50)';
+}
+
+function handleDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('drop-zone').style.borderColor = 'var(--duck-300)';
+    document.getElementById('drop-zone').style.background = 'white';
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('drop-zone').style.borderColor = 'var(--duck-300)';
+    document.getElementById('drop-zone').style.background = 'white';
+
+    var files = e.dataTransfer.files;
+    if (files.length > 0) {
+        addFiles(files);
+    }
+}
+
+function handleFileSelect(e) {
+    var files = e.target.files;
+    if (files.length > 0) {
+        addFiles(files);
+    }
+}
+
+function addFiles(files) {
+    for (var i = 0; i < files.length; i++) {
+        var file = files[i];
+        // Check extension
+        var ext = file.name.split('.').pop().toLowerCase();
+        if (['pdf', 'docx', 'txt'].indexOf(ext) === -1) {
+            alert('File type not supported: ' + file.name + '\nPlease use PDF, DOCX, or TXT files.');
+            continue;
+        }
+        // Check size (25MB)
+        if (file.size > 25 * 1024 * 1024) {
+            alert('File too large: ' + file.name + '\nMaximum size is 25MB.');
+            continue;
+        }
+        // Check duplicate
+        var isDuplicate = false;
+        for (var j = 0; j < selectedFiles.length; j++) {
+            if (selectedFiles[j].name === file.name && selectedFiles[j].size === file.size) {
+                isDuplicate = true;
+                break;
+            }
+        }
+        if (!isDuplicate) {
+            selectedFiles.push(file);
+        }
+    }
+    updateFileList();
+}
+
+function updateFileList() {
+    var listEl = document.getElementById('file-list');
+    var containerEl = document.getElementById('selected-files');
+
+    if (selectedFiles.length === 0) {
+        containerEl.style.display = 'none';
+        return;
+    }
+
+    containerEl.style.display = 'block';
+    listEl.innerHTML = '';
+
+    for (var i = 0; i < selectedFiles.length; i++) {
+        var file = selectedFiles[i];
+        var sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        var item = document.createElement('div');
+        item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--slate-50);border-radius:8px;font-size:13px;';
+        item.innerHTML = '<span style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--duck-500)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' + escHtml(file.name) + ' <span style="color:var(--slate-400);">(' + sizeMB + ' MB)</span></span><button type="button" onclick="removeFile(' + i + ')" style="background:none;border:none;cursor:pointer;color:var(--slate-400);font-size:16px;line-height:1;">×</button>';
+        listEl.appendChild(item);
+    }
+}
+
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    updateFileList();
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.getElementById('upload-form').onsubmit = async function(e) {
+    e.preventDefault();
+
+    if (selectedFiles.length === 0) {
+        alert('Please select at least one file');
+        return;
+    }
+
+    var progressEl = document.getElementById('upload-progress');
+    var progressBar = document.getElementById('progress-bar');
+    var statusEl = document.getElementById('upload-status');
+    var uploadBtn = document.getElementById('upload-btn');
+
+    progressEl.style.display = 'block';
+    progressBar.style.width = '10%';
+    statusEl.textContent = 'Uploading...';
+    uploadBtn.disabled = true;
+
+    var formData = new FormData();
+    formData.append('document_type', document.getElementById('doc-type-select').value);
+
+    for (var i = 0; i < selectedFiles.length; i++) {
+        formData.append('file', selectedFiles[i]);
+    }
+
+    try {
+        var xhr = new XMLHttpRequest();
+
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                var percent = Math.round((e.loaded / e.total) * 80) + 10;
+                progressBar.style.width = percent + '%';
+                statusEl.textContent = 'Uploading... ' + percent + '%';
+            }
+        };
+
+        xhr.onload = function() {
+            progressBar.style.width = '100%';
+            statusEl.textContent = 'Processing...';
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+                statusEl.textContent = 'Done!';
+                setTimeout(function() {
+                    closeUploadModal();
+                    loadDocuments();
+                }, 500);
+            } else {
+                var err = 'Upload failed';
+                try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
+                statusEl.textContent = 'Error: ' + err;
+                statusEl.style.color = '#dc2626';
+                progressBar.style.background = '#dc2626';
+                uploadBtn.disabled = false;
+            }
+        };
+
+        xhr.onerror = function() {
+            statusEl.textContent = 'Network error';
+            statusEl.style.color = '#dc2626';
+            progressBar.style.background = '#dc2626';
+            uploadBtn.disabled = false;
+        };
+
+        xhr.open('POST', '/api/v1/portal/documents/upload');
+        xhr.withCredentials = true;
+        xhr.send(formData);
+
+    } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.style.color = '#dc2626';
+        uploadBtn.disabled = false;
+    }
+};
+
+async function loadDocuments() {
     var tbody = document.getElementById('docs-tbody');
     try {
         var res = await fetch('/api/v1/portal/documents?limit=100', { credentials: 'same-origin' });
+        if (res.status === 401) {
+            window.location.href = '/portal/login';
+            return;
+        }
         if (!res.ok) throw new Error('Failed');
         var data = await res.json();
         var docs = data.documents || [];
         if (docs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">No documents uploaded yet. Go to the Onboarding section to add your first document.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">No documents uploaded yet. Click "Upload Document" to add your first.</td></tr>';
             return;
         }
         tbody.innerHTML = docs.map(function(d) {
-            var initial = d.name ? d.name.charAt(0).toUpperCase() : '?';
             var docType = d.document_type ? d.document_type.toUpperCase() : '—';
-            var statusBadge = d.status === 'active' ? 'badge-green' : 'badge-slate';
+            var statusBadge = d.status === 'ready' ? 'badge-green' : 'badge-slate';
+            var statusLabel = d.status === 'ready' ? 'Ready' : d.status === 'indexing' ? 'Indexing...' : d.status === 'pending' ? 'Pending' : (d.status || '—');
             var uploadDate = d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : '—';
             return '<tr>' +
-                '<td><div style="display:flex;align-items:center;gap:8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--duck-500)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-weight:500;">' + (d.name || '—') + '</span></div></td>' +
+                '<td><div style="display:flex;align-items:center;gap:8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--duck-500)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-weight:500;">' + escHtml(d.name || '—') + '</span></div></td>' +
                 '<td><span class="badge badge-slate">' + docType + '</span></td>' +
                 '<td class="text-sm text-muted">—</td>' +
                 '<td class="text-sm text-muted"></td>' +
                 '<td class="text-sm text-muted">' + uploadDate + '</td>' +
-                '<td><span class="badge ' + statusBadge + '">' + (d.status || '—') + '</span></td>' +
+                '<td><span class="badge ' + statusBadge + '">' + statusLabel + '</span></td>' +
                 '<td><button class="btn btn-secondary btn-sm">Edit</button></td>' +
             '</tr>';
         }).join('');
     } catch (e) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load documents</td></tr>';
     }
+}
+
+(async function() {
+    await loadDocuments();
 })();
 {% endblock %}

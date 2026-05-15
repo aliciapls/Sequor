@@ -969,6 +969,74 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
     })
 
 
+@app.post("/api/v1/portal/documents/upload")
+async def portal_api_upload_document(
+    request: Request,
+    document_type: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Upload a document from the portal using session auth."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+    account_id = operator["account_id"]
+
+    client_ip = get_client_ip(request)
+    if not _upload_limiter.is_allowed(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Too many upload attempts. Please try again later."},
+        )
+
+    try:
+        content = await file.read()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Failed to read file"})
+
+    # Check file size (25MB)
+    if len(content) > 25 * 1024 * 1024:
+        return JSONResponse(status_code=400, content={"error": "File too large. Maximum size is 25MB."})
+
+    # Check file extension
+    filename = file.filename or ""
+    ext = filename.split(".")[-1].lower() if "." in filename else ""
+    if ext not in ("pdf", "docx", "txt"):
+        return JSONResponse(status_code=400, content={"error": "Unsupported file type. Use PDF, DOCX, or TXT."})
+
+    try:
+        from sequor.ai.ingestion import DocumentIngester
+        from sequor.ai.vector_store import VectorStore
+        from sequor.ai.client import get_ollama_client
+        from sequor.db.database import get_engine
+
+        engine = get_engine()
+        vector_store = VectorStore(engine)
+        ingester = DocumentIngester(
+            vector_store=vector_store,
+            llm_client=get_ollama_client(),
+        )
+        document_id = await ingester.ingest(
+            tenant_id=UUID(tenant_id),
+            account_id=UUID(account_id),
+            filename=filename,
+            content=content,
+            document_type=document_type,
+        )
+        return JSONResponse(
+            status_code=201,
+            content={
+                "status": "ok",
+                "document_id": str(document_id),
+                "filename": filename,
+                "document_type": document_type,
+            },
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": str(e)})
+    except Exception:
+        _logger.exception("portal.upload.error")
+        return JSONResponse(status_code=500, content={"error": "Upload failed. Please try again."})
+
+
 @app.get("/api/v1/portal/keyphrase/mappings")
 async def portal_api_keyphrase_mappings(request: Request):
     """Return all key phrase mappings for the authenticated operator's tenant."""
