@@ -86,9 +86,9 @@
     <div class="card-header"><div class="card-title">How Document Linking Works</div></div>
     <div class="card-body">
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;">
-            <div style="text-align:center;">
+            <div style="text-align:center;cursor:pointer;" onclick="openUploadModal()" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                 <div style="width:48px;height:48px;border-radius:50%;background:var(--duck-100);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--duck-600)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
-                <div style="font-size:13px;font-weight:600;margin-bottom:4px;">1. Upload your docs</div>
+                <div style="font-size:13px;font-weight:600;margin-bottom:4px;">1. Upload your docs <span style="color:var(--duck-500);">→</span></div>
                 <div class="text-sm text-muted">Upload FAQs, price lists, policies, and any documents clients commonly ask about</div>
             </div>
             <div style="text-align:center;">
