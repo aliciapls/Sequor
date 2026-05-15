@@ -137,6 +137,12 @@ class ConfidenceBadge(str, enum.Enum):
     high = "high"
     moderate = "moderate"
     low = "low"
+
+
+class KeyPhraseMappingType(str, enum.Enum):
+    auto_reply = "auto_reply"
+    include_context = "include_context"
+    escalate = "escalate"
     uncertain = "uncertain"
 
 
@@ -701,3 +707,37 @@ class RoutingOutcome(Base):
 
     def __repr__(self) -> str:
         return f"<RoutingOutcome id={self.id} target={self.routing_target.value}>"
+
+
+class KeyPhraseMapping(Base):
+    __tablename__ = "key_phrase_mappings"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    phrase: Mapped[str] = mapped_column(String(255), nullable=False)
+    aliases: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    mapping_type: Mapped[KeyPhraseMappingType] = mapped_column(
+        Enum(KeyPhraseMappingType, name="key_phrase_mapping_type", create_constraint=True),
+        nullable=False,
+        default=KeyPhraseMappingType.auto_reply,
+    )
+    confidence_boost: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_key_phrase_mappings_tenant_id", "tenant_id"),
+        Index("ix_key_phrase_mappings_document_id", "document_id"),
+        Index("ix_key_phrase_mappings_phrase", "phrase"),
+        UniqueConstraint("tenant_id", "phrase", "document_id", name="uq_key_phrase_mapping_tenant_phrase_doc"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<KeyPhraseMapping id={self.id} phrase={self.phrase!r}>"

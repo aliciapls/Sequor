@@ -969,6 +969,224 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
     })
 
 
+@app.get("/api/v1/portal/keyphrase/mappings")
+async def portal_api_keyphrase_mappings(request: Request):
+    """Return all key phrase mappings for the authenticated operator's tenant."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select, desc
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import KeyPhraseMapping, Document
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(KeyPhraseMapping, Document.name)
+            .join(Document, KeyPhraseMapping.document_id == Document.id)
+            .where(KeyPhraseMapping.tenant_id == tenant_id)
+            .order_by(desc(KeyPhraseMapping.usage_count), KeyPhraseMapping.phrase)
+        )
+        rows = result.all()
+        await session.commit()
+
+    mappings = []
+    for row in rows:
+        km = row[0]
+        doc_name = row[1]
+        mappings.append({
+            "id": str(km.id),
+            "phrase": km.phrase,
+            "aliases": km.aliases or "",
+            "document_id": str(km.document_id),
+            "document_name": doc_name,
+            "mapping_type": km.mapping_type.value,
+            "confidence_boost": km.confidence_boost,
+            "usage_count": km.usage_count,
+            "is_active": km.is_active,
+            "created_at": km.created_at.isoformat() if km.created_at else None,
+        })
+
+    return JSONResponse(content={"mappings": mappings})
+
+
+@app.post("/api/v1/portal/keyphrase/mappings")
+async def portal_api_keyphrase_create(request: Request):
+    """Create a new key phrase mapping."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import KeyPhraseMapping, Document, KeyPhraseMappingType
+    from pydantic import BaseModel
+
+    class CreateMappingRequest(BaseModel):
+        phrase: str
+        aliases: str = ""
+        document_id: str
+        mapping_type: str = "auto_reply"
+        confidence_boost: float = 1.0
+
+    try:
+        body = await request.json()
+        req = CreateMappingRequest(**body)
+    except Exception:
+        return JSONResponse(content={"error": "Invalid request body"}, status_code=400)
+
+    # Validate document belongs to tenant
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        doc_result = await session.execute(
+            select(Document).where(
+                Document.id == req.document_id,
+                Document.tenant_id == tenant_id
+            )
+        )
+        doc = doc_result.scalar_one_or_none()
+        if not doc:
+            return JSONResponse(content={"error": "Document not found"}, status_code=404)
+
+        mapping_type = KeyPhraseMappingType(req.mapping_type) if req.mapping_type else KeyPhraseMappingType.auto_reply
+
+        new_mapping = KeyPhraseMapping(
+            tenant_id=tenant_id,
+            phrase=req.phrase,
+            aliases=req.aliases,
+            document_id=req.document_id,
+            mapping_type=mapping_type,
+            confidence_boost=req.confidence_boost,
+        )
+        session.add(new_mapping)
+        await session.commit()
+        await session.refresh(new_mapping)
+
+    return JSONResponse(content={
+        "id": str(new_mapping.id),
+        "phrase": new_mapping.phrase,
+        "aliases": new_mapping.aliases or "",
+        "document_id": str(new_mapping.document_id),
+        "document_name": doc.name,
+        "mapping_type": new_mapping.mapping_type.value,
+        "confidence_boost": new_mapping.confidence_boost,
+        "usage_count": new_mapping.usage_count,
+        "is_active": new_mapping.is_active,
+        "created_at": new_mapping.created_at.isoformat() if new_mapping.created_at else None,
+    }, status_code=201)
+
+
+@app.delete("/api/v1/portal/keyphrase/mappings/{mapping_id}")
+async def portal_api_keyphrase_delete(request: Request, mapping_id: str):
+    """Delete a key phrase mapping."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import KeyPhraseMapping
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            delete(KeyPhraseMapping).where(
+                KeyPhraseMapping.id == mapping_id,
+                KeyPhraseMapping.tenant_id == tenant_id
+            )
+        )
+        await session.commit()
+
+    return JSONResponse(content={"deleted": True})
+
+
+@app.get("/api/v1/portal/keyphrase/suggestions")
+async def portal_api_keyphrase_suggestions(request: Request):
+    """Generate key phrase suggestions from uploaded documents using AI."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sequor.db.models import Document
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            select(Document).where(
+                Document.tenant_id == tenant_id,
+                Document.status != None  # noqa: E501
+            )
+        )
+        docs = result.scalars().all()
+        await session.commit()
+
+    if not docs:
+        return JSONResponse(content={"suggestions": [], "message": "Upload documents first to get suggestions"})
+
+    # Gather document text content (limit to first 3 docs, 2000 chars each for suggestion generation)
+    doc_summaries = []
+    for doc in docs[:3]:
+        # Use name as summary since body_text might not be populated
+        doc_summaries.append(f"- {doc.name} ({doc.type.value if doc.type else 'document'})")
+
+    doc_context = "\n".join(doc_summaries)
+
+    # Get existing mappings to avoid suggesting already-mapped phrases
+    existing_mappings = set()
+    async with AsyncSession(engine) as session:
+        from sequor.db.models import KeyPhraseMapping as KPM
+        result = await session.execute(
+            select(KPM.phrase).where(KPM.tenant_id == tenant_id)
+        )
+        existing = result.scalars().all()
+        for p in existing:
+            existing_mappings.add(p.lower())
+        await session.commit()
+
+    # Generate suggestions using LLM
+    try:
+        from sequor.ai.client import get_ollama_client
+        llm = get_ollama_client()
+
+        system_prompt = """You are a helpful assistant that identifies key phrases customers might use when asking about topics covered in business documents. Given a list of documents, suggest 8-12 common phrases or questions customers would use. Focus on natural language questions and short topic phrases. Return ONLY a JSON array of strings, nothing else. Example: ["pricing", "how much does it cost", "refund policy", "cancel subscription"]"""
+
+        prompt = f"""Based on these documents:\n{doc_context}\n\nSuggest 8-12 key phrases (in English) that customers might use when asking about topics in these documents. Include both short phrases and natural questions. Return ONLY a JSON array of strings."""
+
+        suggestions_text = await llm.generate(prompt=prompt, system=system_prompt, temperature=0.5, max_tokens=500)
+
+        # Parse the JSON response
+        import json
+        suggestions = json.loads(suggestions_text)
+
+        # Filter out already-mapped phrases
+        new_suggestions = [s for s in suggestions if s.lower() not in existing_mappings]
+
+        # Build response with document associations (all suggestions apply to all docs for now)
+        result_suggestions = []
+        for phrase in new_suggestions:
+            for doc in docs[:3]:
+                result_suggestions.append({
+                    "phrase": phrase,
+                    "document_id": str(doc.id),
+                    "document_name": doc.name,
+                })
+
+        return JSONResponse(content={
+            "suggestions": result_suggestions,
+            "source_documents": [str(d.id) for d in docs[:3]],
+        })
+    except Exception as e:
+        import structlog
+        logger = structlog.get_logger()
+        logger.warning("keyphrase_suggestions.failed", error=str(e))
+        return JSONResponse(content={
+            "suggestions": [],
+            "error": "Could not generate suggestions. Make sure Ollama is running.",
+        })
+
+
 @app.get("/api/v1/portal/channels")
 async def portal_api_channels(request: Request):
     """Return channel configuration for the authenticated operator's account."""

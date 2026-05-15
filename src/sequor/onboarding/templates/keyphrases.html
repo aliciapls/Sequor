@@ -15,7 +15,7 @@
 <div class="card mb-6">
     <div class="card-header">
         <div class="card-title">Active Mappings</div>
-        <input type="text" class="form-input" placeholder="Search phrases or docs..." style="width:220px;font-size:13px;padding:6px 12px;">
+        <input type="text" class="form-input" id="search-input" placeholder="Search phrases or docs..." style="width:220px;font-size:13px;padding:6px 12px;" oninput="filterMappings()">
     </div>
     <div class="table-wrapper">
         <table class="data-table">
@@ -24,8 +24,8 @@
                     <th>Key Phrase</th>
                     <th>Aliases</th>
                     <th>Maps To</th>
-                    <th>Confidence Boost</th>
                     <th>Type</th>
+                    <th>Confidence</th>
                     <th>Usage (30d)</th>
                     <th>Actions</th>
                 </tr>
@@ -39,51 +39,259 @@
 
 <!-- Add/edit modal -->
 <div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
-    <div style="background:white;border-radius:16px;padding:32px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <div style="background:white;border-radius:16px;padding:32px;width:520px;max-width:90vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h2 style="font-size:18px;font-weight:700;">Add Key Phrase Mapping</h2>
-            <button onclick="document.getElementById('add-modal').style.display='none'" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--slate-400);">×</button>
+            <button onclick="closeAddModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--slate-400);">×</button>
         </div>
+
+        <!-- Suggestions section -->
+        <div id="suggestions-section" style="margin-bottom:20px;display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <label style="font-size:13px;font-weight:600;color:var(--slate-700);">Suggested Phrases (click to add)</label>
+                <button onclick="loadSuggestions()" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--duck-600);text-decoration:underline;">Refresh</button>
+            </div>
+            <div id="suggestions-loading" style="font-size:12px;color:var(--slate-400);padding:8px 0;">Loading suggestions...</div>
+            <div id="suggestions-list" style="display:flex;flex-wrap:wrap;gap:6px;max-height:120px;overflow-y:auto;"></div>
+        </div>
+
         <div class="form-group">
             <label class="form-label">Key Phrase *</label>
-            <input type="text" class="form-input" placeholder="e.g. pricing, how much, cost">
+            <input type="text" class="form-input" id="phrase-input" placeholder="e.g. pricing, how much, cost">
             <div class="form-hint">The phrase a client uses that triggers this mapping</div>
         </div>
         <div class="form-group">
             <label class="form-label">Aliases (comma-separated)</label>
-            <input type="text" class="form-input" placeholder="e.g. how much does it cost, what's the fee">
+            <input type="text" class="form-input" id="aliases-input" placeholder="e.g. how much does it cost, what's the fee">
             <div class="form-hint">Alternative phrases that should trigger the same document</div>
         </div>
         <div class="form-group">
             <label class="form-label">Document *</label>
-            <select class="form-select">
+            <select class="form-select" id="document-select">
                 <option value="">Select a document...</option>
-                <option>Company Pricing 2026.pdf</option>
-                <option>Refund Policy.pdf</option>
-                <option>Service Level Agreement.docx</option>
-                <option>Onboarding Guide.pdf</option>
             </select>
         </div>
         <div class="form-group">
             <label class="form-label">Mapping Type</label>
-            <select class="form-select">
-                <option>Auto-reply (full answer from doc)</option>
-                <option>Include in AI context (partial)</option>
-                <option>Escalate (don't auto-reply)</option>
+            <select class="form-select" id="type-select">
+                <option value="auto_reply">Auto-reply (full answer from doc)</option>
+                <option value="include_context">Include in AI context (partial)</option>
+                <option value="escalate">Escalate (don't auto-reply)</option>
             </select>
         </div>
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:24px;">
-            <button class="btn btn-secondary" onclick="document.getElementById('add-modal').style.display='none'">Cancel</button>
-            <button class="btn btn-primary">Save Mapping</button>
+            <button class="btn btn-secondary" onclick="closeAddModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveMapping()">Save Mapping</button>
         </div>
     </div>
 </div>
 {% endblock %}
 {% block page_script %}
-function showAddModal() { document.getElementById('add-modal').style.display='flex'; }
+var allMappings = [];
+
+function showAddModal() {
+    document.getElementById('add-modal').style.display = 'flex';
+    document.getElementById('suggestions-section').style.display = 'block';
+    loadDocuments();
+    loadSuggestions();
+}
+
+function closeAddModal() {
+    document.getElementById('add-modal').style.display = 'none';
+    // Clear inputs
+    document.getElementById('phrase-input').value = '';
+    document.getElementById('aliases-input').value = '';
+    document.getElementById('document-select').value = '';
+    document.getElementById('type-select').value = 'auto_reply';
+}
+
+function filterMappings() {
+    var query = document.getElementById('search-input').value.toLowerCase();
+    var filtered = allMappings.filter(function(m) {
+        return m.phrase.toLowerCase().includes(query) ||
+               m.aliases.toLowerCase().includes(query) ||
+               m.document_name.toLowerCase().includes(query);
+    });
+    renderMappings(filtered);
+}
+
+function renderMappings(mappings) {
+    var tbody = document.getElementById('mappings-tbody');
+    if (!mappings || mappings.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">No mappings yet. Add your first phrase above.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = mappings.map(function(m) {
+        var typeLabel = m.mapping_type === 'auto_reply' ? 'Auto-reply' :
+                        m.mapping_type === 'include_context' ? 'Include context' : 'Escalate';
+        var typeClass = m.mapping_type === 'auto_reply' ? 'badge-green' :
+                        m.mapping_type === 'include_context' ? 'badge-slate' : 'badge-red';
+        var confBadge = m.confidence_boost >= 1.5 ? 'badge-green' : m.confidence_boost >= 1.0 ? 'badge-slate' : 'badge-red';
+        return '<tr>' +
+            '<td style="font-weight:500;">' + escHtml(m.phrase) + '</td>' +
+            '<td class="text-sm text-muted">' + escHtml(m.aliases || '—') + '</td>' +
+            '<td class="text-sm">' + escHtml(m.document_name) + '</td>' +
+            '<td><span class="badge ' + typeClass + '">' + typeLabel + '</span></td>' +
+            '<td><span class="badge ' + confBadge + '">' + m.confidence_boost.toFixed(1) + 'x</span></td>' +
+            '<td class="text-sm text-muted">' + m.usage_count + '</td>' +
+            '<td><button class="btn btn-secondary btn-sm" onclick="deleteMapping(\'' + m.id + '\')">Remove</button></td>' +
+        '</tr>';
+    }).join('');
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadDocuments() {
+    try {
+        var res = await fetch('/api/v1/portal/documents?limit=100', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        var docs = data.documents || [];
+        var select = document.getElementById('document-select');
+        // Keep first option
+        select.innerHTML = '<option value="">Select a document...</option>';
+        docs.forEach(function(d) {
+            select.innerHTML += '<option value="' + d.id + '">' + escHtml(d.name) + '</option>';
+        });
+    } catch (e) {
+        console.error('Failed to load documents', e);
+    }
+}
+
+async function loadMappings() {
+    var tbody = document.getElementById('mappings-tbody');
+    try {
+        var res = await fetch('/api/v1/portal/keyphrase/mappings', { credentials: 'same-origin' });
+        if (res.status === 401) {
+            window.location.href = '/portal/login';
+            return;
+        }
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        allMappings = data.mappings || [];
+        renderMappings(allMappings);
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load mappings.</td></tr>';
+    }
+}
+
+async function loadSuggestions() {
+    var loading = document.getElementById('suggestions-loading');
+    var list = document.getElementById('suggestions-list');
+    loading.style.display = 'block';
+    list.innerHTML = '';
+
+    try {
+        var res = await fetch('/api/v1/portal/keyphrase/suggestions', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        var suggestions = data.suggestions || [];
+
+        if (suggestions.length === 0) {
+            loading.style.display = 'none';
+            if (data.message) {
+                list.innerHTML = '<span style="font-size:12px;color:var(--slate-500);">' + escHtml(data.message) + '</span>';
+            } else if (data.error) {
+                list.innerHTML = '<span style="font-size:12px;color:var(--slate-500);">' + escHtml(data.error) + '</span>';
+            }
+            return;
+        }
+
+        loading.style.display = 'none';
+
+        // Group by phrase
+        var phraseMap = {};
+        suggestions.forEach(function(s) {
+            if (!phraseMap[s.phrase]) {
+                phraseMap[s.phrase] = [];
+            }
+            phraseMap[s.phrase].push(s);
+        });
+
+        Object.keys(phraseMap).forEach(function(phrase) {
+            var docs = phraseMap[phrase];
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.style.cssText = 'padding:4px 10px;border-radius:16px;border:1px solid var(--duck-300);background:var(--duck-50);cursor:pointer;font-size:12px;color:var(--slate-700);transition:all 0.15s;';
+            btn.textContent = phrase;
+            btn.onmouseover = function() { btn.style.background = 'var(--duck-100)'; btn.style.borderColor = 'var(--duck-400)'; };
+            btn.onmouseout = function() { btn.style.background = 'var(--duck-50)'; btn.style.borderColor = 'var(--duck-300)'; };
+            btn.onclick = function() {
+                document.getElementById('phrase-input').value = phrase;
+                // Auto-select first matching document
+                if (docs.length > 0) {
+                    document.getElementById('document-select').value = docs[0].document_id;
+                }
+                btn.style.background = 'var(--duck-200)';
+                btn.disabled = true;
+                btn.textContent = '✓ Added';
+            };
+            list.appendChild(btn);
+        });
+    } catch (e) {
+        loading.style.display = 'none';
+        list.innerHTML = '<span style="font-size:12px;color:var(--slate-500);">Failed to load suggestions</span>';
+    }
+}
+
+async function saveMapping() {
+    var phrase = document.getElementById('phrase-input').value.trim();
+    var aliases = document.getElementById('aliases-input').value.trim();
+    var documentId = document.getElementById('document-select').value;
+    var mappingType = document.getElementById('type-select').value;
+
+    if (!phrase) {
+        alert('Please enter a key phrase');
+        return;
+    }
+    if (!documentId) {
+        alert('Please select a document');
+        return;
+    }
+
+    try {
+        var res = await fetch('/api/v1/portal/keyphrase/mappings', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                phrase: phrase,
+                aliases: aliases,
+                document_id: documentId,
+                mapping_type: mappingType,
+                confidence_boost: 1.0
+            })
+        });
+        if (!res.ok) {
+            var err = await res.json();
+            alert('Failed: ' + (err.error || 'Unknown error'));
+            return;
+        }
+        closeAddModal();
+        loadMappings();
+    } catch (e) {
+        alert('Failed to save mapping');
+    }
+}
+
+async function deleteMapping(id) {
+    if (!confirm('Remove this mapping?')) return;
+    try {
+        var res = await fetch('/api/v1/portal/keyphrase/mappings/' + id, {
+            method: 'DELETE',
+            credentials: 'same-origin'
+        });
+        if (!res.ok) throw new Error('Failed');
+        loadMappings();
+    } catch (e) {
+        alert('Failed to delete mapping');
+    }
+}
 
 (async function() {
-    var tbody = document.getElementById('mappings-tbody');
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Key phrase maps will appear here once your documents are processed and the AI has identified key topics.</td></tr>';
+    await loadMappings();
 })();
 {% endblock %}
