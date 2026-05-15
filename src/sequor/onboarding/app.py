@@ -1032,9 +1032,18 @@ async def portal_api_upload_document(
         )
     except ValueError as e:
         return JSONResponse(status_code=422, content={"error": str(e)})
-    except Exception:
-        _logger.exception("portal.upload.error")
-        return JSONResponse(status_code=500, content={"error": "Upload failed. Please try again."})
+    except Exception as e:
+        _logger.exception("portal.upload.error", error=str(e), error_type=type(e).__name__)
+        error_msg = str(e)
+        # Provide helpful hints based on common errors
+        if "ollama" in error_msg.lower() or "connection" in error_msg.lower():
+            return JSONResponse(status_code=500, content={"error": f"AI service unavailable: {error_msg}. Make sure Ollama is running."})
+        elif "timeout" in error_msg.lower():
+            return JSONResponse(status_code=500, content={"error": "Upload timed out. The document may be too large or the AI service is slow."})
+        elif "vector" in error_msg.lower() or "embedding" in error_msg.lower():
+            return JSONResponse(status_code=500, content={"error": f"Document processing error: {error_msg}"})
+        else:
+            return JSONResponse(status_code=500, content={"error": f"Upload failed: {error_msg}"})
 
 
 @app.get("/api/v1/portal/keyphrase/mappings")
