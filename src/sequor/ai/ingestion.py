@@ -231,8 +231,26 @@ class DocumentIngester:
                 filename=filename,
             )
 
-        texts_to_embed = [chunk.text for chunk in raw_chunks]
-        embeddings = await self._llm.generate_embeddings(texts_to_embed)
+        # Try embedding generation — if Ollama is unavailable, store document without embeddings
+        embeddings = None
+        try:
+            texts_to_embed = [chunk.text for chunk in raw_chunks]
+            embeddings = await self._llm.generate_embeddings(texts_to_embed)
+        except Exception as e:
+            logger.warning(
+                "ingestion.embedding.failed",
+                filename=filename,
+                error=str(e),
+                chunk_count=len(raw_chunks),
+            )
+            # Document saved without embeddings — stays in 'indexing' status
+            # A background job or next Ollama availability can reprocess it
+            if self._db_model:
+                await self._update_document_status(
+                    document_id=document_id,
+                    status=DocumentStatus.indexing,
+                )
+            return document_id
 
         chunk_data = [
             (chunk.index, chunk.text, emb)
