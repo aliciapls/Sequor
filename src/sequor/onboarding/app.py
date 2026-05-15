@@ -1100,37 +1100,46 @@ async def portal_api_me(request: Request):
     from sqlalchemy.ext.asyncio import AsyncSession
     from sequor.db.models import BackupContact, Account, Escalation
 
-    engine = get_engine()
-    async with AsyncSession(engine) as session:
-        # Set tenant key so EncryptedString columns decrypt on read
-        km = KeyManager(settings.encryption_master_key)
-        tenant_key = await km.get_tenant_key(session, UUID(tenant_id))
-        set_tenant_key(tenant_key)
+    name = operator.get("name", "")
+    email = ""
+    role = operator.get("role", "")
+    account_name = ""
+    escalation_count = 0
 
-        result = await session.execute(
-            select(BackupContact).where(BackupContact.id == operator["operator_id"])
-        )
-        contact = result.scalars().first()
+    try:
+        engine = get_engine()
+        async with AsyncSession(engine) as session:
+            # Set tenant key so EncryptedString columns decrypt on read
+            km = KeyManager(settings.encryption_master_key)
+            tenant_key = await km.get_tenant_key(session, UUID(tenant_id))
+            set_tenant_key(tenant_key)
 
-        acct_result = await session.execute(
-            select(Account).where(Account.id == account_id)
-        )
-        account = acct_result.scalars().first()
-
-        # Count unresolved escalations for sidebar badge
-        count_result = await session.execute(
-            select(func.count(Escalation.id)).where(
-                Escalation.tenant_id == tenant_id,
-                Escalation.resolved == False,
+            result = await session.execute(
+                select(BackupContact).where(BackupContact.id == operator["operator_id"])
             )
-        )
-        escalation_count = count_result.scalar() or 0
+            contact = result.scalars().first()
 
-        # Capture fields while session is open (encrypted strings need tenant key context)
-        name = contact.name if contact else operator.get("name", "")
-        email = contact.email if contact else ""
-        role = operator.get("role", "")
-        account_name = account.name if account else ""
+            acct_result = await session.execute(
+                select(Account).where(Account.id == account_id)
+            )
+            account = acct_result.scalars().first()
+
+            # Count unresolved escalations for sidebar badge
+            count_result = await session.execute(
+                select(func.count(Escalation.id)).where(
+                    Escalation.tenant_id == tenant_id,
+                    Escalation.resolved == False,
+                )
+            )
+            escalation_count = count_result.scalar() or 0
+
+            # Capture fields while session is open (encrypted strings need tenant key context)
+            name = contact.name if contact else operator.get("name", "")
+            email = contact.email if contact else ""
+            role = operator.get("role", "")
+            account_name = account.name if account else ""
+    except Exception as e:
+        _logger.exception("portal_api_me.error", error=str(e))
 
     return JSONResponse(content={
         "name": name,
