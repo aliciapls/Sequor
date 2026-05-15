@@ -29,7 +29,7 @@ _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
 app = FastAPI(title="Sequor Onboarding", version="0.1.0")
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR), auto_reload=True)
 
 
 @app.get("/", response_class=HTMLResponse)
