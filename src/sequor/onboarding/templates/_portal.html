@@ -175,7 +175,9 @@
             padding: 2px 7px;
             border-radius: 20px;
             box-shadow: 0 1px 4px rgba(239, 68, 68, 0.3);
+            display: none;
         }
+        .nav-badge.visible { display: inline-block; }
 
         .sidebar-footer {
             padding: 12px;
@@ -689,7 +691,7 @@
             <a href="/portal/escalations" id="nav-escalations">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 Escalations
-                <span class="nav-badge" id="escalation-count">0</span>
+                <span class="nav-badge" id="escalation-count" style="display:none;">0</span>
             </a>
             <a href="/portal/auto-replies" id="nav-auto-replies">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
@@ -724,7 +726,7 @@
                 Subscription
             </a>
             <a href="/portal/faq" id="nav-faq">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                 Setup Guide
             </a>
             <a href="/portal/settings" id="nav-settings">
@@ -816,9 +818,9 @@
                     const badge = document.getElementById('escalation-count');
                     if (data.escalation_count > 0) {
                         badge.textContent = data.escalation_count;
-                        badge.style.display = '';
+                        badge.classList.add('visible');
                     } else {
-                        badge.style.display = 'none';
+                        badge.classList.remove('visible');
                     }
                 }
             }
