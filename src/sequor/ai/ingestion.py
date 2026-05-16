@@ -338,7 +338,7 @@ class DocumentIngester:
                     "status": status.value if hasattr(status, "value") else status,
                 },
             )
-            row = await result.fetchone()
+            row = result.fetchone()
             if row:
                 doc_id = row[0]
             else:

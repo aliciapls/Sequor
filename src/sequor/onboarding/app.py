@@ -1040,7 +1040,7 @@ async def portal_api_upload_document(
                     "status": DocumentStatus.pending.value,
                 },
             )
-            row = await result.fetchone()
+            row = result.fetchone()
             document_id = row[0]
             await session.commit()
 
