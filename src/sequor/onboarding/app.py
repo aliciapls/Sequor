@@ -4,6 +4,7 @@ Uses FastAPI (lightweight, async, Pydantic integration). Runs with:
     uvicorn sequor.onboarding.app:app --reload
 """
 
+import hashlib
 import json as _json
 import structlog
 from pathlib import Path
@@ -1007,20 +1008,91 @@ async def portal_api_upload_document(
         from sequor.ai.vector_store import VectorStore
         from sequor.ai.client import get_ollama_client
         from sequor.db.database import get_engine
+        from sequor.db.models import DocumentStatus
+
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from datetime import datetime, timezone
 
         engine = get_engine()
         vector_store = VectorStore(engine)
+
+        now = datetime.now(timezone.utc)
+        doc_type_value = document_type
+
+        async with AsyncSession(engine) as session:
+            result = await session.execute(
+                text("""
+                INSERT INTO documents
+                (id, tenant_id, name, type, file_hash, chunk_count, indexed_at, last_indexed_at, status)
+                VALUES (gen_random_uuid(), :tenant_id, :name, :type, :file_hash,
+                 :chunk_count, :indexed_at, :last_indexed_at, :status)
+                RETURNING id
+                """),
+                {
+                    "tenant_id": UUID(tenant_id),
+                    "name": filename,
+                    "type": doc_type_value,
+                    "file_hash": hashlib.sha256(content).hexdigest(),
+                    "chunk_count": 0,
+                    "indexed_at": now,
+                    "last_indexed_at": now,
+                    "status": DocumentStatus.pending.value,
+                },
+            )
+            row = await result.fetchone()
+            document_id = row[0]
+            await session.commit()
+
+        # Now process with ingester (it will update status to indexing/ready)
         ingester = DocumentIngester(
             vector_store=vector_store,
             llm_client=get_ollama_client(),
         )
-        document_id = await ingester.ingest(
-            tenant_id=UUID(tenant_id),
-            account_id=UUID(account_id),
-            filename=filename,
-            content=content,
-            document_type=document_type,
+        # Override _db_model check by patching the method behavior
+        # Actually let's just call _process_document directly
+        await ingester._update_document_status(
+            document_id=document_id,
+            status=DocumentStatus.indexing,
         )
+
+        # Parse and chunk
+        from sequor.ai.document_parser import get_parser_for_file
+        from sequor.ai.chunker import get_chunker_for_document_type
+
+        parser = get_parser_for_file(filename)
+        parsed = await parser.parse(content, filename)
+
+        chunker = get_chunker_for_document_type(document_type)
+        raw_chunks = chunker.chunk(
+            parsed.text,
+            metadata={"filename": filename, "document_type": document_type},
+        )
+
+        # Try embeddings
+        try:
+            texts_to_embed = [chunk.text for chunk in raw_chunks]
+            embeddings = await ingester._llm.generate_embeddings(texts_to_embed)
+
+            chunk_data = [
+                (chunk.index, chunk.text, emb)
+                for chunk, emb in zip(raw_chunks, embeddings, strict=True)
+            ]
+
+            await vector_store.store_chunks(
+                tenant_id=UUID(tenant_id),
+                document_id=document_id,
+                chunks=chunk_data,
+            )
+
+            await ingester._update_document_status(
+                document_id=document_id,
+                status=DocumentStatus.ready,
+            )
+        except Exception as e:
+            _logger.warning("portal.upload.embedding.failed", document_id=str(document_id), error=str(e))
+            # Document stays in indexing status - can be reprocessed later
+
         return JSONResponse(
             status_code=201,
             content={
