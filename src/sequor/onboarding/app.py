@@ -1027,6 +1027,48 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
     return JSONResponse(content={"documents": docs_response})
 
 
+@app.delete("/api/v1/portal/documents/{document_id}")
+async def portal_api_delete_document(request: Request, document_id: str):
+    """Delete a document and its chunks. Requires tenant ownership."""
+    operator = _require_auth(request)
+    tenant_id = operator["tenant_id"]
+
+    from sequor.db.database import get_engine
+    from sqlalchemy import text
+    engine = get_engine()
+
+    async with engine.connect() as conn:
+        # Verify ownership
+        check = await conn.execute(
+            text("SELECT tenant_id FROM documents WHERE id = :id"),
+            {"id": UUID(document_id)},
+        )
+        row = check.fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "Document not found"})
+        if str(row[0]) != tenant_id:
+            return JSONResponse(status_code=403, content={"error": "Not yours to delete"})
+
+        # Delete chunks first (foreign key)
+        await conn.execute(
+            text("DELETE FROM document_chunks WHERE document_id = :id"),
+            {"id": UUID(document_id)},
+        )
+        # Delete key phrase mappings
+        await conn.execute(
+            text("DELETE FROM keyphrase_mappings WHERE document_id = :id"),
+            {"id": UUID(document_id)},
+        )
+        # Delete document
+        await conn.execute(
+            text("DELETE FROM documents WHERE id = :id"),
+            {"id": UUID(document_id)},
+        )
+        await conn.commit()
+
+    return JSONResponse(content={"status": "deleted"})
+
+
 @app.post("/api/v1/portal/documents/upload")
 async def portal_api_upload_document(
     request: Request,
