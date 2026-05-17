@@ -106,27 +106,27 @@ class OllamaClient:
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for texts.
 
+        Tries Ollama first, falls back to OpenAI if Ollama is unavailable.
+
         Args:
             texts: List of text strings to embed
 
         Returns:
             List of embedding vectors
         """
-        client = await self._get_client()
+        try:
+            return await self._generate_ollama_embeddings(texts)
+        except (httpx.ConnectError, RuntimeError):
+            logger.warning("ollama.embedding.unavailable, falling back to OpenAI")
+            return await self._generate_openai_embeddings(texts)
 
+    async def _generate_ollama_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings via Ollama. Raises on failure."""
+        client = await self._get_client()
         embeddings = []
         for text in texts:
-            payload = {
-                "model": self.embedding_model,
-                "prompt": text,
-            }
-
-            logger.debug(
-                "ollama.embedding.start",
-                model=self.embedding_model,
-                text_length=len(text),
-            )
-
+            payload = {"model": self.embedding_model, "prompt": text}
+            logger.debug("ollama.embedding.start", model=self.embedding_model, text_length=len(text))
             try:
                 response = await client.post("/api/embeddings", json=payload)
                 response.raise_for_status()
@@ -134,24 +134,36 @@ class OllamaClient:
                 embedding = data.get("embedding", [])
                 embeddings.append(embedding)
             except httpx.HTTPStatusError as e:
-                logger.error(
-                    "ollama.embedding.error",
-                    status=e.response.status_code,
-                    text_length=len(text),
-                )
+                logger.error("ollama.embedding.error", status=e.response.status_code, text_length=len(text))
                 raise
             except httpx.ConnectError:
-                logger.warning("ollama.embedding.unavailable", base_url=self.base_url)
-                raise RuntimeError(
-                    f"Ollama service unavailable at {self.base_url}. "
-                    "Please ensure Ollama is running."
-                ) from None
+                logger.warning("ollama.embedding.unreachable", base_url=self.base_url)
+                raise
+        logger.info("ollama.embedding.ok", model=self.embedding_model, text_count=len(texts))
+        return embeddings
 
-        logger.info(
-            "ollama.embedding.ok",
-            model=self.embedding_model,
-            text_count=len(texts),
-        )
+    async def _generate_openai_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings via OpenAI API. Falls back to no embeddings on failure."""
+        from sequor.config import settings
+        if not settings.openai_api_key:
+            logger.warning("openai.embedding.skipped", reason="OPENAI_API_KEY not set")
+            raise RuntimeError("OpenAI API key not configured")
+        import openai
+        client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+        embeddings = []
+        for text in texts:
+            logger.debug("openai.embedding.start", model=settings.openai_embedding_model, text_length=len(text))
+            try:
+                resp = await client.embeddings.create(
+                    model=settings.openai_embedding_model,
+                    input=text,
+                )
+                embedding = resp.data[0].embedding
+                embeddings.append(embedding)
+            except Exception as e:
+                logger.warning("openai.embedding.failed", error=str(e))
+                raise RuntimeError(f"OpenAI embedding failed: {e}") from e
+        logger.info("openai.embedding.ok", model=settings.openai_embedding_model, text_count=len(texts))
         return embeddings
 
     async def is_available(self) -> bool:

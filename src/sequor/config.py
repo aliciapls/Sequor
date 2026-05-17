@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     llm_model: str = "llama3.1"
     embedding_model: str = "nomic-embed-text"
 
+    # Embeddings fallback (OpenAI — used when Ollama is unavailable)
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+
     # Email (SendGrid)
     sendgrid_api_key: str = ""
     sendgrid_webhook_verification_key: str = ""
