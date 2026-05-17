@@ -30,13 +30,15 @@ _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
 
 
 async def _reprocess_stuck_documents() -> None:
-    """Log documents stuck in 'indexing' with no embeddings — for manual reprocess."""
+    """Mark documents stuck in 'indexing' as ready (BM25 fallback works without embeddings)."""
     from sequor.db.database import get_engine
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
+    from datetime import datetime, timezone
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        # Find documents stuck at 'indexing' with no vector embeddings
         result = await session.execute(
             text("""
                 SELECT d.id, d.tenant_id, d.name
@@ -50,15 +52,24 @@ async def _reprocess_stuck_documents() -> None:
             _logger.info("reprocess_stuck.none_found")
             return
         _logger.info("reprocess_stuck.found", count=len(stuck))
+        now = datetime.now(timezone.utc)
         for row in stuck:
             doc_id, tenant_id, name = row[0], row[1], row[2]
+            await session.execute(
+                text("""
+                    UPDATE documents
+                    SET status = 'ready', last_indexed_at = :now
+                    WHERE id = :doc_id
+                """),
+                {"doc_id": doc_id, "now": now},
+            )
             _logger.info(
-                "reprocess_stuck.document",
+                "reprocess_stuck.fixed",
                 document_id=str(doc_id),
                 tenant_id=str(tenant_id),
                 name=name,
-                reason="Ollama was unavailable — manually re-upload or reprocess",
             )
+        await session.commit()
 
 
 @asynccontextmanager
@@ -1563,7 +1574,7 @@ async def portal_api_me(request: Request):
             count_result = await session.execute(
                 select(func.count(Escalation.id)).where(
                     Escalation.tenant_id == tenant_id,
-                    Escalation.resolved == False,
+                    Escalation.status != "resolved",
                 )
             )
             escalation_count = count_result.scalar() or 0
