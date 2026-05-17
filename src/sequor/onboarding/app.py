@@ -7,6 +7,7 @@ Uses FastAPI (lightweight, async, Pydantic integration). Runs with:
 import hashlib
 import json as _json
 import structlog
+from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
@@ -27,7 +28,50 @@ _logger = structlog.get_logger()
 _signup_limiter = IPRateLimiter(max_requests=5, window_seconds=3600)
 _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
 
-app = FastAPI(title="Sequor Onboarding", version="0.1.0")
+app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=_app_lifespan)
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI):
+    """Startup: reprocess any documents stuck in 'indexing' due to prior Ollama outages."""
+    try:
+        await _reprocess_stuck_documents()
+    except Exception:
+        _logger.exception("lifespan.reprocess_stuck.failed")
+    yield
+
+
+async def _reprocess_stuck_documents() -> None:
+    """Log documents stuck in 'indexing' with no embeddings — for manual reprocess."""
+    from sequor.db.database import get_engine
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            text("""
+                SELECT d.id, d.tenant_id, d.name
+                FROM documents d
+                LEFT JOIN document_chunks dc ON dc.document_id = d.id AND dc.embedding IS NOT NULL
+                WHERE d.status = 'indexing' AND dc.id IS NULL
+            """)
+        )
+        stuck = result.fetchall()
+        if not stuck:
+            _logger.info("reprocess_stuck.none_found")
+            return
+        _logger.info("reprocess_stuck.found", count=len(stuck))
+        for row in stuck:
+            doc_id, tenant_id, name = row[0], row[1], row[2]
+            _logger.info(
+                "reprocess_stuck.document",
+                document_id=str(doc_id),
+                tenant_id=str(tenant_id),
+                name=name,
+                reason="Ollama was unavailable — manually re-upload or reprocess",
+            )
+
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR), auto_reload=True)

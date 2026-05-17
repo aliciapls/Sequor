@@ -231,7 +231,7 @@ class DocumentIngester:
                 filename=filename,
             )
 
-        # Try embedding generation — if Ollama is unavailable, store document without embeddings
+        # Stage 3b: Generate embeddings (best-effort — document is still usable without them)
         embeddings = None
         try:
             texts_to_embed = [chunk.text for chunk in raw_chunks]
@@ -243,26 +243,21 @@ class DocumentIngester:
                 error=str(e),
                 chunk_count=len(raw_chunks),
             )
-            # Document saved without embeddings — stays in 'indexing' status
-            # A background job or next Ollama availability can reprocess it
-            if self._db_model:
-                await self._update_document_status(
-                    document_id=document_id,
-                    status=DocumentStatus.indexing,
-                )
-            return document_id
+            # Ollama unavailable — store chunks without embeddings (BM25 search still works)
 
         chunk_data = [
             (chunk.index, chunk.text, emb)
             for chunk, emb in zip(raw_chunks, embeddings, strict=True)
+            if emb is not None
         ]
 
         # Stage 4: Store chunks and mark as ready
-        await self._vector_store.store_chunks(
-            tenant_id=tenant_id,
-            document_id=document_id,
-            chunks=chunk_data,
-        )
+        if chunk_data:
+            await self._vector_store.store_chunks(
+                tenant_id=tenant_id,
+                document_id=document_id,
+                chunks=chunk_data,
+            )
 
         if self._db_model:
             await self._update_document_status(
