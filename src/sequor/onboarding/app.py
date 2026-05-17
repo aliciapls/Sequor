@@ -1759,3 +1759,38 @@ async def portal_settings(request: Request):
     if not token:
         return templates.TemplateResponse("login.html", {"request": request})
     return templates.TemplateResponse("settings.html", {"request": request})
+
+
+# TEMPORARY DEBUG ENDPOINT — remove after verifying document status
+@app.get("/debug/docs")
+async def debug_docs():
+    """DEBUG: Return all document statuses. REMOVE AFTER TESTING."""
+    from sequor.db.database import get_engine
+    from sqlalchemy import text
+    engine = get_engine()
+    async with engine.connect() as conn:
+        r = await conn.execute(text("""
+            SELECT d.id, d.name, d.status, d.chunk_count,
+                   COUNT(dc.id) as total_chunks,
+                   COUNT(dc.embedding) as embedded_chunks
+            FROM documents d
+            LEFT JOIN document_chunks dc ON dc.document_id = d.id
+            GROUP BY d.id, d.name, d.status, d.chunk_count
+            ORDER BY d.indexed_at DESC
+            LIMIT 20
+        """))
+        rows = r.fetchall()
+    return JSONResponse(content={
+        "count": len(rows),
+        "documents": [
+            {
+                "id": str(row[0]),
+                "name": row[1],
+                "status": row[2],
+                "chunk_count": row[3],
+                "total_chunks": row[4],
+                "embedded_chunks": row[5],
+            }
+            for row in rows
+        ]
+    })
