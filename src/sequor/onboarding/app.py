@@ -28,18 +28,6 @@ _logger = structlog.get_logger()
 _signup_limiter = IPRateLimiter(max_requests=5, window_seconds=3600)
 _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
 
-app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=_app_lifespan)
-
-
-@asynccontextmanager
-async def _app_lifespan(app: FastAPI):
-    """Startup: reprocess any documents stuck in 'indexing' due to prior Ollama outages."""
-    try:
-        await _reprocess_stuck_documents()
-    except Exception:
-        _logger.exception("lifespan.reprocess_stuck.failed")
-    yield
-
 
 async def _reprocess_stuck_documents() -> None:
     """Log documents stuck in 'indexing' with no embeddings — for manual reprocess."""
@@ -71,6 +59,19 @@ async def _reprocess_stuck_documents() -> None:
                 name=name,
                 reason="Ollama was unavailable — manually re-upload or reprocess",
             )
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI):
+    """Startup: reprocess any documents stuck in 'indexing' due to prior Ollama outages."""
+    try:
+        await _reprocess_stuck_documents()
+    except Exception:
+        _logger.exception("lifespan.reprocess_stuck.failed")
+    yield
+
+
+app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=_app_lifespan)
 
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -668,7 +669,7 @@ async def auth_me(request: Request):
     })
 
 
-# ── Portal API (authenticated) ──────────────────────────────────────────────────
+# ── Portal API (authenticated) ─────────────────────────────────────────────────-
 
 def _get_session_operator(request: Request) -> dict | None:
     """Extract operator from the session JWT cookie. Returns None if not authenticated."""
@@ -1094,8 +1095,6 @@ async def portal_api_upload_document(
             vector_store=vector_store,
             llm_client=get_ollama_client(),
         )
-        # Override _db_model check by patching the method behavior
-        # Actually let's just call _process_document directly
         await ingester._update_document_status(
             document_id=document_id,
             status=DocumentStatus.indexing,
@@ -1136,7 +1135,21 @@ async def portal_api_upload_document(
             )
         except Exception as e:
             _logger.warning("portal.upload.embedding.failed", document_id=str(document_id), error=str(e))
-            # Document stays in indexing status - can be reprocessed later
+            # Store chunks without embeddings and mark ready (BM25 still works)
+            chunk_data = [
+                (chunk.index, chunk.text, None)
+                for chunk in raw_chunks
+            ]
+            if chunk_data:
+                await vector_store.store_chunks(
+                    tenant_id=UUID(tenant_id),
+                    document_id=document_id,
+                    chunks=chunk_data,
+                )
+            await ingester._update_document_status(
+                document_id=document_id,
+                status=DocumentStatus.ready,
+            )
 
         return JSONResponse(
             status_code=201,
