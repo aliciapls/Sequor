@@ -954,10 +954,9 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
             .offset(offset)
         )
         docs = result.scalars().all()
-        await session.commit()
 
-    return JSONResponse(content={
-        "documents": [
+        # Build response while session is still open (avoid DetachedInstanceError)
+        docs_response = [
             {
                 "id": str(d.id),
                 "name": d.name,
@@ -967,7 +966,9 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
             }
             for d in docs
         ]
-    })
+        await session.commit()
+
+    return JSONResponse(content={"documents": docs_response})
 
 
 @app.post("/api/v1/portal/documents/upload")
@@ -1138,24 +1139,25 @@ async def portal_api_keyphrase_mappings(request: Request):
             .order_by(desc(KeyPhraseMapping.usage_count), KeyPhraseMapping.phrase)
         )
         rows = result.all()
-        await session.commit()
 
-    mappings = []
-    for row in rows:
-        km = row[0]
-        doc_name = row[1]
-        mappings.append({
-            "id": str(km.id),
-            "phrase": km.phrase,
-            "aliases": km.aliases or "",
-            "document_id": str(km.document_id),
-            "document_name": doc_name,
-            "mapping_type": km.mapping_type.value,
-            "confidence_boost": km.confidence_boost,
-            "usage_count": km.usage_count,
-            "is_active": km.is_active,
-            "created_at": km.created_at.isoformat() if km.created_at else None,
-        })
+        mappings = []
+        for row in rows:
+            km = row[0]
+            doc_name = row[1]
+            mappings.append({
+                "id": str(km.id),
+                "phrase": km.phrase,
+                "aliases": km.aliases or "",
+                "document_id": str(km.document_id),
+                "document_name": doc_name,
+                "mapping_type": km.mapping_type.value,
+                "confidence_boost": km.confidence_boost,
+                "usage_count": km.usage_count,
+                "is_active": km.is_active,
+                "created_at": km.created_at.isoformat() if km.created_at else None,
+            })
+
+        await session.commit()
 
     return JSONResponse(content={"mappings": mappings})
 
@@ -1269,16 +1271,25 @@ async def portal_api_keyphrase_suggestions(request: Request):
             )
         )
         docs = result.scalars().all()
+        # Build response while session is open (avoid DetachedInstanceError)
+        docs_response = [
+            {
+                "id": str(d.id),
+                "name": d.name,
+                "type": d.type.value if d.type else None,
+            }
+            for d in docs
+        ]
         await session.commit()
 
-    if not docs:
+    if not docs_response:
         return JSONResponse(content={"suggestions": [], "message": "Upload documents first to get suggestions"})
 
     # Gather document text content (limit to first 3 docs, 2000 chars each for suggestion generation)
     doc_summaries = []
-    for doc in docs[:3]:
+    for doc in docs_response[:3]:
         # Use name as summary since body_text might not be populated
-        doc_summaries.append(f"- {doc.name} ({doc.type.value if doc.type else 'document'})")
+        doc_summaries.append(f"- {doc['name']} ({doc['type'] or 'document'})")
 
     doc_context = "\n".join(doc_summaries)
 
@@ -1315,16 +1326,16 @@ async def portal_api_keyphrase_suggestions(request: Request):
         # Build response with document associations (all suggestions apply to all docs for now)
         result_suggestions = []
         for phrase in new_suggestions:
-            for doc in docs[:3]:
+            for doc in docs_response[:3]:
                 result_suggestions.append({
                     "phrase": phrase,
-                    "document_id": str(doc.id),
-                    "document_name": doc.name,
+                    "document_id": doc["id"],
+                    "document_name": doc["name"],
                 })
 
         return JSONResponse(content={
             "suggestions": result_suggestions,
-            "source_documents": [str(d.id) for d in docs[:3]],
+            "source_documents": [d["id"] for d in docs_response[:3]],
         })
     except Exception as e:
         import structlog
