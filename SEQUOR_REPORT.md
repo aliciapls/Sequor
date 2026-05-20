@@ -8,9 +8,15 @@
 
 Sequor is an AI-powered communication coverage platform for small businesses. When the owner is unavailable, Sequor handles incoming email and WhatsApp messages — classifying them, generating auto-replies from uploaded documents, and escalating only what needs human attention.
 
-**How it works:** Customer messages → AI classifies (routine / semi-routine / complex / high-stakes) → High-confidence routine queries get an immediate auto-reply drawn from uploaded documents → Complex or low-confidence queries escalate to a backup contact with an AI-prepared draft ready for review → Every human resolution improves future auto-replies.
+**How it works:**
 
-**Channels:** Email (SendGrid) and WhatsApp Business API (Meta Cloud API).
+1. Customer sends an email or WhatsApp message.
+2. Sequor classifies it — routine, semi-routine, complex, or high-stakes.
+3. High-confidence routine queries receive an immediate AI auto-reply drawn from the business's uploaded documents.
+4. Low-confidence or complex queries escalate to a backup contact with an AI-prepared draft ready for review.
+5. Every human resolution improves future auto-replies through the learning loop.
+
+**Channels:** Email (SendGrid) and WhatsApp Business API (Meta Cloud API). Same-contact, same-topic messages across channels are recognized as one conversation.
 
 **Pricing:** Free (50 messages/month) → Starter SGD 20/month (200 messages) → Professional → Enterprise. Paid plans via Stripe.
 
