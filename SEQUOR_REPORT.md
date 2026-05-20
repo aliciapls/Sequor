@@ -28,12 +28,12 @@ Small businesses lose customers when they cannot respond quickly. Hiring a virtu
 
 ### Competitive Comparison
 
-|                     | Sequor    | Virtual Assistant | Intercom AI | DIY GPT API       |
-| ------------------- | --------- | ----------------- | ----------- | ----------------- |
-| Monthly cost        | From free | SGD 1,500–3,000   | SGD 80–500+ | SGD 50–500+ (API) |
-| Setup time          | Hours     | Days to weeks     | Days        | Days              |
-| Escalation+AI draft | Yes       | N/A               | Partial     | No                |
-| PDPA built-in       | Yes       | No                | Partial     | No                |
+|                     | Sequor    | Virtual Assistant | Intercom AI | DIY GPT API | No Coverage |
+| ------------------- | --------- | ----------------- | ----------- | ----------- | ----------- |
+| Monthly cost        | From free | SGD 1,500–3,000   | SGD 80–500+ | SGD 50–500+ | SGD 0       |
+| Setup time          | Hours     | Days to weeks     | Days        | Days        | N/A         |
+| Escalation+AI draft | Yes       | N/A               | Partial     | No          | No          |
+| PDPA built-in       | Yes       | No                | Partial     | No          | No          |
 
 ### What Is Needed to Go Live
 
