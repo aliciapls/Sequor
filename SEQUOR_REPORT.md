@@ -562,7 +562,41 @@ The following gaps were identified in a codebase audit. Items must be resolved b
 
 ---
 
-## 7. Known Gaps — Acceptable with Mitigations
+## 7. Honest Assessment — Product Weak Points
+
+Every product has honest weak points. Listing them builds credibility. Silence on weaknesses destroys it when users discover them.
+
+### Learning Loop Cold Start
+
+The learning loop improves auto-replies by capturing human answers from escalation resolutions. New tenants have zero escalation history — the learning loop has nothing to learn from for the first weeks of operation. During this period, auto-reply quality depends entirely on the quality and coverage of uploaded documents. **Mitigation:** Upload comprehensive documents before going live. Add more documents over time as new query types arrive.
+
+### WhatsApp Template Approval Delay
+
+Meta's WhatsApp Cloud API requires pre-approved template messages for any outbound message sent outside the 24-hour session window. Template approval by Meta typically takes **24–72 hours** but can take longer. During this window, auto-replies via WhatsApp are blocked for contacts who have not messaged within the past 24 hours. **Mitigation:** Initiate the WhatsApp Business account verification and template submission early in the onboarding process, before launch.
+
+### OpenAI Embedding Costs at Scale
+
+When `OPENAI_API_KEY` is set, document ingestion and every inbound query generates embedding calls to OpenAI. At `text-embedding-3-small` pricing (approximately USD $0.02 per 1M tokens), costs are low for small document volumes. At 1,000 documents × 10 chunks × 256 tokens per chunk = approximately 2.5M tokens per ingestion. Real-time query embedding adds ongoing per-query cost. **Mitigation:** Monitor OpenAI usage via the OpenAI dashboard. Consider BM25-only mode (without OpenAI key) for cost-sensitive deployments.
+
+### No Uptime SLA on Free and Starter Plans
+
+Sequor does not offer an uptime guarantee on the Free or Starter plans. There is no status page or incident notification system. If the application experiences downtime, users are not proactively notified. **Mitigation:** Use a self-hosted Docker deployment with your own monitoring for production workloads requiring uptime guarantees.
+
+### No Escalation Delivery Confirmation
+
+When an escalation is created, the backup contact receives an email. There is no read receipt, delivery confirmation, or escalation if the email is silently blocked by a spam filter or rejected by the mail server. **Mitigation:** Ensure the escalation contact's email domain has proper SPF/DKIM/DMARC records configured. Add a secondary escalation contact as a fallback.
+
+### Large File Processing on Vercel Free Tier
+
+Vercel's serverless function timeout on the free tier is **10 seconds**. Large document uploads (near the 25MB limit, or documents with thousands of pages) may time out during parsing and embedding. **Mitigation:** For large document volumes, use self-hosting with the Docker image where no serverless timeout applies. Keep individual documents under 10MB for Vercel deployments.
+
+### Document Quality Is the Ceiling
+
+Sequor's auto-reply quality is bounded by the quality, coverage, and freshness of the uploaded documents. If documents are incomplete, outdated, or poorly structured, the AI will produce incomplete or inaccurate replies. The learning loop can填补 some gaps over time, but only for escalation resolutions. **Mitigation:** Invest time in uploading high-quality, well-structured documents before going live. Review and update documents regularly. Assign accurate document types (FAQ, Policy, Price List) to aid retrieval.
+
+---
+
+## 8. Known Gaps — Acceptable with Mitigations
 
 | Gap                                         | Why Acceptable                               | Mitigation                                             |
 | ------------------------------------------- | -------------------------------------------- | ------------------------------------------------------ |
@@ -571,3 +605,27 @@ The following gaps were identified in a codebase audit. Items must be resolved b
 | Server-rendered portal (no WebSocket)       | Simple, no client complexity                 | Refresh acceptable for small teams                     |
 | Email consent not tracked                   | WhatsApp consent tracked                     | Add `_ensure_consent()` for email before email scaling |
 | No background scheduler on Vercel free tier | Vercel limits; SLA scheduler needs a worker  | Self-host with Docker or use a cron service            |
+
+---
+
+## 9. Conclusion
+
+Sequor addresses a real problem: small businesses losing customers to slow response times, at a cost that is a fraction of a virtual assistant. The core AI pipeline — classification, hybrid RAG retrieval, confidence-based routing, and the learning loop — is a solid technical foundation. The product handles both email and WhatsApp with a coherent escalation workflow that actually reduces operator burden rather than adding noise.
+
+The pre-launch checklist identifies 15 gaps that must be resolved before production traffic. Four are critical: the SLA scheduler not running, the JWT dev-secret fallback, incomplete PDPA erasure, and unenforced plan limits. None of these require architectural changes — they are wiring and boundary fixes. The codebase audit confirmed that the core AI logic is implemented, not stubbed.
+
+The product is honest about its limitations. The learning loop needs time. Document quality sets the ceiling. WhatsApp template approval takes days. These are not hidden failures — they are documented realities that set correct expectations for operators and stakeholders.
+
+Sequor is ready for a controlled pilot with a single early-adopter customer. It is not ready for mass market without resolving the four critical pre-launch items and at minimum the five high-priority items.
+
+**Next steps:**
+
+1. Resolve the 4 critical pre-launch items (Section 6).
+2. Conduct a pilot with 1–3 willing early-adopter customers on the free plan.
+3. Based on pilot feedback, resolve the 5 high-priority items.
+4. Define and announce the Starter plan pricing and Stripe integration.
+5. Publish a public roadmap to build confidence in continued development.
+
+---
+
+_This report was last updated: May 2026. For the latest codebase and deployment status, see https://github.com/aliciapls/Sequor._
