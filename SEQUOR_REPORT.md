@@ -353,15 +353,17 @@ uv run uvicorn sequor.onboarding.app:app --reload
 
 The app runs at `http://localhost:8000`. Portal pages are at `/portal/*`.
 
+**Why PostgreSQL + pgvector is required:** SQLite cannot be used because it has no vector search capability. The AI pipeline uses hybrid retrieval — 70% pgvector cosine similarity + 30% BM25 keyword scoring — to find the most relevant document passages. This requires pgvector. Managed PostgreSQL with pgvector is available from Supabase, Neon, or Render from ~SGD 5/month for typical small-business usage. This cost is separate from Sequor licensing.
+
 ### Dependencies on External Services
 
-| Service                 | Purpose                    | Free Tier?                    |
-| ----------------------- | -------------------------- | ----------------------------- |
-| PostgreSQL + pgvector   | Database and vector search | Yes (self-hosted or Supabase) |
-| SendGrid                | Email sending and inbound  | Yes (100 emails/day free)     |
-| Stripe                  | Billing                    | Yes (test mode)               |
-| Meta WhatsApp Cloud API | WhatsApp messaging         | Yes                           |
-| Ollama                  | Local LLM (dev only)       | Yes                           |
+| Service                 | Purpose                    | Cost                      |
+| ----------------------- | -------------------------- | ------------------------- |
+| PostgreSQL + pgvector   | Database and vector search | ~SGD 5–15/month (managed) |
+| SendGrid                | Email sending and inbound  | Yes (100 emails/day free) |
+| Stripe                  | Billing                    | Yes (test mode)           |
+| Meta WhatsApp Cloud API | WhatsApp messaging         | Yes                       |
+| Ollama                  | Local LLM (dev only)       | Yes                       |
 
 For production on Vercel: Ollama is unavailable; set `OPENAI_API_KEY` or rely on BM25 search.
 
