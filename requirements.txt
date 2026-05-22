@@ -1,2 +1,2 @@
--r src/requirements.txt
+# Dependencies are declared in pyproject.toml — use: uv sync or pip install .
 vercel==0.110.0
