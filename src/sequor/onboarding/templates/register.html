@@ -322,8 +322,21 @@
                 return;
             }
 
-            btn.textContent = 'Account created!';
-            window.location.href = '/portal/login?signup=success';
+            btn.textContent = 'Signing you in...';
+
+            // Auto-login after signup so the user goes straight to dashboard
+            var loginRes = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email, password: password }),
+                credentials: 'same-origin'
+            });
+
+            if (loginRes.ok) {
+                window.location.href = '/portal/dashboard';
+            } else {
+                window.location.href = '/portal/login?signup=success';
+            }
         } catch (err) {
             errorDiv.textContent = 'Network error. Please check your connection and try again.';
             errorDiv.style.display = 'block';

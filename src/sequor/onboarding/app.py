@@ -74,11 +74,13 @@ async def _reprocess_stuck_documents() -> None:
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
-    """Startup: reprocess any documents stuck in 'indexing' due to prior Ollama outages."""
+    """Startup: create tables if needed, then reprocess stuck documents."""
     try:
+        from sequor.db.database import init_db
+        await init_db()
         await _reprocess_stuck_documents()
     except Exception:
-        _logger.exception("lifespan.reprocess_stuck.failed")
+        _logger.exception("lifespan.startup.failed")
     yield
 
 
@@ -86,7 +88,14 @@ app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=_app_lifespan
 
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR), auto_reload=True)
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _render(name: str, request: Request, status_code: int = 200, **extra: object) -> HTMLResponse:
+    """Render a template without hitting Jinja2's buggy LRUCache."""
+    source = (TEMPLATES_DIR / name).read_text()
+    tmpl = templates.env.from_string(source)
+    return HTMLResponse(content=tmpl.render(request=request, **extra), status_code=status_code)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -521,74 +530,91 @@ async def auth_login(request: Request):
     from sequor.db.models import BackupContact, Account
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    engine = get_engine()
-    async with AsyncSession(engine) as session:
-        blind_index = compute_email_blind_index(email)
-        result = await session.execute(
-            select(BackupContact).where(BackupContact.email_blind_index == blind_index)
+    try:
+        engine = get_engine()
+        async with AsyncSession(engine) as session:
+            blind_index = compute_email_blind_index(email)
+            # Use raw SQL to avoid triggering EncryptedString decryption
+            # before we have the tenant key set
+            from sqlalchemy import text
+            row = await session.execute(
+                text("SELECT id, tenant_id, account_id, name, password_hash, tier "
+                     "FROM backup_contacts WHERE email_blind_index = :idx AND active = true"),
+                {"idx": blind_index},
+            )
+            contact = row.mappings().first()
+
+            if not contact:
+                return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+
+            password_hash = contact["password_hash"]
+            if not password_hash:
+                return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+
+            if not verify_password(password, password_hash):
+                return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+
+            op_id = str(contact["id"])
+            op_name = contact["name"]
+            op_tenant_id = str(contact["tenant_id"])
+            op_account_id = str(contact["account_id"])
+            op_tier = contact["tier"].value if hasattr(contact["tier"], "value") else str(contact["tier"])
+
+            # Now set tenant key so we can read encrypted columns
+            km = KeyManager(settings.encryption_master_key)
+            tenant_key = await km.get_tenant_key(session, UUID(op_tenant_id))
+            set_tenant_key(tenant_key)
+
+            # Load the full ORM object now that tenant key is set
+            result = await session.execute(
+                select(BackupContact).where(BackupContact.id == contact["id"])
+            )
+            operator = result.scalars().first()
+            op_email = operator.email if operator else email
+
+            acct_result = await session.execute(
+                select(Account).where(Account.id == operator.account_id)
+            )
+            account = acct_result.scalars().first()
+            account_name = account.name if account else ""
+
+            await session.commit()
+
+        token = create_access_token_for_operator(
+            operator_id=op_id,
+            tenant_id=op_tenant_id,
+            account_id=op_account_id,
+            name=op_name,
+            email=op_email,
+            role="admin" if op_tier == "primary" else "operator",
         )
-        operator = result.scalars().first()
 
-        if not operator:
-            return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
-
-        if not operator.password_hash:
-            return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
-
-        if not verify_password(password, operator.password_hash):
-            return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
-
-        km = KeyManager(settings.encryption_master_key)
-        tenant_key = await km.get_tenant_key(session, operator.tenant_id)
-        set_tenant_key(tenant_key)
-
-        # Capture all fields while session is open
-        op_id = str(operator.id)
-        op_name = operator.name
-        op_email = operator.email
-        op_tier = operator.tier.value
-        op_tenant_id = str(operator.tenant_id)
-        op_account_id = str(operator.account_id)
-
-        acct_result = await session.execute(
-            select(Account).where(Account.id == operator.account_id)
+        response = JSONResponse(content={
+            "status": "ok",
+            "operator": {
+                "id": op_id,
+                "name": op_name,
+                "email": op_email,
+                "tenant_id": op_tenant_id,
+                "account_id": op_account_id,
+                "account_name": account_name,
+                "role": "admin" if op_tier == "primary" else "operator",
+            }
+        })
+        response.set_cookie(
+            key="sequor_session",
+            value=token,
+            httponly=True,
+            secure=settings.app_env == "production",
+            samesite="lax",
+            path="/",
+            max_age=60 * 60 * 24,
         )
-        account = acct_result.scalars().first()
-        account_name = account.name if account else ""
-
-        await session.commit()
-
-    token = create_access_token_for_operator(
-        operator_id=op_id,
-        tenant_id=op_tenant_id,
-        account_id=op_account_id,
-        name=op_name,
-        email=op_email,
-        role="admin" if op_tier == "primary" else "operator",
-    )
-
-    response = JSONResponse(content={
-        "status": "ok",
-        "operator": {
-            "id": op_id,
-            "name": op_name,
-            "email": op_email,
-            "tenant_id": op_tenant_id,
-            "account_id": op_account_id,
-            "account_name": account_name,
-            "role": "admin" if op_tier == "primary" else "operator",
-        }
-    })
-    response.set_cookie(
-        key="sequor_session",
-        value=token,
-        httponly=True,
-        secure=settings.app_env == "production",
-        samesite="lax",
-        path="/",
-        max_age=60 * 60 * 24,
-    )
-    return response
+        return response
+    except Exception:
+        import traceback
+        _logger.exception("login.error")
+        return JSONResponse(status_code=500, content={"detail": f"Login error: {traceback.format_exc()}"})
 
 
 @app.post("/api/v1/admin/backfill-blind-indexes")
@@ -1669,8 +1695,8 @@ async def portal_api_upgrade(request: Request):
 async def portal_subscription(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("subscription.html", {"request": request})
+        return _render("login.html", request)
+    return _render("subscription.html", request)
 
 
 @app.get("/portal/login", response_class=HTMLResponse)
@@ -1719,85 +1745,95 @@ def _read_template(name: str) -> str:
 async def portal_dashboard(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+        try:
+            return _render("login.html", request)
+        except Exception:
+            import traceback
+            _logger.exception("template.render_failed", template="login.html")
+            return HTMLResponse(f"<h1>Login</h1><pre>{traceback.format_exc()}</pre>")
+    try:
+        return _render("dashboard.html", request)
+    except Exception:
+        import traceback
+        _logger.exception("template.render_failed", template="dashboard.html")
+        return HTMLResponse(f"<h1>Dashboard</h1><pre>{traceback.format_exc()}</pre>")
 
 
 @app.get("/portal/messages")
 async def portal_messages(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("messages.html", {"request": request})
+        return _render("login.html", request)
+    return _render("messages.html", request)
 
 
 @app.get("/portal/escalations")
 async def portal_escalations(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("escalations.html", {"request": request})
+        return _render("login.html", request)
+    return _render("escalations.html", request)
 
 
 @app.get("/portal/escalations/{esc_id}")
 async def portal_escalation_detail(request: Request, esc_id: str):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("escalation.html", {"request": request})
+        return _render("login.html", request)
+    return _render("escalation.html", request)
 
 
 @app.get("/portal/auto-replies")
 async def portal_auto_replies(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("auto-replies.html", {"request": request})
+        return _render("login.html", request)
+    return _render("auto-replies.html", request)
 
 
 @app.get("/portal/contacts")
 async def portal_contacts(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("contacts.html", {"request": request})
+        return _render("login.html", request)
+    return _render("contacts.html", request)
 
 
 @app.get("/portal/documents")
 async def portal_documents(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("documents.html", {"request": request})
+        return _render("login.html", request)
+    return _render("documents.html", request)
 
 
 @app.get("/portal/keyphrases")
 async def portal_keyphrases(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("keyphrases.html", {"request": request})
+        return _render("login.html", request)
+    return _render("keyphrases.html", request)
 
 
 @app.get("/portal/channels")
 async def portal_channels(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("channels.html", {"request": request})
+        return _render("login.html", request)
+    return _render("channels.html", request)
 
 
 @app.get("/portal/faq")
 async def portal_faq(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("faq.html", {"request": request})
+        return _render("login.html", request)
+    return _render("faq.html", request)
 
 
 @app.get("/portal/settings")
 async def portal_settings(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("settings.html", {"request": request})
+        return _render("login.html", request)
+    return _render("settings.html", request)

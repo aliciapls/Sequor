@@ -1,0 +1,13 @@
+# Force Vercel to use requirements.txt (not pyproject.toml/uv.lock with heavy Kailash SDK deps)
+uv.lock
+pyproject.toml
+.venv/
+tests/
+*.pyc
+__pycache__/
+.git/
+.claude/
+.SESSION_NOTES*
+.session-notes/
+node_modules/
+*.egg-info/

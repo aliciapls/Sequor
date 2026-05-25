@@ -126,10 +126,14 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     Returns dict with tenant_id, account_id, and backup_contact_id.
     Raises DuplicateEmailError if the owner_email is already registered.
     """
-    # Check for existing account with same owner email
+    # Check for existing account with same owner email via blind index
+    # (can't query encrypted owner_email without a tenant key set)
+    from sequor.db.encrypted_column import compute_email_blind_index
+
     owner_domain = request.owner_email.split("@")[1]
+    email_index = compute_email_blind_index(request.owner_email)
     existing = await session.execute(
-        select(Account).where(Account.owner_email == request.owner_email)
+        select(BackupContact).where(BackupContact.email_blind_index == email_index)
     )
     if existing.scalars().first() is not None:
         raise DuplicateEmailError(
@@ -192,8 +196,8 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         tenant_id=tenant.id,
         account_id=account.id,
         name=request.backup_name,
-        email=request.backup_email,
-        email_blind_index=compute_email_blind_index(request.backup_email),
+        email=request.owner_email,
+        email_blind_index=compute_email_blind_index(request.owner_email),
         tier="primary",
         active=True,
         password_hash=hash_password(request.owner_password),
