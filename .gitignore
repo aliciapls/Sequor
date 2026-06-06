@@ -66,3 +66,8 @@ secrets/
 **/scripts/data/
 **/scripts/outputs/
 **/scripts/*.log
+
+# COC multi-operator/per-clone runtime state (never versioned)
+.claude/operator-id
+.claude/logs/
+.claude/learning/coordination-log.jsonl

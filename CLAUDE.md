@@ -1,6 +1,18 @@
-# Kailash COC Claude (Python)
+# Kailash COC — Multi-CLI (Python)
 
-This repository is the **COC (Cognitive Orchestration for Codegen) setup** for building with the Kailash SDK — providing agents, skills, rules, and hooks for Kailash SDK development. All projects using this setup inherit these capabilities through the `.claude/` directory.
+This repository is configured with the **multi-CLI COC (Cognitive Orchestration for Codegen) setup** for building with the Kailash Python SDK. It ships the same institutional knowledge surface — agents, skills, rules, commands, hooks — to three driving CLIs: **Claude Code**, **Codex**, and **Gemini CLI**.
+
+## Per-CLI Baselines
+
+Each CLI loads its own root-level baseline file at session start:
+
+| CLI         | Baseline file | Source                                                       |
+| ----------- | ------------- | ------------------------------------------------------------ |
+| Claude Code | `CLAUDE.md`   | this file (project-owned — preserved across syncs)           |
+| Codex       | `AGENTS.md`   | regenerated from `.claude/rules/` via `.claude/bin/emit.mjs` |
+| Gemini CLI  | `GEMINI.md`   | regenerated from `.claude/rules/` via `.claude/bin/emit.mjs` |
+
+The rule set, framework directives, and philosophy are identical across the three. Divergence lives only in delegation syntax (`Agent(subagent_type=...)` on CC, native `@<agent>` on Gemini, `/prompts:<name>` on Codex) and per-CLI config trees (`.codex/`, `.gemini/`).
 
 ## Absolute Directives
 
@@ -8,152 +20,109 @@ These override ALL other instructions. They govern behavior before any rule file
 
 ### 0. Foundation Independence — No Commercial Coupling
 
-Kailash Python SDK is a **Terrene Foundation project**. It is fully independent. There is NO relationship between Kailash Python SDK and any commercial product, proprietary codebase, or commercial entity. Do not reference, compare with, or design against any proprietary product. Do not use language like "open-source version of X" or "Python port of Y." Kailash Python SDK IS the product — not a derivative of anything. See `rules/independence.md` for full policy.
+Kailash Python SDK is a **Terrene Foundation project** (Singapore CLG). It is fully independent. There is NO relationship between Kailash Python SDK and any commercial product, proprietary codebase, or commercial entity. Do not reference, compare with, or design against any proprietary product. Do not use language like "open-source version of X" or "Python port of Y." Kailash Python SDK IS the product — not a derivative of anything. This directive is the complete policy.
 
 ### 1. Framework-First
 
 Never write code from scratch before checking whether the Kailash frameworks already handle it.
 
-- Instead of direct SQL/SQLAlchemy/Django ORM → check with **dataflow-specialist**
-- Instead of building API endpoints, web services, HTTP servers manually → check with **nexus-specialist**
-- Instead of custom MCP server/client → check with **mcp-specialist**
-- Instead of custom agentic platform → check with **kaizen-specialist**
-- Instead of custom governance/access control → check with **pact-specialist**
+- Direct SQL / SQLAlchemy / Django ORM → **dataflow-specialist**
+- Custom HTTP servers, FastAPI, Flask, custom routers → **nexus-specialist**
+- Custom MCP server/client code → **mcp-specialist**
+- Custom LLM wrappers, provider abstraction layers, agent loops → **kaizen-specialist**
+- Custom RBAC / access control / audit logging → **pact-specialist**
+- Custom training loops, feature stores, drift monitoring → **ml-specialist**
+- Custom fine-tuning / LoRA / model serving → **align-specialist**
 
 ### 2. .env Is the Single Source of Truth
 
-All API keys and model names MUST come from `.env`. Never hardcode model strings like `"gpt-4"` or `"claude-3-opus"`. Root `conftest.py` auto-loads `.env` for pytest.
-
-See `rules/env-models.md` for full details.
+All API keys and model names MUST come from `.env`. Never hardcode model strings like `"gpt-4"` or `"claude-3-opus"`. Root `conftest.py` auto-loads `.env` for pytest. See `.claude/rules/env-models.md`.
 
 ### 3. Implement, Don't Document
 
-When you discover a missing feature, endpoint, or record — **implement or create it**. Do not note it as a gap and move on. The only acceptable skip is explicit user instruction.
-
-See `rules/e2e-god-mode.md` and `rules/zero-tolerance.md` for enforcement details.
+When you discover a missing feature, endpoint, or record — **implement or create it**. Do not note it as a gap and move on. The only acceptable skip is explicit user instruction. See `.claude/rules/zero-tolerance.md`.
 
 ### 4. Zero Tolerance
 
-Pre-existing failures MUST be fixed, not reported. Stubs are BLOCKED. Naive fallbacks are BLOCKED. SDK bugs get GitHub issues, not workarounds. See `rules/zero-tolerance.md`.
+Pre-existing failures MUST be fixed, not reported. Stubs are BLOCKED. Naive fallbacks are BLOCKED. SDK bugs get GitHub issues, not workarounds. See `.claude/rules/zero-tolerance.md`.
 
 ### 5. Recommended Reviews
 
-- **Code review** (reviewer) after file changes — RECOMMENDED — see `rules/agents.md`
-- **Security review** (security-reviewer) before commits — strongly recommended — see `rules/agents.md`
-- **Real infrastructure recommended** in Tier 2/3 tests — see `rules/testing.md`
+- **Code review** (reviewer) after file changes — RECOMMENDED
+- **Security review** (security-reviewer) before commits — strongly recommended
+- **Real infrastructure recommended** in Tier 2/3 tests
 
 ### 6. LLM-First Agent Reasoning
 
-When building AI agents: **the LLM does ALL reasoning. Tools are dumb data endpoints.** No if-else routing, no keyword matching, no regex classification in agent decision paths. The LLM IS the router, classifier, extractor, and evaluator. Deterministic logic is BLOCKED unless the user explicitly opts in. See `rules/agent-reasoning.md` for the full rule and detection patterns.
+When building AI agents: **the LLM does ALL reasoning. Tools are dumb data endpoints.** No if-else routing, no keyword matching, no regex classification in agent decision paths. Deterministic logic is BLOCKED unless the user explicitly opts in. See `.claude/rules/agent-reasoning.md`.
 
 ## Workspace Commands
 
-Phase commands replace the manual copy-paste workflow. Each loads the corresponding instruction template and checks workspace state.
+Phase commands map 1:1 across the three CLIs. The prompt body is shared — only the invocation surface differs:
 
-| Command      | Phase | Purpose                                                    |
-| ------------ | ----- | ---------------------------------------------------------- |
-| `/analyze`   | 01    | Load analysis phase for current workspace                  |
-| `/todos`     | 02    | Load todos phase; stops for human approval                 |
-| `/implement` | 03    | Load implementation phase; repeat until todos done         |
-| `/redteam`   | 04    | Load validation phase; red team with MCP tools             |
-| `/codify`    | 05    | Load codification phase; create agents & skills            |
-| `/release`   | —     | SDK release: PyPI publishing, docs deploy, CI (standalone) |
-| `/ws`        | —     | Read-only workspace status dashboard                       |
-| `/wrapup`    | —     | Write session notes before ending                          |
-| `/journal`   | —     | View, create, or search project journal entries            |
+| Command      | Phase | CC syntax    | Codex syntax         | Gemini syntax |
+| ------------ | ----- | ------------ | -------------------- | ------------- |
+| `/analyze`   | 01    | `/analyze`   | `/prompts:analyze`   | `/analyze`    |
+| `/todos`     | 02    | `/todos`     | `/prompts:todos`     | `/todos`      |
+| `/implement` | 03    | `/implement` | `/prompts:implement` | `/implement`  |
+| `/redteam`   | 04    | `/redteam`   | `/prompts:redteam`   | `/redteam`    |
+| `/codify`    | 05    | `/codify`    | `/prompts:codify`    | `/codify`     |
+| `/release`   | —     | `/release`   | `/prompts:release`   | `/release`    |
+| `/ws`        | —     | `/ws`        | `/prompts:ws`        | `/ws`         |
+| `/wrapup`    | —     | `/wrapup`    | `/prompts:wrapup`    | `/wrapup`     |
 
-**Workspace detection**: Hooks automatically detect the active workspace and inject context. `session-start.js` shows workspace status on session start (human-facing). `user-prompt-rules-reminder.js` injects a 1-line `[WORKSPACE]` summary into Claude's context every turn (survives context compression).
+Source-of-truth definitions live in `.claude/commands/`; Codex mirrors at `.codex/prompts/<name>.md`; Gemini at `.gemini/commands/<name>.toml`.
 
-**Session continuity**: Run `/wrapup` before ending a session to write `.session-notes`. The next session's startup reads these notes and shows workspace progress automatically.
+## Agent Invocation — Per-CLI Syntax
+
+Semantics identical; syntax differs:
+
+```python
+# CC
+Agent(subagent_type="dataflow-specialist", prompt="...")
+```
+
+```
+# Codex: delegated through the Codex agent layer (see .claude/agents/codex-architect.md)
+```
+
+```
+# Gemini: @<agent-name> — matches .gemini/agents/<name>.md
+@dataflow-specialist <task>
+```
 
 ## Rules Index
 
-| Concern                                         | Rule File                       | Scope                                                       |
-| ----------------------------------------------- | ------------------------------- | ----------------------------------------------------------- |
-| **Foundation independence**                     | `rules/independence.md`         | **Global — overrides all**                                  |
-| **Autonomous execution model**                  | `rules/autonomous-execution.md` | **Global — 10x multiplier, structural vs execution gates**  |
-| **LLM-first agent reasoning**                   | `rules/agent-reasoning.md`      | `**/kaizen/**`, `**/*agent*`                                |
-| Agent orchestration & review recommendations    | `rules/agents.md`               | Global                                                      |
-| CC artifact quality                             | `rules/cc-artifacts.md`         | `.claude/**`, `scripts/hooks/**`                            |
-| Plain-language communication                    | `rules/communication.md`        | Global                                                      |
-| Connection pool safety                          | `rules/connection-pool.md`      | Database connection code                                    |
-| DataFlow pool configuration                     | `rules/dataflow-pool.md`        | `**/dataflow/**`                                            |
-| SDK release & PyPI publishing                   | `rules/deployment.md`           | `deploy/**`, `.github/**`, `pyproject.toml`, `CHANGELOG.md` |
-| Documentation standards                         | `rules/documentation.md`        | `README.md`, `docs/**`, `CHANGELOG.md`                      |
-| E2E god-mode testing                            | `rules/e2e-god-mode.md`         | `tests/e2e/**`, `**/*e2e*`, `**/*playwright*`               |
-| EATP SDK conventions                            | `rules/eatp.md`                 | `**/trust/**`, `**/eatp/**`                                 |
-| API keys & model names                          | `rules/env-models.md`           | `**/*.py`, `**/*.ts`, `**/*.js`, `.env*`                    |
-| Git commits, branches, PRs                      | `rules/git.md`                  | Global                                                      |
-| Infrastructure SQL safety                       | `rules/infrastructure-sql.md`   | `**/db/**`, `**/infrastructure/**`                          |
-| Journal knowledge trail                         | `rules/journal.md`              | Global                                                      |
-| PACT governance security                        | `rules/pact-governance.md`      | `**/pact/**`, `**/governance/**`                            |
-| Kailash SDK execution patterns                  | `rules/patterns.md`             | `**/*.py`, `**/*.ts`, `**/*.js`                             |
-| Security (secrets, injection)                   | `rules/security.md`             | Global                                                      |
-| Terrene naming & terminology                    | `rules/terrene-naming.md`       | Global                                                      |
-| 3-tier testing, real infrastructure recommended | `rules/testing.md`              | `tests/**`, `**/*test*`, `**/*spec*`, `conftest.py`         |
-| Trust-plane security                            | `rules/trust-plane-security.md` | `**/trust/**`                                               |
-| Zero-tolerance enforcement                      | `rules/zero-tolerance.md`       | **Global — overrides all**                                  |
+All rules live in `.claude/rules/` and apply to every CLI. Rule content is shared via loom's slot-keyed variant overlay system — see `.claude/rules/variant-authoring.md` + `.claude/rules/cross-cli-parity.md`.
 
-**Note**: Rules with path scoping are loaded only when editing matching files. Global rules load every session.
+Global baseline rules (always loaded):
+
+- **Foundation independence** — Absolute Directive 0 above (stated inline; no separate rule file)
+- **Autonomous execution model** — `rules/autonomous-execution.md`
+- **Zero tolerance** — `rules/zero-tolerance.md`
+- **Agent orchestration + quality gates** — `rules/agents.md`
+- **Git workflow** — `rules/git.md`
+- **Security** — `rules/security.md`
+- **Communication style** — `rules/communication.md`
+- **Cross-CLI parity** — `rules/cross-cli-parity.md`
+- **Worktree isolation** — `rules/worktree-isolation.md`
+
+Path-scoped rules (loaded when touching matching files):
+
+- **LLM-first agent reasoning** — `rules/agent-reasoning.md` (`**/kaizen/**`, `**/*agent*`)
+- **DataFlow pool** — `rules/dataflow-pool.md` (`**/dataflow/**`)
+- **Env + models** — `rules/env-models.md` (`**/*.py`, `.env*`)
+- **3-tier testing** — `rules/testing.md` (`tests/**`, `**/*test*`, `**/*spec*`)
+- **Kailash patterns** — `rules/patterns.md` (`**/*.py`)
+- **CC artifact quality** — `rules/cc-artifacts.md` (CC-only; excluded from Codex/Gemini emission)
+
+The full rule corpus lives in `.claude/rules/` (66 rules); the list above highlights the always-on baseline plus the most common path-scoped rules. Every other rule loads automatically when you touch a file matching its scope.
+
+**Note**: Codex and Gemini do NOT honor YAML `paths:` frontmatter for path-scoped loading — both CLIs use directory-hierarchy loading only. See `.claude/agents/codex-architect.md` and `gemini-architect.md` for the native-surface mappings.
 
 ## Agents
 
-### Analysis (`agents/analysis/`)
-
-- **analyst** — Failure point analysis, risk assessment, requirements breakdown, ADRs
-
-### Framework Specialists (`agents/frameworks/`)
-
-- **dataflow-specialist** — Database operations, auto-generated nodes
-- **nexus-specialist** — Multi-channel platform (API/CLI/MCP)
-- **kaizen-specialist** — AI agents, signatures, multi-agent coordination
-- **mcp-specialist** — MCP server implementation
-- **mcp-platform-specialist** — FastMCP platform server, contributor plugins, security tiers
-- **infrastructure-specialist** — Progressive infrastructure, dialect-portable SQL, task queues
-- **pact-specialist** — Organizational governance (D/T/R, envelopes, clearance)
-- **ml-specialist** — ML lifecycle, feature stores, training, drift monitoring
-- **align-specialist** — LLM fine-tuning, LoRA adapters, alignment, model serving
-
-### Implementation (`agents/implementation/`)
-
-- **pattern-expert** — Workflow patterns, nodes, parameters
-- **tdd-implementer** — Test-first development
-- **build-fix** — Fix build/type errors with minimal changes
-
-### Quality (`agents/quality/`)
-
-- **reviewer** — Code review, doc validation, cross-reference accuracy
-- **gold-standards-validator** — Compliance checking
-- **security-reviewer** — Security audit before commits
-
-### Frontend (`agents/frontend/`)
-
-- **react-specialist** — React/Next.js frontends
-- **flutter-specialist** — Flutter mobile/desktop apps
-- **uiux-designer** — Enterprise UI/UX design
-
-### Testing (`agents/testing/`)
-
-- **testing-specialist** — 3-tier strategy with real infrastructure, Playwright E2E
-
-### Release (`agents/release/`)
-
-- **release-specialist** — CI/CD, PyPI publishing, deployment, version management
-
-### Management (`agents/management/`)
-
-- **todo-manager** — Project task tracking
-- **gh-manager** — GitHub issue/project management
-
-### Other
-
-- **claude-code-architect** — CC artifact quality auditing
-- **open-source-strategist** — Licensing, community building
-- **value-auditor** — Enterprise demo QA from buyer perspective
-
-## Skills Navigation
-
-For SDK implementation patterns, see `.claude/skills/` — organized by framework (`01-core-sdk` through `05-kailash-mcp`), enterprise infrastructure (`15-enterprise-infrastructure`), and topic (`06-cheatsheets` through `28-coc-reference`).
+One `.claude/agents/` source tree; three surfaces. Specialist agents (`agents/frameworks/*`, `agents/implementation/*`, `agents/quality/*`, `agents/frontend/*`, `agents/testing/*`, `agents/release/*`, `agents/analysis/*`) emit to `.gemini/agents/<name>.md` for Gemini's `@<agent>` invocation. CC-specific agents (`cc-architect.md`, `cli-orchestrator.md`, architect meta-agents, `management/*`) stay CC-only.
 
 ## Critical Execution Rules
 
@@ -182,5 +151,11 @@ workflow.add_node("NodeType", "node_id", {"param": "value"})
 | **Nexus**    | Multi-channel deployment (API+CLI+MCP) | `pip install kailash-nexus`    |
 | **Kaizen**   | AI agent framework                     | `pip install kailash-kaizen`   |
 | **PACT**     | Organizational governance (D/T/R)      | `pip install kailash-pact`     |
+| **ML**       | Classical + deep learning lifecycle    | `pip install kailash-ml`       |
+| **Align**    | LLM fine-tuning / serving              | `pip install kailash-align`    |
 
 All frameworks are built ON Core SDK — they don't replace it.
+
+## Project Memory Sync
+
+The `.claude/` surface (and the `.codex/` / `.gemini/` mirrors + `AGENTS.md` / `GEMINI.md`) is distributed from the `kailash-coc-py` multi-CLI template via `/sync`. Re-run `/sync` to pull template updates; project application code (`src/`, `api/`, `specs/`, `tests/`, `deploy/`) is never touched by sync. `AGENTS.md` and `GEMINI.md` are regenerated from `.claude/rules/` — do not hand-edit them; edit the rules instead.

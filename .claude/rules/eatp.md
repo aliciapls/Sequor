@@ -1,10 +1,14 @@
 ---
+priority: 10
+scope: path-scoped
 paths:
   - "**/trust/**"
   - "**/eatp/**"
 ---
 
 # EATP SDK Rules
+
+<!-- slot:neutral-body -->
 
 ## Scope
 
@@ -23,7 +27,7 @@ These rules apply when working with EATP trust code.
 ### Module Structure
 
 - `from __future__ import annotations` in every module
-- `# Copyright 2026 Terrene Foundation` + `# SPDX-License-Identifier: Apache-2.0` header
+- `# Copyright <YEAR> <COPYRIGHT_HOLDER>` + `# SPDX-License-Identifier: <SPDX_ID>` header
 - `logger = logging.getLogger(__name__)` in every module
 - Explicit `__all__` in every module
 - `str`-backed `Enum` classes for JSON-friendly serialization
@@ -62,10 +66,4 @@ These rules apply when working with EATP trust code.
 
 - `None` role = all-access (backward-compatible, no RBAC enforcement)
 
-### Cross-SDK Alignment
-
-- Both Python and Rust SDKs implement the spec independently (D6)
-- Convention names may differ (Python snake_case vs Rust snake_case) but semantics MUST match
-- New spec-level concepts require Rust team coordination before implementation
-
-**Why:** Semantic divergence between SDKs means trust records produced by one cannot be verified by the other, breaking cross-language interoperability.
+<!-- /slot:neutral-body -->

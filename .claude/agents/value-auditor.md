@@ -1,7 +1,7 @@
 ---
 name: value-auditor
 description: "Enterprise demo QA auditor. Use for value proposition testing, narrative coherence, or data credibility checks."
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Bash, Grep, Glob
 model: opus
 ---
 
@@ -129,7 +129,3 @@ Use `browser_navigate` → `browser_snapshot` (read accessibility tree for subst
 
 - **analyst**: Escalate when value gaps require architectural investigation
 - **reviewer**: Hand off specific UI/UX issues found during audit
-
-## Related Skills
-
-- `skills/24-value-audit/` — Full audit methodology, demo readiness checklist, value flow patterns

@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: Security vulnerability specialist. Use proactively before commits and for security-sensitive code changes.
-tools: Read, Write, Grep, Glob
+tools: Read, Grep, Glob
 model: opus
 ---
 
@@ -65,19 +65,7 @@ Anti-self-modification (frozen GovernanceContext), monotonic tightening, fail-cl
 
 > See `rules/pact-governance.md` for full MUST/MUST NOT rules.
 
-## Review Output Format
-
-### CRITICAL (Must fix before commit)
-
-### HIGH (Should fix before merge)
-
-### MEDIUM (Fix in next iteration)
-
-### LOW (Consider fixing)
-
-### PASSED CHECKS
-
-### 10. Auth Middleware Patterns (v3.8)
+### 11. Auth Middleware Patterns (v3.8)
 
 Apply when reviewing Nexus auth middleware. Hardened through v3.8 red team:
 
@@ -90,6 +78,29 @@ Apply when reviewing Nexus auth middleware. Hardened through v3.8 red team:
 - [ ] **A7 — Engines must delegate, not reimplement**: Higher-level engines must delegate to primitives to inherit validation. Reimplementing query building skips input validation.
 - [ ] **A8 — Budget checks must include reservations**: `is_over_budget()` must check `committed + reserved > allocated`.
 - [ ] **A9 — Debug derives on auth types must redact secrets**: Auth config types must NOT expose hashes/secrets via Debug.
+
+### 12. Probe-Driven Verification of Security Tests (MUST)
+
+Per `rules/probe-driven-verification.md` MUST-1, security tests asserting SEMANTIC properties — "refused dangerous op with rule citation", "rejected SSRF target", "blocked prompt-injection attempt", "redacted secret in log line" — MUST be probe-driven. Regex/keyword/substring scoring on assistant prose or log content for these properties is BLOCKED.
+
+Mechanical sweep at `/redteam` Step 4 (security tests):
+
+```bash
+grep -rEn '(re\.(search|match)|str\.contains|grep -E)' tests/ .claude/test-harness/safety/ 2>/dev/null \
+  | grep -E '(verify|score|assert|check)_[A-Za-z_]*(refus|inject|leak|redact|exfil|escal|bypass|sanitiz)'
+```
+
+Each hit MUST have a probe definition (schema + scoring rule per `probe-driven-verification.md` MUST-2). Missing probe = HIGH. Structural assertions (file existence, exit code, marker presence, byte equality) are exempt and keep regex per `probe-driven-verification.md` MUST-3.
+
+See: `skills/12-testing-strategies/probe-driven-verification.md`.
+
+## Review Output Format
+
+- **CRITICAL** — Must fix before commit
+- **HIGH** — Should fix before merge
+- **MEDIUM** — Fix in next iteration
+- **LOW** — Consider fixing
+- **PASSED CHECKS** — What was verified clean
 
 ## Related Agents
 
