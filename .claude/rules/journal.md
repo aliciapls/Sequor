@@ -1,10 +1,14 @@
 ---
+priority: 10
+scope: path-scoped
 paths:
   - "journal/**"
   - "**/journal/**"
 ---
 
 # Journal Rules
+
+<!-- slot:neutral-body -->
 
 ## Naming & Format
 
@@ -25,7 +29,7 @@ tags: [list]
 ---
 ```
 
-**Author decision tree**: `human` — user stated conclusion before AI. `agent` — AI surfaced unprompted. `co-authored` — evolved through exchange (default when uncertain).
+**Author decision tree**: `human` — user stated conclusion before AI. `agent` — AI surfaced unprompted. `co-authored` — evolved through exchange (default when uncertain). Author claims are verifiable, not trusted — a `human`/`co-authored` claim is checked against the live per-session provenance ledger; see `rules/journal-author-discipline.md`.
 
 ## Entry Types
 
@@ -60,3 +64,5 @@ tags: [list]
 - Create entries without frontmatter
 
 **Why:** Entries without frontmatter cannot be filtered by type, phase, or date, making the journal unsearchable at scale.
+
+<!-- /slot:neutral-body -->

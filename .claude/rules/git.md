@@ -1,12 +1,17 @@
+---
+priority: 0
+scope: baseline
+---
+
 # Git Workflow Rules
+
+See `.claude/guides/rule-extracts/git.md` for extended bash examples, full BLOCKED rationalization lists, repository protection table, and Origin evidence.
+
+<!-- slot:neutral-body -->
 
 ## Conventional Commits
 
-```
-type(scope): description
-```
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+Format: `type(scope): description`. Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
 
 ```
 feat(auth): add OAuth2 support
@@ -17,34 +22,61 @@ fix(api): resolve rate limiting issue
 
 ## Branch Naming
 
-Format: `type/description` (e.g., `feat/add-auth`, `fix/api-timeout`)
+Format: `type/description` (e.g., `feat/add-auth`, `fix/api-timeout`).
 
-**Why:** Inconsistent branch names prevent CI pattern-matching rules and make `git branch --list` unreadable across contributors.
+**Why:** Inconsistent branch names prevent CI pattern-matching rules and make `git branch --list` unreadable.
+
+### Release-Prep PRs MUST Use `release/v*` Branch Convention (MUST)
+
+Any PR whose diff is metadata-only — version anchors (`pyproject.toml` / `Cargo.toml`, `__init__.py::__version__` / lib.rs `pub const VERSION`), `CHANGELOG.md`, spec/doc version-line updates — MUST be opened from a branch named `release/v<X.Y.Z>`. Using `feat/`, `fix/`, `chore/` on a release-prep PR is BLOCKED.
+
+```bash
+# DO — release-prep branch auto-skips PR-gate matrix
+git checkout -b release/v3.23.0 && git push -u origin release/v3.23.0
+# DO NOT — feat/ branch fires the full PR-gate matrix on metadata-only diff
+git checkout -b feat/v3.23.0-release-prep
+```
+
+**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`. Branching from `release/v*` triggers the auto-skip and saves ~45 min × matrix-size of CI minutes per release-prep PR. If the work IS NOT metadata-only, split: keep code fix on `feat/`/`fix/` branch, cut release-prep on a separate `release/v*` branch. See guide for the ~120 min CI burn evidence.
+
+### Pre-FIRST-Push CI Parity Discipline (MUST)
+
+Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI parity command set (Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` + `pytest` + `mypy --strict`). All MUST exit 0 → push.
+
+```bash
+# DO — pre-flight ALL local CI commands; push only on exit 0
+cargo +nightly fmt --all --check && cargo clippy -- -D warnings && cargo nextest run && git push -u origin feat/<branch>
+# DO NOT — push, watch CI fail, fix-up, push again — each cycle re-bills the cancelled run's wall-clock
+```
+
+**Why:** With `concurrency: cancel-in-progress: true`, prior in-flight runs are cancelled but **still billed for the wall-clock minutes consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence + the full Rust/Python command set.
 
 ## Branch Protection
 
-All protected repos require PRs to main. Direct push is rejected by GitHub.
+All protected repos require PRs to main. Direct push is rejected by GitHub. Owner workflow: branch → commit → push → PR → `gh pr merge <N> --admin --merge --delete-branch`. See extract for the full repository × protection table.
 
 **Why:** Direct pushes bypass CI checks and code review, allowing broken or unreviewed code to reach the release branch.
 
-| Repository                                    | Branch | Protection          |
-| --------------------------------------------- | ------ | ------------------- |
-| `terrene-foundation/kailash-py`               | `main` | Full (admin bypass) |
-| `terrene-foundation/kailash-coc-claude-py`    | `main` | Full (admin bypass) |
-| `terrene-foundation/kailash-coc-claude-rs`    | `main` | Full (admin bypass) |
-| `esperie/kailash-rs`                          | `main` | Full (admin bypass) |
-| `terrene-foundation/kailash-prism`            | `main` | Full (admin bypass) |
-| `terrene-foundation/kailash-coc-claude-prism` | `main` | Full (admin bypass) |
-
-**Owner workflow**: Branch → commit → push → PR → `gh pr merge <N> --admin --merge --delete-branch`
-
-**Contributor workflow**: Fork → branch → PR → 1 approving review → CI passes → merge
-
 ## PR Description
 
-CC system prompt provides the template. Additionally, always include a `## Related issues` section (e.g., `Fixes #123`).
+CC system prompt provides the template. Always include a `## Related issues` section (e.g., `Fixes #123`).
 
 **Why:** Without issue links, PRs become disconnected from their motivation, breaking traceability and preventing automatic issue closure on merge.
+
+## Destructive Working-Tree Ops MUST Verify Clean Working Tree (MUST)
+
+`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
+
+```bash
+# DO — --keep aborts on a dirty tree; dry-run before any clean
+git reset --keep origin/main
+git clean -n
+# DO NOT — bare destructive op with no working-tree check
+git reset --hard origin/main   # wipes M + untracked; no reflog
+git clean -fd                  # deletes untracked; unrecoverable
+```
+
+**Why:** The most destructive working-tree ops that don't rewrite history; unlike force-push the loss is unrecoverable (no reflog). `git reset --keep` / `git clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + the `dataflow-identifier-safety.md` Rule 4 / `schema-migration.md` Rule 7 siblings.
 
 ## Rules
 
@@ -54,73 +86,26 @@ CC system prompt provides the template. Additionally, always include a `## Relat
 - No large binaries (>10MB single file)
 - Commit bodies MUST answer **why**, not **what** (the diff shows what)
 
-**Why:** Mixed commits are impossible to revert cleanly, leaked secrets require immediate key rotation across all environments, and large binaries permanently bloat the repo since git never forgets them. Commit bodies that explain "why" are the cheapest form of institutional documentation — co-located with the code, versioned, searchable via `git log --grep`, and never stale (they describe a point in time). See 0052-DISCOVERY §2.10.
-
 ```
 # DO — explains why
 feat(dataflow): add WARN log on bulk partial failure
-
-BulkCreate silently swallowed per-row exceptions via
-`except Exception: continue` with zero logging. Operators
-saw `failed: 10663` in the result dict but no WARN line
-in the log pipeline, so alerting never fired.
-
+# (BulkCreate silently swallowed per-row exceptions; alerting never fired.)
 # DO NOT — restates the diff
 feat(dataflow): add logging to bulk create
-
-Added logger.warning call in _handle_batch_error method.
-Updated BulkResult to emit WARN in __post_init__.
+# (Added logger.warning call in _handle_batch_error method.)
 ```
 
-## Issue Closure Discipline
+**Why:** Mixed commits are impossible to revert cleanly. Leaked secrets require key rotation across all environments. Large binaries permanently bloat the repo. Commit bodies that explain "why" are the cheapest form of institutional documentation — co-located, versioned, `git log --grep`-searchable, never stale.
 
-Closing a GitHub issue as "completed" MUST include a commit SHA, PR number, or merged-PR link in the close comment. Closing with no code reference is BLOCKED.
+## Discipline
 
-```bash
-# DO — close with delivered-code reference
-gh issue close 351 --comment "Fixed in #412 (commit a1b2c3d)"
-gh issue close 370 --comment "Resolved by PR #415 — kailash 2.8.1"
+- **Issue closure**: `gh issue close <N>` MUST include a commit SHA / PR number / merged-PR link in the comment. Closing with no code reference is BLOCKED.
+- **Pre-commit hook workarounds**: when pre-commit auto-stash fails despite hooks passing standalone, `git -c core.hooksPath=/dev/null commit ...` MUST be documented in the commit body + a follow-up todo filed. Silent `--no-verify` is BLOCKED.
+- **Pre-commit comment-syntax matchers**: the `python-use-type-annotations` hook regex matches `# type` (NOT `# type:`) per `pre-commit-hooks/.pre-commit-hooks.yaml::pygrep`. Comments referencing the `types` module — `# types.UnionType for PEP 604` — trigger a false positive. Reword to avoid `# type` as a literal substring (e.g. "PEP 604 produces `types.UnionType`" → "PEP 604 produces a union type"). Same class for any future `pygrep` hook that matches comment fragments without the trailing punctuation.
+- **Commit-message claim accuracy**: commit bodies MUST describe ONLY changes actually present in the diff. Over-claiming a refactor / deletion / side-effect is BLOCKED. If the claim was made in error, push a FOLLOW-UP commit that delivers what the prior message said — do NOT amend.
 
-# DO NOT — close with no code proof
-gh issue close 351 --comment "Resolved"
-gh issue close 374 --comment "Covered by recent refactor"
-```
+**Why:** Issues closed without code refs break traceability; undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep` (the cheapest institutional-knowledge search). See extract for full DO/DO NOT examples.
 
-**BLOCKED rationalizations:**
+Origin: 2026-04-28 (`git reset --hard` discarded uncommitted `.session-notes` in a kailash-py session, PR #691) + cumulative CI-billing evidence on release-prep branch convention. See `.claude/guides/rule-extracts/git.md` for full post-mortems.
 
-- "Already covered in another PR"
-- "Will reference later"
-- "Obsoleted by refactor"
-- "Resolved without code change"
-
-**Why:** Issues closed with zero delivered code references break traceability; the next session cannot verify whether the fix actually shipped.
-
-## Pre-Commit Hook Workarounds
-
-When pre-commit auto-stash causes commits to fail despite hooks passing in direct invocation, the workaround `git -c core.hooksPath=/dev/null commit ...` MUST be documented in the commit body, AND a follow-up todo MUST be filed against the pre-commit configuration. Silent re-tries with `--no-verify` are BLOCKED.
-
-```bash
-# DO — document the bypass in the commit body and file a todo
-git -c core.hooksPath=/dev/null commit -m "$(cat <<'EOF'
-fix(security): add null-byte rejection to credential decode
-
-Pre-commit auto-stash fails to restore staged changes when
-hooks modify the working tree. Bypassed via core.hooksPath=/dev/null.
-TODO: fix pre-commit stash/restore interaction (#NNN).
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
-EOF
-)"
-
-# DO NOT — silent --no-verify with no documentation
-git commit --no-verify -m "fix(security): add null-byte rejection"
-# no record of why hooks were skipped; next session repeats discovery
-```
-
-**BLOCKED rationalizations:**
-
-- "Hooks passed when I ran them manually"
-- "--no-verify is faster and the CI will catch it"
-- "The auto-stash bug is a known issue"
-
-**Why:** Recurring across sessions; without documentation each session re-discovers the workaround at high cost. With documentation the next agent finds it via `git log --grep`.
+<!-- /slot:neutral-body -->

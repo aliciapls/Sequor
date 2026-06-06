@@ -1,6 +1,6 @@
 ---
 name: claude-code-patterns
-description: Claude Code architecture patterns, artifact design, context management, and agentic system patterns. Use when creating, auditing, or improving CC artifacts.
+description: "Claude Code architecture — artifact design, context, agentic patterns. For CC audit/build."
 allowed-tools:
   - Read
   - Glob
@@ -121,10 +121,13 @@ Critical info at beginning/end of context. Middle gets less attention. Trim tool
 
 ## Detailed Reference
 
-- **[Artifact Design Guide](artifact-design.md)** — Templates, frontmatter, structural patterns
-- **[Anti-Patterns Catalog](anti-patterns.md)** — Common mistakes and fixes
-- **[Token Budget Guide](token-budget.md)** — Measurement and optimization
+- **[Sync Flow](sync-flow.md)** — Full /sync protocol (loaded by sync-reviewer + coc-sync agents)
+- **[Multi-CLI Migration](multi-cli-migration.md)** — Loom's variant + emit pipeline reference
+- **[SDK Upstream Donation](sdk-upstream-donation.md)** — BUILD repo → loom → USE template flow
 - **[Parallel Merge Workflow](parallel-merge-workflow.md)** — Merging 5+ parallel worktree changes to the same file via specialist delegation
+- **[Worktree Orchestration Protocol](worktree-orchestration.md)** — Extended evidence + post-mortems for `rules/agents.md` worktree MUSTs and `rules/worktree-isolation.md`
+- **[Closure-Parity Specialist Discipline](closure-parity-specialist-discipline.md)** — BLOCKED-rationalization corpus + delegation-time detection signals + Origin evidence for `rules/agents.md` § "MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read"
+- **[Workflow-Orchestration Throughput](workflow-orchestration-throughput.md)** — CC how-to for `rules/governed-throughput.md` + throttle-aware concurrency (`rules/worktree-isolation.md` Rule 4): read-only fan-out, verify→implement pipeline, schema returns, resumeFromRunId, the L2 curated-slice injection, the journal/0193 over-injection-degrades evidence
 
 ## When to Use This Skill
 
@@ -135,6 +138,6 @@ Critical info at beginning/end of context. Middle gets less attention. Trim tool
 
 ## Support
 
-- **claude-code-architect** — Primary expert for CC artifact work
+- **cc-architect** — Primary expert for CC artifact work
 - `co-reference` skill — CO methodology (principles, layers)
 - `co-reference` skill — COC methodology (five-layer implementation)
