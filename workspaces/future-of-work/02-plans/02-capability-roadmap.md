@@ -754,6 +754,12 @@ the platform learns whether they hold, cheaply, from data the platform records a
 
 ### 11.1 C7a — The agent-comms BET
 
+> **Note (superseded by Decision D, briefs §4).** Agent-mediated comms is now a **SETTLED founding
+> thesis**, not a gating bet — so the team substrate (M6) is built as **foundational** and C7a is
+> re-scoped to **NON-GATING corroborating instrumentation** (the CARE guardrails below are kept). The
+> original "BET / measured, not asserted" analysis is retained below for derivation context; the
+> instrumentation still runs, but a soft signal here neither gates nor blocks the M6 build.
+
 - **The bet (brief §3d):** agent-mediated handoffs are more complete and less lossy than human-to-human
   handoffs (because agents carry full context and durable memory). This is the _only_ rationale for
   extending into team work (M3).
@@ -885,7 +891,7 @@ capability is not yet whole — and the §-by-§ falsifiers above name exactly w
 | **C4**  | Agent runs across ≥2 formerly-siloed systems                | Needs logic-in-tools / broad standing access                 | MCP protocol + connectors + comms adapters → governed curation + least-privilege              | tools-dumb, least-privilege, governed-connectivity, tenant-iso                       | connector boilerplate (~5×) + load-bearing curation   | Execution — gates the demo                 |
 | **C5**  | Rewind a step, re-cascade only affected, keep versions (M1) | Engine can't bound cascade / non-coder can't read the trace  | C1 records + WorkflowDAG walk + Kailash memoization → reactive cascade engine                 | all 6 ledger invariants (cascade-minimality, audit-completeness, …)                  | ~4–6 cycles; **MUST shard** (≥500 LOC, 6 invariants)  | Execution + usability; the headline        |
 | **C6**  | Org B safely runs org A's untrusted recipe (M4)             | Intake can't mechanically detect over-broad scope            | loom crypto substrate + recall + Gate-1 → external-publisher provenance + cross-tenant-grant  | default-deny, capability-scoped, recall-reaches-all, cross-tenant-grant              | trust-model greenfield (~2–3×) → registry ~3–5 cycles | **Structural** — design gates cross-org    |
-| **C7a** | Agent handoffs beat human handoffs (BET)                    | Users keep using email/chat; ask for off-record mode         | audit trail → agent↔agent message model + informal mode                                       | named-human-on-decision, accountability-not-in-channel                               | ~1 cycle (instrumentation)                            | Measured, not asserted                     |
+| **C7a** | Agent-mediated comms (SETTLED founding thesis; superseded by Decision D, briefs §4) | (non-gating — corroborating, not a kill signal): users keep using email/chat; ask for off-record mode | audit trail → agent↔agent message model + informal mode (CARE guardrails kept)                                       | named-human-on-decision, accountability-not-in-channel                               | ~1 cycle (instrumentation)                            | **NON-GATING** — corroborating instrumentation; M6 team substrate is foundational |
 | **C7b** | The capability is paid-for-able (BET)                       | "Now which vertical?" with no evidence-backed answer         | comms wedge wholesale → design-partner instrumentation                                        | treat lighthouse as evidence not gravity                                             | concurrent with C2–C5                                 | Business-falsifiability                    |
 
 ---
