@@ -46,6 +46,17 @@ The existing Sequor product (an AI email/WhatsApp **communication-coverage layer
 
 The analysis prioritizes proving the **core capability** — the work-paradigm shift from vertical systems to an agnostic, agentic, autonomous work interface. It keeps the architecture horizontal/agnostic (the reusable core). It does **not** prematurely lock a beachhead vertical, though it may surface candidates.
 
+### Decision C — D/T/R confirmed (analysis-review gate, 2026-06-15)
+
+Confirmed by the owner: in this platform **D/T/R = Department / Team / Role** (the PACT accountability/addressing grammar), NOT "Decision / Task / Review". The target-state specs already use the correct expansion; this confirmation makes it authoritative for all downstream phases.
+
+### Decision D — Agent-mediated communication is a SETTLED founding thesis (analysis-review gate, 2026-06-15)
+
+Confirmed by the owner: the premise that **agent-mediated communication is richer / less lossy than human↔human communication** (brief §3d) is **settled** — a **founding assumption** of the product, not a hypothesis to validate-first.
+
+- **Effect on downstream phases:** the platform is BUILT on this premise. `/todos` and the plans MUST NOT gate the build behind an "agent-comms validation spike"; agent-mediated team coordination (the multi-human + multi-agent substrate) is foundational. The prior `[BET]` / "unproven, validate-first" framing in the analysis corpus (esp. `09-risks-failure-points.md`, `06-network-effects.md`, `03-unique-selling-points.md`) is **superseded by this decision for forward planning.**
+- **Honest carry-forward (advisor note, retained):** external evidence for the premise remains thin, so investor/buyer-facing material should present it as the product's **founding conviction** (not as externally-established fact), and the comms lighthouse should still gather corroborating evidence opportunistically — at zero gating cost.
+
 ## 5. Reference material (located during discovery, 2026-06-05)
 
 The platform's trust/governance/coordination DNA already exists across the Terrene/Kailash ecosystem. The analysis MUST ground in these:
