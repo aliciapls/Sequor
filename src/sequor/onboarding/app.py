@@ -90,6 +90,9 @@ app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=_app_lifespan
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 def _render(name: str, request: Request, status_code: int = 200, **extra: object) -> HTMLResponse:
     """Render a template without hitting Jinja2's buggy LRUCache."""

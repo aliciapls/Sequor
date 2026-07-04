@@ -6,6 +6,7 @@
     <title>Sign In — Sequor Portal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="/static/sequor_mark.svg">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -81,17 +82,16 @@
         }
 
         .login-logo-icon {
-            width: 44px;
-            height: 44px;
-            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
-            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-weight: 700;
-            font-size: 18px;
-            box-shadow: 0 4px 12px rgba(60, 142, 175, 0.30);
+            flex-shrink: 0;
+        }
+
+        .login-logo-icon img {
+            height: 38px;
+            width: auto;
+            display: block;
         }
 
         .login-logo-text {
@@ -251,7 +251,7 @@
     </a>
 
     <a href="/" class="login-logo">
-        <div class="login-logo-icon">S</div>
+        <div class="login-logo-icon"><img src="/static/sequor_mark.svg" alt="Sequor"></div>
         <span class="login-logo-text">Sequor</span>
     </a>
 

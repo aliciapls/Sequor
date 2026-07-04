@@ -6,6 +6,7 @@
     <title>{% block title %}Sequor Portal{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="/static/sequor_mark.svg">
     <style>
         :root {
             --duck-50: #F4FBFD;
@@ -95,18 +96,16 @@
         }
 
         .sidebar-logo-icon {
-            width: 36px;
-            height: 36px;
-            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
-            border-radius: 9px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-weight: 700;
-            font-size: 15px;
             flex-shrink: 0;
-            box-shadow: 0 2px 8px rgba(60, 142, 175, 0.25);
+        }
+
+        .sidebar-logo-icon img {
+            height: 30px;
+            width: auto;
+            display: block;
         }
 
         .sidebar-logo-text {
@@ -674,7 +673,7 @@
     <!-- Sidebar -->
     <nav class="sidebar">
         <a href="/portal/dashboard" class="sidebar-logo">
-            <div class="sidebar-logo-icon">S</div>
+            <div class="sidebar-logo-icon"><img src="/static/sequor_mark.svg" alt="Sequor"></div>
             <span class="sidebar-logo-text">Sequor</span>
         </a>
 

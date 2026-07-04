@@ -6,6 +6,7 @@
     <title>Sequor — AI Coverage Layer for Team Communication</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="/static/sequor_mark.svg">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -69,16 +70,16 @@
         }
 
         .logo-icon {
-            width: 36px;
-            height: 36px;
-            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
-            border-radius: 9px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-weight: 700;
-            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .logo-icon img {
+            height: 30px;
+            width: auto;
+            display: block;
         }
 
         .logo-text {
@@ -448,14 +449,19 @@
         .footer-logo-icon {
             width: 28px;
             height: 28px;
-            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            background: white;
             border-radius: 7px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-weight: 700;
-            font-size: 13px;
+            overflow: hidden;
+        }
+
+        .footer-logo-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 3px;
         }
 
         .footer-logo-text { font-size: 16px; font-weight: 700; color: white; }
@@ -490,7 +496,7 @@
 <header class="header">
     <div class="header-inner">
         <a href="/" class="logo">
-            <div class="logo-icon">S</div>
+            <div class="logo-icon"><img src="/static/sequor_mark.svg" alt="Sequor"></div>
             <span class="logo-text">Sequor</span>
         </a>
         <div class="nav-buttons">
@@ -686,7 +692,7 @@
 <footer class="footer">
     <div class="footer-inner">
         <div class="footer-brand">
-            <div class="footer-logo-icon">S</div>
+            <div class="footer-logo-icon"><img src="/static/sequor_mark.svg" alt="Sequor"></div>
             <span class="footer-logo-text">Sequor</span>
         </div>
         <div class="footer-links">
