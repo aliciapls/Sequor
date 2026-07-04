@@ -60,11 +60,13 @@ class TestCheckHallucination:
 
     async def test_valid_json_passed_false(self, pipeline: RAGPipeline):
         """Valid JSON with passed=false returns passed=False."""
-        response = json.dumps({
-            "passed": False,
-            "uncited_claims": 3,
-            "notes": "Multiple uncited claims",
-        })
+        response = json.dumps(
+            {
+                "passed": False,
+                "uncited_claims": 3,
+                "notes": "Multiple uncited claims",
+            }
+        )
         pipeline._llm.generate = AsyncMock(return_value=response)
 
         result = await pipeline._check_hallucination(
@@ -103,15 +105,21 @@ class TestCheckHallucination:
         assert result["passed"] is True
 
     async def test_high_uncited_claims_overrides_passed(self, pipeline: RAGPipeline):
-        """More than 50% uncited claims relative to passages forces passed=False."""
-        response = json.dumps({
-            "passed": True,
-            "uncited_claims": 5,
-            "notes": "Many uncited",
-        })
+        """>50% of CLAIMS un-cited forces passed=False (spec rag-pipeline.md:102).
+
+        Regression for R3 NEW-5: the denominator is the claim count the judge
+        reports (total_claims), NOT the passage count.
+        """
+        response = json.dumps(
+            {
+                "passed": True,
+                "total_claims": 6,
+                "uncited_claims": 5,  # 5/6 > 0.5 -> override fires
+                "notes": "Many uncited",
+            }
+        )
         pipeline._llm.generate = AsyncMock(return_value=response)
 
-        # Only 2 passages, so 5 uncited claims > 2 * 0.5 = 1.0
         result = await pipeline._check_hallucination(
             query="test",
             answer="test",
@@ -119,6 +127,31 @@ class TestCheckHallucination:
         )
 
         assert result["passed"] is False
+
+    async def test_low_uncited_ratio_does_not_override(self, pipeline: RAGPipeline):
+        """<=50% of CLAIMS un-cited must NOT flip passed, even with many passages.
+
+        Regression for R3 NEW-5: under the old passage-count denominator, 1
+        uncited claim over 1 passage (1 > 0.5) wrongly forced rejection. Per
+        claim (1/8) it is well under the floor and passed must stand.
+        """
+        response = json.dumps(
+            {
+                "passed": True,
+                "total_claims": 8,
+                "uncited_claims": 1,  # 1/8 < 0.5 -> override must NOT fire
+                "notes": "Mostly cited",
+            }
+        )
+        pipeline._llm.generate = AsyncMock(return_value=response)
+
+        result = await pipeline._check_hallucination(
+            query="test",
+            answer="test",
+            passages=[{"text": "p1"}],
+        )
+
+        assert result["passed"] is True
 
     async def test_llm_exception_fails_closed(self, pipeline: RAGPipeline):
         """LLM exception during hallucination check returns passed=False."""
@@ -186,16 +219,18 @@ class TestConfidenceBadge:
     def _make_retrieval_result(self, synthesis_confidence: float) -> RetrievalResult:
         """Build a RetrievalResult with given synthesis confidence."""
         return RetrievalResult(
-            passages=[{
-                "chunk_id": str(uuid4()),
-                "document_id": str(uuid4()),
-                "text": "test passage text",
-                "similarity_score": 0.8,
-                "bm25_score": 0.5,
-                "combined_score": 0.7,
-                "answerability": synthesis_confidence,
-                "final_score": 0.7 * synthesis_confidence,
-            }],
+            passages=[
+                {
+                    "chunk_id": str(uuid4()),
+                    "document_id": str(uuid4()),
+                    "text": "test passage text",
+                    "similarity_score": 0.8,
+                    "bm25_score": 0.5,
+                    "combined_score": 0.7,
+                    "answerability": synthesis_confidence,
+                    "final_score": 0.7 * synthesis_confidence,
+                }
+            ],
             retrieval_confidence=0.7,
             synthesis_confidence=synthesis_confidence,
             answerability_scores=[synthesis_confidence],
@@ -291,16 +326,18 @@ async def test_synthesize_no_passages(pipeline: RAGPipeline):
 async def test_synthesize_llm_failure_returns_error_response(pipeline: RAGPipeline):
     """LLM failure during synthesis returns an error SynthesisResult."""
     retrieval = RetrievalResult(
-        passages=[{
-            "chunk_id": str(uuid4()),
-            "document_id": str(uuid4()),
-            "text": "test passage",
-            "similarity_score": 0.8,
-            "bm25_score": 0.5,
-            "combined_score": 0.7,
-            "answerability": 0.8,
-            "final_score": 0.56,
-        }],
+        passages=[
+            {
+                "chunk_id": str(uuid4()),
+                "document_id": str(uuid4()),
+                "text": "test passage",
+                "similarity_score": 0.8,
+                "bm25_score": 0.5,
+                "combined_score": 0.7,
+                "answerability": 0.8,
+                "final_score": 0.56,
+            }
+        ],
         retrieval_confidence=0.7,
         synthesis_confidence=0.8,
         answerability_scores=[0.8],

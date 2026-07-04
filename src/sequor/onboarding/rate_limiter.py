@@ -43,8 +43,13 @@ class IPRateLimiter:
         window = self._windows.get(key)
         if window is None:
             if len(self._windows) >= _MAX_TRACKED_KEYS:
-                _logger.warning("rate_limiter.max_keys_reached")
-                return True
+                # Fail CLOSED with LRU eviction, NOT open. Returning True here
+                # let an attacker who first fills the map with _MAX_TRACKED_KEYS
+                # distinct keys (many source IPs / spoofed X-Forwarded-For)
+                # bypass every throttle for all subsequent new keys. Instead,
+                # evict the oldest-inserted key and keep enforcing this one.
+                self._windows.pop(next(iter(self._windows)), None)
+                _logger.warning("rate_limiter.max_keys_evicted")
             window = deque()
             self._windows[key] = window
         else:

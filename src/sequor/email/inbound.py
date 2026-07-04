@@ -55,8 +55,15 @@ class InboundEmailProcessor:
                 if not _verify_sendgrid_signature(raw_body, signature):
                     logger.warning("inbound.signature_invalid")
                     return {"status": "rejected", "reason": "invalid_signature"}
-            elif raw_body is not None and signature is None:
-                logger.warning("inbound.no_signature")
+            else:
+                # raw_body OR signature absent: the request cannot be verified.
+                # In production an empty-body webhook previously fell through
+                # UNVERIFIED — reject anything we cannot authenticate.
+                logger.warning(
+                    "inbound.unverifiable",
+                    has_body=raw_body is not None,
+                    has_signature=signature is not None,
+                )
                 return {"status": "rejected", "reason": "missing_signature"}
         else:
             if raw_body is not None and signature is None:
@@ -155,10 +162,13 @@ class InboundEmailProcessor:
         the reply to the original customer.
         """
         try:
-            escalations = await self._db.list("Escalation", {
-                "message_id": parent_message_id,
-                "tenant_id": tenant_id,
-            })
+            escalations = await self._db.list(
+                "Escalation",
+                {
+                    "message_id": parent_message_id,
+                    "tenant_id": tenant_id,
+                },
+            )
             for esc in escalations:
                 if esc.get("status") not in (
                     EscalationStatus.pending.value,
@@ -282,6 +292,7 @@ class InboundEmailProcessor:
                 return
 
             from sequor.email.sender import SendGridEmailSender
+
             sender = SendGridEmailSender()
             await sender.send_reply_to_customer(
                 to=contact["email"],
@@ -323,12 +334,15 @@ class InboundEmailProcessor:
         if existing:
             return existing[0]
 
-        contact = await self._db.create("Contact", {
-            "id": str(uuid.uuid4()),
-            "tenant_id": tenant_id,
-            "email": email,
-            "name": name or email.split("@")[0],
-        })
+        contact = await self._db.create(
+            "Contact",
+            {
+                "id": str(uuid.uuid4()),
+                "tenant_id": tenant_id,
+                "email": email,
+                "name": name or email.split("@")[0],
+            },
+        )
         logger.info("inbound.contact_created", contact_id=contact["id"], email=_mask_email(email))
         return contact
 
@@ -377,6 +391,7 @@ def _verify_sendgrid_signature(raw_body: str, signature: str) -> bool:
         return False
 
     import base64
+
     try:
         from cryptography.hazmat.primitives.asymmetric import ec, utils
         from cryptography.hazmat.primitives import hashes, serialization

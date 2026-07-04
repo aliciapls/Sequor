@@ -6,6 +6,7 @@ Uses FastAPI (lightweight, async, Pydantic integration). Runs with:
 
 import hashlib
 import json as _json
+import re
 import structlog
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,6 +34,13 @@ _logger = structlog.get_logger()
 # In-memory rate limiters (per-process; sufficient for single-instance uvicorn)
 _signup_limiter = IPRateLimiter(max_requests=5, window_seconds=3600)
 _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
+# The DNS endpoints are unauthenticated (they run during pre-login onboarding),
+# so they carry their own throttle + a strict hostname validator to stop an
+# anonymous caller driving unbounded server-side resolutions (N2).
+_dns_limiter = IPRateLimiter(max_requests=30, window_seconds=3600)
+_DNS_DOMAIN_RE = re.compile(
+    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(?:\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
+)
 
 
 async def _reprocess_stuck_documents() -> None:
@@ -236,19 +244,27 @@ async def upload_document(
 
 
 @app.get("/api/v1/dns/records")
-async def dns_records(domain: str):
-    """Return DNS records needed for the given domain."""
-    if not domain or "." not in domain:
+async def dns_records(domain: str, request: Request):
+    """Return DNS records needed for the given domain (pure — no resolution)."""
+    if not _DNS_DOMAIN_RE.match(domain or ""):
         return JSONResponse(status_code=422, content={"detail": "Valid domain required"})
+    if not _dns_limiter.is_allowed(get_client_ip(request)):
+        return JSONResponse(
+            status_code=429, content={"detail": "Too many requests. Please try again later."}
+        )
     records = generate_dns_records(domain)
     return JSONResponse(content={"domain": domain, "records": records})
 
 
 @app.get("/api/v1/dns/verify")
-async def dns_verify(domain: str):
-    """Check whether DNS records are in place for the given domain."""
-    if not domain or "." not in domain:
+async def dns_verify(domain: str, request: Request):
+    """Check whether DNS records are in place (drives server-side resolution)."""
+    if not _DNS_DOMAIN_RE.match(domain or ""):
         return JSONResponse(status_code=422, content={"detail": "Valid domain required"})
+    if not _dns_limiter.is_allowed(get_client_ip(request)):
+        return JSONResponse(
+            status_code=429, content={"detail": "Too many requests. Please try again later."}
+        )
     result = verify_dns_records(domain)
     return JSONResponse(content=result)
 
@@ -1197,15 +1213,19 @@ async def portal_api_upload_document(
             content={"error": "Too many upload attempts. Please try again later."},
         )
 
+    # Bound the read at the cap + 1 byte so an oversized upload is rejected
+    # WITHOUT buffering the whole (potentially multi-GB) body into memory first.
+    # Same fail-closed shape as the onboarding upload path (R2-M6).
+    _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
     try:
-        content = await file.read()
+        content = await file.read(_MAX_UPLOAD_BYTES + 1)
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Failed to read file"})
 
     # Check file size (25MB)
-    if len(content) > 25 * 1024 * 1024:
+    if len(content) > _MAX_UPLOAD_BYTES:
         return JSONResponse(
-            status_code=400, content={"error": "File too large. Maximum size is 25MB."}
+            status_code=413, content={"error": "File too large. Maximum size is 25MB."}
         )
 
     # Check file extension
