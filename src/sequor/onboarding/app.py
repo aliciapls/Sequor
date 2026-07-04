@@ -1837,17 +1837,21 @@ async def portal_dashboard(request: Request):
         try:
             return _render("login.html", request)
         except Exception:
-            import traceback
-
+            # Never render a traceback into the page — this branch is
+            # unauthenticated. Log server-side; return a static error.
             _logger.exception("template.render_failed", template="login.html")
-            return HTMLResponse(f"<h1>Login</h1><pre>{traceback.format_exc()}</pre>")
+            return HTMLResponse(
+                "<h1>Something went wrong</h1><p>Please try again later.</p>",
+                status_code=500,
+            )
     try:
         return _render("dashboard.html", request)
     except Exception:
-        import traceback
-
         _logger.exception("template.render_failed", template="dashboard.html")
-        return HTMLResponse(f"<h1>Dashboard</h1><pre>{traceback.format_exc()}</pre>")
+        return HTMLResponse(
+            "<h1>Something went wrong</h1><p>Please try again later.</p>",
+            status_code=500,
+        )
 
 
 @app.get("/portal/messages")
