@@ -1,6 +1,6 @@
 # Repo Scope Discipline — Extended Examples & Origin
 
-Reference for `rules/repo-scope-discipline.md`. The main rule keeps the load-bearing MUST NOT clauses + a Why per clause + a 5-item BLOCKED-rationalization snippet; this extract carries the full BLOCKED-rationalization enumeration, extended DO/DO NOT examples, the secondary-cost paragraph, and the full origin post-mortem.
+Reference for `rules/repo-scope-discipline.md`. The main rule keeps the load-bearing MUST NOT clauses + a Why per clause; this extract is the sole home of the full BLOCKED-rationalization enumeration, plus the extended DO/DO NOT examples, the secondary-cost paragraph, and the full origin post-mortem.
 
 ## Full BLOCKED rationalizations
 
@@ -29,7 +29,7 @@ $ gh issue list --repo terrene-foundation/kailash-py
 # (CWD is kailash-rs; this is the cross-repo failure mode)
 
 # DO — descriptive sibling reference in a rule body
-"This rule mirrors the Python SDK's pattern in `kailash-py/.claude/rules/foo.md`."
+"This rule mirrors the Python SDK's pattern in the sibling SDK's `.claude/rules/foo.md`."
 # (descriptive; no action proposed; no cross-repo work recommended)
 
 # DO NOT — prescriptive sibling recommendation

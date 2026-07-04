@@ -2,9 +2,9 @@
 name: hook-authoring
 description: "Authoring or auditing hooks (CC/Codex/Gemini). hooks.json registration, COC_RUNTIME, instructAndWait emit, Codex Bash-only gap + MCP-guard bijection, timeout fallback."
 tools:
-  - Read
-  - Glob
-  - Grep
+  - read_file
+  - glob
+  - grep_search
 ---
 
 # Hook Authoring
@@ -199,7 +199,7 @@ const projects = entries.filter(
 );
 ```
 
-Leading-underscore is the convention for workspace meta-dirs (`_archive`, `_template`, `_draft`). Archival operations (`git mv workspaces/X workspaces/_archive/X`) bump `_archive/`'s mtime; without the filter, the hook surfaces `_archive` as the active workspace and SessionEnd routes journal stubs into `workspaces/_archive/journal/.pending/` — invisible drift the next session must untangle.
+Leading-underscore is the convention for workspace meta-dirs (`_archive`, `_template`, `_draft`). Archival operations (`git mv workspaces/X (loom-internal reference)`) bump `_archive/`'s mtime; without the filter, the hook surfaces `_archive` as the active workspace and SessionEnd routes journal stubs into (loom-internal reference) — invisible drift the next session must untangle.
 
 ## Common Mistakes
 

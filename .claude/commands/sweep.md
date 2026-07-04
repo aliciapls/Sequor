@@ -17,7 +17,7 @@ Autonomous — runs every sweep sequentially, accumulates findings into a single
 
 ## Workflow
 
-Run all 7 sweeps. Aggregate findings into a single report at the end with severity (CRIT / HIGH / MED / LOW), disposition, and pointer (file:line, PR#, issue#).
+Run all 8 sweeps. Aggregate findings into a single report at the end with severity (CRIT / HIGH / MED / LOW), disposition, and pointer (file:line, PR#, issue#).
 
 ### Sweep 1: Active todos across all workspaces
 
@@ -94,15 +94,16 @@ Categorize findings:
 
 Roll up: per workspace, count findings by category. Workspaces with ≥3 unresolved gaps → flag as candidates for a follow-up `/redteam` round.
 
-### Sweep 6: Workspace + worktree hygiene
+### Sweep 6: Workspace + worktree + forest-ledger hygiene
 
 ```bash
 find workspaces/*/.session-notes -mtime +30 2>/dev/null            # stale session notes
 git worktree list                                                  # orphan worktrees
 find workspaces/*/journal/.pending/*.md -mtime +14 2>/dev/null     # stale .pending
+node .claude/bin/validate-forest-ledger.mjs --aggregate            # forest rollup, workspace→root (#669)
 ```
 
-Surface: workspaces with `.session-notes` >30d (archive), worktrees not at HEAD or zero-commit (cleanup per `rules/worktree-isolation.md`), `.pending` >14d (promote OR discard).
+Surface: workspaces with `.session-notes` >30d (archive), worktrees not at HEAD or zero-commit (cleanup per `rules/worktree-isolation.md`), `.pending` >14d (promote OR discard). The `--aggregate` step (issue #669) reads EVERY `workspaces/*/.session-notes` (and its M6-D split `.session-notes.shared.md`) forest ledger — regardless of MTIME or issue state — and flags any OPEN row whose ID is absent from the ROOT ledger (the cross-file no-vanish gate; closes the gap where this sweep `stat`-ed MTIME but never opened the file). Each `[AGG]` finding is a STRANDED forest workstream: roll it into the report with its value-anchor (`rules/value-prioritization.md` MUST-2) AND into the root ledger at `/wrapup`. The bare `find` MTIME check is retained for archival hygiene; it does NOT substitute for the ledger read.
 
 ### Sweep 7: Process hygiene (uncommitted, divergence, zero-tolerance)
 
@@ -117,6 +118,19 @@ grep -rEn 'TODO|FIXME|HACK|XXX|NotImplementedError' \
 
 Surface: uncommitted changes, branch ahead/behind origin/main, new stub markers in production code (BLOCKED per `rules/zero-tolerance.md` Rule 2).
 
+### Sweep 8: Release readiness (publishing repos only)
+
+For repos that publish version anchors (`pyproject.toml` + `__init__.py`, or language equivalent), determine what is GENUINELY unreleased. The diff base MUST be derived mechanically from the latest stable tag — hand-picking a base tag is BLOCKED (a stale base re-flags already-released fixes as "unreleased" on every sweep). Non-publishing repos: record "N/A — non-publishing" and move on.
+
+```bash
+# plain vX.Y.Z stable tags ONLY — `$`-anchor excludes prerelease (-rc1) and
+# package-prefixed (pkg-v*) tags so a future v2.29.0-rc1 cannot sort above v2.29.0
+LATEST=$(git tag --sort=-version:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+git log --oneline "$LATEST"..HEAD -- src/ packages/*/src 2>/dev/null   # shippable code ONLY
+```
+
+Flag "unreleased work" ONLY when the shippable-code diff is non-empty; docs / `.claude/` / workspace diffs do NOT ship → record "no shippable change since `$LATEST`". Before naming any merged PR as unreleased, confirm via `git merge-base --is-ancestor <sha> "$LATEST"` (ancestor = already released).
+
 ## Output
 
 Write findings to `workspaces/<project>/04-validate/sweep-<date>.md` (workspace context active) OR `SWEEP-<date>.md` at root. Each finding: `[SEVERITY] [Sweep N] <title>` + Location + Disposition + Evidence + Why-this-matters + Action-taken-if-FIX-NOW. End with cross-cutting observations and 2-5 ranked recommended next-session items.
@@ -125,7 +139,7 @@ Write findings to `workspaces/<project>/04-validate/sweep-<date>.md` (workspace 
 
 Before reporting `/sweep` complete:
 
-1. ALL Sweep 1-7 outputs accumulated
+1. ALL Sweep 1-8 outputs accumulated
 2. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA
 3. Non-trivial fixes filed as workspace todos OR GH issues with delivered-code references
 4. Report committed (`git add` + `git commit`)

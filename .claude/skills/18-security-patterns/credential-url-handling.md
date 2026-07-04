@@ -47,7 +47,7 @@ null byte and the driver sends an empty password, matching any
 
 ### 3. `mask_url(url)` -- Log-Safe Form
 
-Lives in: `packages/kailash-dataflow/src/dataflow/utils/masking.py`
+Lives in: the dataflow package (`src/dataflow/utils/masking.py`)
 
 Replaces the entire userinfo segment with `***` while preserving
 scheme, host, port, path, and non-sensitive query params. Sensitive
@@ -107,10 +107,8 @@ Sites: `database_config.py`, `dataflow/utils/masking.py`,
 `trust/rate_limit/backends/redis.py`,
 `nexus/auth/rate_limit/backends/redis.py`.
 
-Parametrized regression tests at
-`tests/regression/test_arbor_database_url_special_chars.py`
-verify all four sites mask the same key set.
+Parametrized regression tests in `tests/regression/` verify all four sites mask the same key set.
 
 ## Origin
 
-`workspaces/arbor-upstream-fixes/.session-notes` (2026-04-12)
+a BUILD-repo upstream-fixes session (2026-04-12)

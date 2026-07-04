@@ -2,6 +2,16 @@
 /**
  * signing-mutation-guard.js — §2.3 + §4.3 pre-tool-use guard.
  *
+ * @coc-codex-edit-gate — STATELESS trust gate (degraded-mode signing-key
+ *   mutation discipline); the policy extractor fans its CC edit-matcher
+ *   registration out to the Codex `apply_patch` lane (mcp-guard,
+ *   FF-AC6-1). Its inputs are stateless: a signing key resolves via git
+ *   config / explicit env (NOT the multi-operator roster), and the
+ *   degraded-mode read-only block is the same behavior already shipped on
+ *   the Codex shell lane (DF-AC6-2) — extending it to apply_patch makes
+ *   the file-edit lane symmetric with the shell lane. The cc-only
+ *   coordination guards deliberately omit this marker.
+ *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row + R4-S-02 + R5-S-03).
  *
@@ -90,6 +100,12 @@ const siblingPorcelain = require(
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+const { isCoordinationEnabled } = require(
+  path.join(__dirname, "lib", "coordination-mode.js"),
+);
+const { resolveMainCheckout } = require(
+  path.join(__dirname, "lib", "state-resolver.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -138,8 +154,7 @@ function classifyOperation(payload) {
   // structural close.
   if (isMutationTool(tool)) {
     // NotebookEdit uses notebook_path; cover both.
-    const fp =
-      input.file_path || input.filePath || input.notebook_path || "";
+    const fp = input.file_path || input.filePath || input.notebook_path || "";
     if (typeof fp === "string" && fp.length > 0) {
       return { kind: "edit-write", targetPath: fp };
     }
@@ -304,6 +319,27 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
     }
 
     const repoDir = resolveRepoDir(payload);
+
+    // MO-OPT W1-c — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+    // BOTH the §4.2 sibling-worktree porcelain check AND the degraded-mode
+    // (no-signing-key) mutation block are coordination-substrate concerns. On a
+    // solo / fresh repo (coordination OFF) there are no sibling worktrees, and
+    // an absent signing key is "un-enrolled", NOT "degraded" — blocking every
+    // tracked-path Edit/Write/commit because no GPG key is configured is THE
+    // disruption (analysis gate #3). Passthrough. When ENABLED, byte-unchanged.
+    //
+    // MO-OPT holistic post-multi-wave redteam (Cluster A): the predicate's tier-2
+    // local-override (.claude/learning/coordination-mode.json) is GITIGNORED →
+    // ABSENT in a worktree. Reading it against the worktree cwd would split a
+    // tier-2-enrolled repo OFF here while integrity-guard / journal-write-guard
+    // read it ON from main (cross-shard inconsistency + S6 weakening on the
+    // local-override path). Resolve the MAIN checkout for the predicate ONLY (the
+    // same main-checkout discipline as trust-posture.md MUST-1 / integrity-guard
+    // .js:362); repoDir stays the worktree cwd for §4.2 porcelain + repoRelative.
+    if (!isCoordinationEnabled(resolveMainCheckout(repoDir) || repoDir)) {
+      passthrough();
+    }
+
     const candidateRel =
       op.kind === "edit-write" ? repoRelative(op.targetPath, repoDir) : null;
 

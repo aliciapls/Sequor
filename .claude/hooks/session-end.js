@@ -19,6 +19,12 @@ const {
   countObservations,
 } = require("./lib/learning-utils");
 const { classifyCommitForJournal } = require("./lib/journal-classifier");
+// The single guarded-read chokepoint for tracked/shared session-notes paths
+// (R9 MED-1): lstat-refuses symlink/non-regular + size-caps BEFORE reading, so a
+// teammate-plantable `.session-notes` (-> /dev/zero, or oversized) cannot hang/OOM
+// this SessionEnd hook. Returns { ok, content, stat } — stat carries mtime for the
+// age gate without a second (un-guarded) statSync.
+const { readNotesFileGuarded } = require("./lib/session-notes-layout.js");
 
 // Timeout fallback — prevents hanging the Claude Code session
 const TIMEOUT_MS = 15000;
@@ -214,20 +220,24 @@ function logSessionAccomplishments(cwd, sessionId) {
   // Direct .session-notes file
   const notesPath = candidates[0];
   if (fs.existsSync(notesPath)) {
-    const stat = fs.statSync(notesPath);
-    const ageHours = (Date.now() - stat.mtimeMs) / (1000 * 60 * 60);
-    // Only log if modified recently (within last 4 hours = likely this session)
-    if (ageHours > 4) return;
-
-    const content = fs.readFileSync(notesPath, "utf8");
-    const accomplishments = extractAccomplishments(content);
-    if (accomplishments) {
-      logLearningObservation(
-        cwd,
-        "session_accomplishment",
-        { accomplishments: accomplishments.substring(0, 1000) },
-        { session_id: sessionId },
-      );
+    // Guarded read (R9 MED-1): a symlink/oversize root .session-notes is skipped,
+    // never read into a hang. Root notes present → handle here, do not also scan
+    // workspaces (preserves the original control flow).
+    const g = readNotesFileGuarded(notesPath);
+    if (g.ok) {
+      const ageHours = (Date.now() - g.stat.mtimeMs) / (1000 * 60 * 60);
+      // Only log if modified recently (within last 4 hours = likely this session)
+      if (ageHours <= 4) {
+        const accomplishments = extractAccomplishments(g.content);
+        if (accomplishments) {
+          logLearningObservation(
+            cwd,
+            "session_accomplishment",
+            { accomplishments: accomplishments.substring(0, 1000) },
+            { session_id: sessionId },
+          );
+        }
+      }
     }
     return;
   }
@@ -240,13 +250,15 @@ function logSessionAccomplishments(cwd, sessionId) {
     const workspaces = fs.readdirSync(wsDir);
     for (const ws of workspaces) {
       const wsNotes = path.join(wsDir, ws, ".session-notes");
-      if (!fs.existsSync(wsNotes)) continue;
-
-      const stat = fs.statSync(wsNotes);
-      const ageHours = (Date.now() - stat.mtimeMs) / (1000 * 60 * 60);
+      // Guarded read (R9 MED-1): workspaces/<ws>/.session-notes is a live
+      // committed multi-operator surface with a genuine teammate-symlink vector;
+      // absent/symlink/oversize → skip this workspace, never hang.
+      const g = readNotesFileGuarded(wsNotes);
+      if (!g.ok) continue;
+      const ageHours = (Date.now() - g.stat.mtimeMs) / (1000 * 60 * 60);
       if (ageHours > 4) continue;
 
-      const content = fs.readFileSync(wsNotes, "utf8");
+      const content = g.content;
       const accomplishments = extractAccomplishments(content);
       if (accomplishments) {
         logLearningObservation(
@@ -304,15 +316,23 @@ function logDecisionReferences(cwd, sessionId, sessionDir) {
       // Only log entries created/modified during this session
       if (stat.mtimeMs < sessionStartMs) continue;
 
-      // Parse type from filename: NNNN-TYPE-topic.md
-      const match = entry.match(/^\d+-(\w+)-(.+)\.md$/);
+      // Parse TYPE from filename. Handles BOTH the legacy single-operator
+      // shape (NNNN-TYPE-topic.md) AND the multi-operator shape
+      // (NNNN-<display_id>-TYPE-topic.md per knowledge-convergence.md MUST-2 /
+      // rules/journal.md). The optional lowercase display_id segment is skipped
+      // so TYPE (uppercase, may contain a hyphen e.g. TRADE-OFF) is captured,
+      // not the display_id. Pre-multi-op regex `^\d+-(\w+)-` mis-captured the
+      // display_id as the type for every NNNN-<display_id>-TYPE entry.
+      const match = entry.match(
+        /^\d+-(?:[a-z0-9_-]+-)?(DECISION|DISCOVERY|TRADE-OFF|RISK|CONNECTION|GAP|AMENDMENT)-(.+)\.md$/,
+      );
       if (!match) continue;
 
       logLearningObservation(
         cwd,
         "decision_reference",
         {
-          type: match[1], // DECISION, DISCOVERY, TRADE-OFF, etc.
+          type: match[1], // DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP, AMENDMENT
           topic: match[2].replace(/-/g, " "),
           file: entry,
         },
@@ -389,12 +409,26 @@ function generateJournalCandidates(cwd, sessionId, sessionDir) {
   const commits = rawLog.split("\x1e").filter((c) => c.trim());
   let count = 0;
 
+  // De-dupe against commits already captured as pending stubs in ANY workspace.
+  // Overlapping `--since` windows (esp. the now-4h fallback) otherwise re-capture
+  // the same SHA every session, inflating the /codify pending backlog. See
+  // lib/pending-dedup.js for the full failure-mode note.
+  const { collectExistingPendingShas } = require("./lib/pending-dedup");
+  const alreadyCaptured = collectExistingPendingShas(cwd);
+
   for (const commit of commits) {
     const parts = commit.trim().split("\x1f");
     const hash = parts[0];
     const subject = parts[1];
     const body = parts[2];
     if (!hash || !subject) continue;
+
+    // Already captured (this workspace or another) — skip, log for audit parity
+    // with the classifier-skip path so a future audit sees why nothing was written.
+    if (alreadyCaptured.has(hash)) {
+      appendJournalSkipLog(workspace.path, hash, "already-captured", subject);
+      continue;
+    }
 
     const verdict = classifyCommitForJournal(subject, body || "");
     if (!verdict.type) {
@@ -438,6 +472,7 @@ ${bodySection}
 
     try {
       fs.writeFileSync(filepath, stub);
+      alreadyCaptured.add(hash); // keep the set authoritative for the rest of the loop
       count++;
     } catch {}
   }

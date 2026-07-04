@@ -4,7 +4,6 @@ description: "Multi-operator knowledge convergence: single-writer artifact split
 priority: 10
 scope: path-scoped
 paths:
-  - ".claude/rules/**"
   - ".claude/team-memory/**"
   - ".claude/learning/**"
   - "**/journal/**"
@@ -18,7 +17,7 @@ paths:
 
 Under N concurrent operators against one shared repo, every artifact that historically had ONE writer per session — `.session-notes`, `journal/NNNN-*.md`, `observations.jsonl`, `violations.jsonl`, `.claude/.proposals/latest.yaml`, `.claude/learning/learning-codified.json`, team-shared memory facts — becomes a multi-writer contention surface. Two operators each scanning `ls journal/` reach the same next-number and clobber; two `/codify` sessions race on `latest.yaml` and drop one operator's bullets; two `.session-notes` writes overwrite each other. The structural defenses below — per-operator artifact splits, signed identity stamping, fold-anchored slot reservation, body-hash anchoring, the codify lease, the team-memory split rule, and the deterministic `/onboard` read-path — turn silent loss into either clean parallel writes or loud, named, recoverable conflict.
 
-**Citation note for downstream consumers:** The Origin footer below cites `workspaces/multi-operator-coc/02-plans/01-architecture.md` §§5/7/8/9/11/4.5 as the original architectural derivation. That spec is **loom-internal** (project-local working state, not shipped via `/sync`); the citations are **pointers to derivation** for loom-side auditors. The rule body's MUST clauses are **self-contained and authoritative**; downstream consumers act on the prose here, not on the cited spec. Committed durable receipts: journal entries (root `loom/journal/`) `0112` (architecture), `0122` (convergence), `0132` (M6+M7 convergence), `0133` (Sec-MED-3 disposition).
+**Citation note for downstream consumers:** The Origin footer below cites (loom-internal reference) §§5/7/8/9/11/4.5 as the original architectural derivation. That spec is **loom-internal** (project-local working state, not shipped via `/sync`); the citations are **pointers to derivation** for loom-side auditors. The rule body's MUST clauses are **self-contained and authoritative**; downstream consumers act on the prose here, not on the cited spec. Committed durable receipts: journal entries (root `loom/journal/`) `0112` (architecture), `0122` (convergence), `0132` (M6+M7 convergence), `0133` (Sec-MED-3 disposition).
 
 ## MUST Rules
 
@@ -49,13 +48,15 @@ Under N concurrent operators against one shared repo, every artifact that histor
 
 ### 2. Journal Slot Reservation Reads From The Fold, Not The Filesystem
 
-Every `journal/NNNN-*.md` write MUST acquire its slot via `reserveJournalSlot(dir, {identity, type, topic})` (from `.claude/hooks/lib/journal-reserve.js`). The high-water-mark MUST come from the fold-accepted coordination log (totally ordered per-emitter), NOT from a filesystem `ls journal/` scan. The filename MUST embed the operator's `<display_id>`: `NNNN-<display_id>-TYPE-slug.md`. Every entry's frontmatter MUST carry `verified_id`+`person_id`+`display_id` — frontmatter, NOT filename, is the authoritative attribution surface. On close, a signed `journal-body-anchor` coordination-log record MUST be emitted pinning `{path, sha256_of_content_bytes, slot_record_ref}` (via `journal-body-anchor.js::buildAnchorRecord`); fold-time re-hash detects body tamper and names the anchor's SIGNER (not the frontmatter author) per the §4.5 signer-vs-author residual.
+Every `journal/NNNN-*.md` write MUST acquire its slot via `reserveJournalSlotSigned(repoDir, {dir, identity, type, topic})` (from `.claude/hooks/lib/journal-reserve.js`) — the signed variant computes the slot from `max(disk high-water, fold-accepted reservation high-water)` AND emits the signed `journal-slot-reservation` coordination-log record (via `coc-emit.js::emitSignedRecord`) that `journal-write-guard.js` folds for its slot-reserved check; the pure `reserveJournalSlot(dir, opts)` computation emits nothing and is for dry runs only (FSUB 2026-06-11 — pre-wiring, every journal Write halt-and-reported "slot unreserved" even after dutiful manual reservation). The authoritative high-water-mark is the fold-accepted coordination log (totally ordered per-emitter), NOT a filesystem `ls journal/` scan alone. The filename MUST embed the operator's `<display_id>`: `NNNN-<display_id>-TYPE-slug.md`. Every entry's frontmatter MUST carry `verified_id`+`person_id`+`display_id` — frontmatter, NOT filename, is the authoritative attribution surface. On close, a signed `journal-body-anchor` coordination-log record MUST be emitted pinning `{path, sha256_of_content_bytes, slot_record_ref}` (via `journal-body-anchor.js::buildAnchorRecord`); fold-time re-hash detects body tamper and names the anchor's SIGNER (not the frontmatter author) per the §4.5 signer-vs-author residual.
 
 ```text
-# DO — fold-anchored slot via reserveJournalSlot(journalDir, {identity, type, topic});
+# DO — fold-anchored slot via reserveJournalSlotSigned(repoDir, {dir, identity, type, topic});
+#      emits the signed journal-slot-reservation record AND returns the reservation;
 #      writes journal/NNNN-<display_id>-TYPE-slug.md (e.g. 0042-alice-DECISION-foo.md)
 #      with frontmatter verified_id+person_id+display_id; on close emit signed
-#      journal-body-anchor coordination-log record.
+#      journal-body-anchor coordination-log record (buildAnchorRecord partial →
+#      coc-emit.js::emitSignedRecord fills the chain envelope + signs + appends).
 
 # DO NOT — fs scan high-water (race) + plain NNNN-TYPE-slug filename + no body anchor
 ```
@@ -71,7 +72,7 @@ Every `journal/NNNN-*.md` write MUST acquire its slot via `reserveJournalSlot(di
 
 ### 3. /codify Acquires A Lease Covering Mandatory Codify-Class Files
 
-Every `/codify` MUST acquire a structural lease via `acquireCodifyLease({displayId, scopeFiles})` (from `.claude/hooks/lib/codify-lease.js`) as Step 0, BEFORE any artifact edit. The lease scope MUST union `scopeFiles` with MANDATORY_SCOPE (`.claude/learning/learning-codified.json` + `.claude/.proposals/latest.yaml`) automatically; callers cannot opt out. On `{ok: false, reason: "conflict"}` the orchestrator MUST surface the conflicting `display_id` + `acquired_at` + scope overlap verbatim and STOP — silent proceed is BLOCKED per `rules/zero-tolerance.md` Rule 3. On `{ok: true}` all edits MUST land on the lease's `codify/<display_id>-<date>` branch; end-of-session opens a PR + admin-merge per `rules/coc-sync-landing.md` MUST-3. Release MUST call `releaseCodifyLease({repoDir, displayId})` — the helper derives `leasePath` from `repoDir` internally per Sec-MED-3; callers MUST NOT supply `leasePath` to misroute the write.
+Every `/codify` MUST acquire a structural lease via `acquireCodifyLease({displayId, scopeFiles})` (from `.claude/hooks/lib/codify-lease.js`) as Step 0, BEFORE any artifact edit. The lease scope MUST union `scopeFiles` with MANDATORY_SCOPE (`.claude/learning/learning-codified.json` + `.claude/.proposals/latest.yaml`) automatically; callers cannot opt out. On `{ok: false, reason: "conflict"}` the orchestrator MUST surface the conflicting `display_id` + `acquired_at` + scope overlap verbatim and STOP — silent proceed is BLOCKED per `rules/zero-tolerance.md` Rule 3. On `{ok: true}` all edits MUST land on the lease's `codify/<display_id>-<date>` branch; end-of-session opens a PR + admin-merge per `rules/coc-sync-landing.md` MUST-3. Release MUST call `releaseCodifyLease({repoDir, displayId})` — the helper derives `leasePath` from `repoDir` internally per Sec-MED-3; callers MUST NOT supply `leasePath` to misroute the write. Acquire and release each emit a signed coordination-log record (`codify-lease` / `codify-lease-release`, FSUB 2026-06-11) — acquire carries `{lease_id, branch, date, scope_files, scope_fingerprint}` matching the reader contract `integrity-guard.js::findCoveringLease` folds (branch + signer + scope path/prefix covering check); release pairs by `lease_id`. This is the cross-clone visibility surface for the on-disk local mutex; an emission failure does NOT void the lease but MUST be surfaced verbatim from the result's `record_emit` field.
 
 ```text
 # DO — Step 0: res = acquireCodifyLease({displayId, scopeFiles}); on conflict, surface
@@ -194,4 +195,4 @@ fs.appendFileSync(".claude/learning/violations.jsonl", JSON.stringify(partial) +
 
 ## Origin
 
-`workspaces/multi-operator-coc/02-plans/01-architecture.md` §§5 (single-writer artifact contention — Shard M6 D), §7 (knowledge convergence — Shard M7 E), §8 (artifact inventory), §9 (artifact discipline ≤150-line command bodies), §11 row D (M6 D shard spec; landed PR #323) + row E (M7 E shard spec; landed PR #324), §4.5 body-anchor signer-vs-author residual (added 2026-05-22). Co-owner brief 2026-05-19 — multi-operator-coc CONVERGED. Receipt-first journal entries (ROOT `loom/journal/`): `0112` (architecture decision-record), `0122` (CONVERGENCE receipt), `0132` (M6 + M7 convergence DECISION receipt #0132), `0133` (Sec-MED-3 audit-trail-completeness residual co-owner DECISION).
+(loom-internal reference) §§5 (single-writer artifact contention — Shard M6 D), §7 (knowledge convergence — Shard M7 E), §8 (artifact inventory), §9 (artifact discipline ≤150-line command bodies), §11 row D (M6 D shard spec; landed PR #323) + row E (M7 E shard spec; landed PR #324), §4.5 body-anchor signer-vs-author residual (added 2026-05-22). Co-owner brief 2026-05-19 — multi-operator-coc CONVERGED. Receipt-first journal entries (ROOT `loom/journal/`): `0112` (architecture decision-record), `0122` (CONVERGENCE receipt), `0132` (M6 + M7 convergence DECISION receipt #0132), `0133` (Sec-MED-3 audit-trail-completeness residual co-owner DECISION).

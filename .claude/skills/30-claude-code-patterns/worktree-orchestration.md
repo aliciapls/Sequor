@@ -42,13 +42,15 @@ Agent(
     Resolve <issue>.
 
     Files you may edit (relative paths only; NEVER absolute):
-    - packages/kailash-ml/src/kailash_ml/foo.py
-    - packages/kailash-ml/tests/integration/test_foo.py
+    - the ml package directory src/kailash_ml/foo.py
+    - the ml package directory tests/integration/test_foo.py
 
     ...
     """,
 )
 ```
+
+**BLOCKED rationalizations:** "Absolute paths are unambiguous" / "The agent should figure out its own cwd" / "This worked the one time I tested it".
 
 ## Rule 3 — Worktree Agents Commit Incremental Progress
 
@@ -85,6 +87,17 @@ Agent(
 )
 ```
 
+## Rule 3b — Continuation-Agent Recovery For Mid-Shard Agent Death
+
+When a worktree agent dies mid-shard (server-side throttle, account session limit, swap, crash), Rule 3's commit-per-milestone discipline makes the relaunch LOSSLESS — if the orchestrator follows this recovery protocol instead of relaunching from scratch:
+
+1. **Inspect before relaunching:** `git -C <dead-worktree> log main..HEAD --oneline` (committed milestones) + `git -C <dead-worktree> status --porcelain` (dangling WIP).
+2. **Checkpoint the dangling WIP** as a commit in the dead worktree (`git add -A && git commit -m "wip: checkpoint from rate-limited agent"`) so the branch carries EVERYTHING — auto-clean only deletes zero-commit worktrees, and the branch survives even when the worktree is removed.
+3. **Launch the continuation agent** (fresh worktree) with an explicit recovery step: `git merge <dead-agent-branch>` as STEP 1, then "READ what it already built before writing anything — audit, fix, fill; do not rewrite working code."
+4. **Tell the continuation agent what the predecessor claimed** (its last commit subjects) so the audit is targeted.
+
+Evidence: 2026-06-11 Wave-3 session — a rate-limited agent left 1 commit + uncommitted edits; checkpoint + merge-continuation recovered all of it, and the continuation agent completed the shard auditing rather than re-implementing (~1,400 LOC retained). Same protocol applied across the F16 W2 fix-wave (journal 0178 §FD: 3 of 4 agents died mid-run; resumption lossless).
+
 ## Rule 4 — Verify Agent Deliverables Exist After Exit
 
 **Rule:** `rules/agents.md` § "MUST: Verify Agent Deliverables Exist After Exit".
@@ -100,6 +113,36 @@ The `ls` check is O(1) and converts silent no-op into loud retry.
 - Rule 3 (commit discipline) protects against worktree auto-cleanup
 - Rule 4 (post-exit verify) protects against the main checkout
 - Both are needed: Rule 3 alone misses truncated-in-main cases; Rule 4 alone misses truncated-worktree cases
+- Rule 4a (below) is the recovery path when Rule 3 was missed and the worktree is already cleaned
+
+## Rule 4a — Recover Orphan Writes From Zero-Commit Worktree Agents
+
+**Rule:** `rules/agents.md` § "MUST: Recover Orphan Writes From Zero-Commit Worktree Agents".
+
+An agent that wrote via ABSOLUTE paths resolves those writes to the MAIN checkout cwd (not its worktree). When such an agent reports done but its branch has zero commits AND the worktree was auto-cleaned, the work is NOT lost — it is orphaned, uncommitted, and reachable in the main checkout.
+
+### 4-step recovery protocol
+
+```bash
+git worktree list | grep <expected-branch>     # empty if cleaned
+git status --short                              # "??" entries surface the orphans
+git checkout -b recovery/<original-branch>      # rescue branch (greppable across history)
+git add -- "<orphan-path>" && git commit -m "recover(<branch>): orphaned worktree writes"
+```
+
+Quote each orphan path and terminate option parsing with `--` (`git add -- "path/with spaces.py"`) — never substitute an unquoted `$(...)` expansion, which word-splits on spaces/shell-meta. Stage the explicit orphan paths from `git status --short`, NOT `git add .`/`-A` (which would sweep unrelated working-tree state per `git.md` § "Stage Explicit Paths").
+
+### BLOCKED rationalizations
+
+- "The agent said it was done, the work must be committed somewhere"
+- "Re-launching is cleaner"
+- "If the branch has zero commits, the work is gone"
+- "The main checkout is clean"
+- "recovery/ branches are a workaround; feat/ is more correct"
+
+### Why it is load-bearing
+
+Re-launching abandons real work every time an absolute-path agent truncates. `git status` reveals the orphans; the `recovery/` branch prefix surfaces this class of rescue across history. PR #574 recovered 1129 LOC of `alignment.py` this way.
 
 ## Rule 5 — Parallel-Worktree Package Ownership Coordination
 
@@ -110,7 +153,7 @@ The `ls` check is O(1) and converts silent no-op into loud retry.
 Session 2026-04-20 kailash-ml 0.13.0 + kailash 2.8.10 parallel-release cycle (PRs #552, #553). Three parallel worktree agents resolved issues #546 (ONNX matrix), #547+#548 (km.doctor + km.track), and #550 (quote_identifier). Clean integration because:
 
 - **Agent 1** designated version-owner for kailash-ml pyproject.toml + CHANGELOG
-- **Agent 2** prompt included the verbatim exclusion: "COORDINATION NOTE: A parallel agent is resolving #546 (ONNX bridge matrix) in another worktree and will ALSO bump version to 0.13.0 + write CHANGELOG. To avoid merge conflicts, you (this agent) MUST NOT edit packages/kailash-ml/pyproject.toml, packages/kailash-ml/src/kailash_ml/**init**.py::**version**, or packages/kailash-ml/CHANGELOG.md."
+- **Agent 2** prompt included the verbatim exclusion: "COORDINATION NOTE: A parallel agent is resolving #546 (ONNX bridge matrix) in another worktree and will ALSO bump version to 0.13.0 + write CHANGELOG. To avoid merge conflicts, you (this agent) MUST NOT edit the ml package directory pyproject.toml, the ml package directory src/kailash_ml/**init**.py::**version**, or the ml package directory CHANGELOG.md."
 - **Agent 3** worked on a different package (core kailash/, 2.8.10) — no overlap
 
 Result: merge integration was mechanical. One trivial CHANGELOG conflict on the root file, zero conflicts on package pyproject.toml or package CHANGELOG. Integration step (owned by orchestrator) added `km-doctor` console script + expanded CHANGELOG (which Agent 1 correctly seeded with ONNX entries only) to cover all three issues.
@@ -266,9 +309,60 @@ Agent(isolation="worktree", prompt="Implement W33 km.* wrappers...")
 
 Origin: Session 2026-04-23 — W33 initial launch lost to `worktree-agent-<hash>`; re-launched with explicit `feat/W33-km-wrappers`.
 
+## Rule 9 — Worktree-Isolate Shared-Source Editors; Concurrent Readers Read Committed HEAD
+
+**Rule:** `rules/agents.md` § Worktree Orchestration — shared-source editor isolation. Rule 1's isolation mandate generalizes beyond compilation: ANY background/parallel agent that EDITS shared repo source (`sync-manifest.yaml`, rules, `bin/`, config) MUST be worktree-isolated, even if it never compiles. Any concurrent agent that READS that source MUST read the committed HEAD (`git show HEAD:<path>`), never the working tree.
+
+### Failure mode evidence (2026-05-16 post-mortem)
+
+Three agents ran against the SAME loom checkout: a background agent EDITING `sync-manifest.yaml` (issue #243), and two `/sync` catch-up agents READING loom source. The editor's mid-edit WIP left the manifest with a transient YAML syntax error; both readers flagged "the manifest is broken repo-wide" — correct for the working tree, false at committed HEAD. ~2 agents' analysis cycles were spent reconciling a phantom defect. Root cause: the isolation MUST was framed compiling-only, so the orchestrator launched the editor non-isolated precisely because "it doesn't compile."
+
+### The two structural halves
+
+1. **Editor isolation** — any shared-source editor is worktree-isolated, compiling or not.
+2. **Reader discipline** — concurrent readers read committed HEAD; this is the half that actually saved the cycle (once the catch-up agents were told to read `git show HEAD:<path>`, they produced correct plans despite the broken WIP in the shared tree).
+
+### Prompt template
+
+```python
+# DO — a background agent that EDITS shared source is worktree-isolated
+Agent(isolation="worktree", prompt="Edit sync-manifest.yaml: add consumer_overlays ...")
+# DO — a concurrent agent that READS that source reads committed HEAD
+Agent(prompt="""Catch-up sync. Read loom source via `git show HEAD:.claude/bin/emit.mjs`
+(committed HEAD), NOT the working tree — a parallel agent may be mid-edit.""")
+
+# DO NOT — non-isolated editor + working-tree reader, same checkout
+Agent(prompt="Edit sync-manifest.yaml ...")          # mid-edit WIP visible to all
+Agent(prompt="Catch-up: copy .claude/bin/emit.mjs")  # may copy broken mid-edit state
+```
+
+**BLOCKED rationalizations:** "It's not a compiling agent, the worktree rule doesn't apply" / "The edit is quick, a collision is unlikely" / "Both agents are careful" / "I'll serialize them in my head".
+
+**Why:** A non-isolated editor's mid-edit WIP is visible in the shared checkout; a reader copying the working tree mid-edit ships the broken state. Had the editor been isolated (or the readers HEAD-pinned from the start), zero reader cycles would have been spent on a phantom defect.
+
+Origin: 2026-05-16 loom session (issue #243 manifest editor vs py/rs catch-up readers); full post-mortem in `guides/rule-extracts/agents.md` § Post-mortem 2026-05-16.
+
+## Rule 10 — Binding/Package-Scoped Shard PRs Touch Only Their Own Package
+
+**Rule:** `rules/agents.md` § Worktree Orchestration — binding-scope discipline. When ≥2 parallel worktree agents each ship a binding/package-scoped shard, each shard's PR MUST limit its diff to its OWN binding/package directory. Incidental fixes to sibling-package files (clippy lints, fmt drift, doc typos) discovered mid-shard ship as a separate PR or a dedicated cross-package cleanup shard — bundling is BLOCKED. This is the file-overlap variant of Rule 5: that clause forbids two agents editing the version anchor; this one forbids two agents editing the same sibling-package source.
+
+### Failure mode evidence
+
+F9 Wave 3c (2026-05-22): PR #1084 (a Java MCP shard) bundled an incidental Ruby clippy fix on a Ruby binding source file; concurrent PR #1085 (a broader Ruby MCP shard) edited the same file; #1085's auto-merge hit a 3-way conflict resolved mid-flight at merge commit `69bed4e0` (~10 min of churn binding-scope discipline would have prevented). Same trap precedent: Wave 3b PR #1081 on the parity-matrix file.
+
+### Detection sweep (reviewer mechanical sweep at /implement)
+
+`git diff --name-only main...HEAD`, map each changed path to its top-2 directory components, flag any binding-scoped PR (title `feat(go|java|ruby|python|nodejs):`) whose changed-file roots span >1 binding directory WITHOUT a cross-package-cleanup title prefix (`chore(bindings):` / `fix(bindings):` are carved out — they MAY touch multiple binding dirs by design).
+
+**BLOCKED rationalizations:** "It's only a one-liner lint fix" / "Both bindings rebuild anyway" / "Filing a separate PR is overhead for trivial drift" / "I'm already touching the workspace anyway" / "The fix is in a different file from the sibling shard" / "Concurrent PRs on different files don't conflict".
+
+**Why:** When two concurrent binding-scoped shards touch the SAME sibling-package file (one shard's incidental fix + a concurrent shard that owns that file), the second-to-merge hits a 3-way conflict the orchestrator resolves mid-flight. Trust Posture Wiring for this clause: `guides/rule-extracts/agents.md` § Binding-Scoped Shard PRs.
+
+Origin: F9 Wave 3c (2026-05-22), PR #1084/#1085 conflict on a Ruby binding source file.
+
 ## Related rules & skills
 
-- `rules/agents.md` — the load-bearing MUST clauses for all 5 worktree rules
+- `rules/agents.md` § Worktree Orchestration — the load-bearing MUST cluster this skill carries the depth for (one structural assertion per clause in the rule; protocol, templates, BLOCKED corpora + post-mortems here)
 - `rules/orphan-detection.md` — §1 (facade call site) and §6 (`__all__` eager import) are what the mechanical sweep verifies
 - `skills/30-claude-code-patterns/parallel-merge-workflow.md` — merge-step patterns for collecting worktree branches into an integration branch
 - `guides/deterministic-quality/02-session-architecture.md` — session-level architecture for multi-agent orchestration

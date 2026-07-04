@@ -3,7 +3,7 @@ name: migrate
 description: "Upgrade Claude-Code-only USE-template project to multi-CLI (Claude+Codex+Gemini). Modes: detect, --dry-run, --refresh, --rollback. Preserves project artifacts."
 ---
 
-Migrate a project from `kailash-coc-claude-{py,rs,rb}` (CC-only) to `kailash-coc-{py,rs}` (multi-CLI), or refresh multi-CLI overlays on a project already migrated. Project source, workspaces, journals, briefs, todos, `.session-notes`, `.env`, and SDK pins are preserved.
+Migrate a project from CC-only to multi-CLI (Claude+Codex+Gemini), or refresh multi-CLI overlays on a project already migrated. Covers BOTH axes: the Kailash axis (`kailash-coc-claude-{py,rs,rb}` → `kailash-coc-{py,rs}`) AND the non-Kailash, stack-agnostic `base` axis (`coc-claude-base` → `coc-base` — NOTE: NO `kailash-` prefix; the base template serves non-Kailash coding projects, which are first-class COC consumers). Project source, workspaces, journals, briefs, todos, `.session-notes`, `.env`, and SDK pins are preserved.
 
 Detailed protocol (bash blocks, additive-merge semantics, 3-way reconciliation, verification table, marker schema, hook env-var portability, `--emit-only` non-COC lane): `skills/30-claude-code-patterns/multi-cli-migration.md`. Manifest source-of-truth: `.claude/sync-manifest.yaml::multi_cli_overlays:`.
 
@@ -20,13 +20,13 @@ Detailed protocol (bash blocks, additive-merge semantics, 3-way reconciliation, 
 ## Step 0 — Pre-flight
 
 1. Read `.claude/.coc-sync-marker` AND `.claude/VERSION.type`. Branch by `template_type` / `VERSION.type`:
-   - `cc-only-legacy` → full migration. Variant from `variant:` (`py`/`rs`/`rb`).
+   - `cc-only-legacy` → full migration. Variant from `variant:` (`py`/`rs`/`rb`/`base`).
    - `multi-cli` → only `--refresh` is valid; `/migrate` exits "already migrated".
    - Non-COC lineage → ONLY `--emit-only` is valid. Full protocol in skill § `--emit-only` mode.
    - Missing/unrecognized AND no `.claude/` directory → exit "not a recognized USE-template lineage".
-2. Resolve sister template (full migration only): py → `kailash-coc-py`, rs → `kailash-coc-rs`, rb → no multi-CLI sister exists. **rb path**: do NOT migrate; `gh issue create --title "Multi-CLI sister template for kailash-coc-claude-rb" ...` and exit.
+2. Resolve sister template `<sister>` (full migration only): py → `kailash-coc-py`, rs → `kailash-coc-rs`, **base → `coc-base`** (the non-Kailash, stack-agnostic axis — note the sister name has NO `kailash-` prefix and the CC-only source is `coc-claude-base`, not `kailash-coc-claude-base`; both ship under the Foundation `coc-{claude-,}base` naming). (rb RETIRED in #423 Phase 1 — Ruby ships as bindings via the rs all-bindings template; no rb USE template exists.) **rb path**: do NOT migrate; exit with "kailash-coc-claude-rb is retired — use kailash-coc-rs for Ruby bindings." Every downstream step references the resolved `<sister>` name (e.g. `kailash-coc-py` for py, `coc-base` for base), NOT a `kailash-coc-<variant>` pattern (which is wrong for base).
 3. Verify clean working tree inline: `[ -z "$(git status --porcelain)" ] || { echo "stash or commit first; recommend: git stash push -u -m pre-migrate"; exit 1; }`. Recommendation per `recommendation-quality.md` MUST-1 — stash beats commit because the migration commit will be atomic and stash restores cleanly post-merge.
-4. Resolve sister template path via `node .claude/bin/resolve-template.js --template kailash-coc-<variant>` (else env `KAILASH_COC_TEMPLATE_PATH` → `~/.cache/kailash-coc/<sister>/` → offline-fallback).
+4. Resolve sister template path via `node .claude/bin/resolve-template.js --template <sister>` (the Step-0.2 resolved name — `kailash-coc-py`/`kailash-coc-rs`/`coc-base`; else env `KAILASH_COC_TEMPLATE_PATH` → `~/.cache/kailash-coc/<sister>/` → offline-fallback).
 5. Branch-name collision: if `chore/coc-multi-cli-migrate-<YYYYMMDD>` exists locally, append `-<HHMMSS>` for same-day idempotency.
 
 ## Step 1 — Branch + snapshot
@@ -35,7 +35,7 @@ Detailed protocol (bash blocks, additive-merge semantics, 3-way reconciliation, 
 
 ## Step 2 — VERSION update FIRST
 
-Update `.claude/VERSION` `upstream.template` → `kailash-coc-<variant>`, `upstream.template_repo` → `terrene-foundation/kailash-coc-<variant>`. MUST precede Step 4 so the resolver targets the new template on subsequent calls.
+Update `.claude/VERSION` `upstream.template` → `<sister>`, `upstream.template_repo` → `terrene-foundation/<sister>` (the Step-0.2 resolved name — `coc-base` for the base axis, NOT `kailash-coc-base`). MUST precede Step 4 so the resolver targets the new template on subsequent calls.
 
 ## Step 3 — Top-level multi-CLI overlay copy
 
@@ -56,7 +56,7 @@ Run downstream-sync semantics against the sister (skill § Downstream Sync). The
 
 ### Step 4a — Transition fallback for pre-structural-fix sister templates
 
-Post-#184 structural fix, sister templates ship the `.claude/codex-mcp-guard` symlink and `.claude/sync-manifest.yaml` natively. **Drop this section after 2026-06-15** once every sister template has been `/sync`'d post-#184. For pre-fix sisters, idempotent guards substitute the missing artifacts: `[ -e .claude/codex-mcp-guard ] || ln -sfn ../.codex-mcp-guard .claude/codex-mcp-guard` and `[ -f .claude/sync-manifest.yaml ] || cp "$LOOM_PATH/.claude/sync-manifest.yaml" .claude/sync-manifest.yaml`. `$LOOM_PATH` is superseded by the resolver — prefer `resolveRepo("loom").value` per `cross-repo.md` MUST-1. Surface a clear error if neither resolver nor `$LOOM_PATH` yields a path (no positional guessing).
+Post-#184 structural fix, sister templates ship the `.claude/codex-mcp-guard` symlink and `.claude/sync-manifest.yaml` natively. **Drop this section after 2026-06-15** once every sister template has been `/sync-to-use`'d post-#184. For pre-fix sisters, idempotent guards substitute the missing artifacts: `[ -e .claude/codex-mcp-guard ] || ln -sfn ../.codex-mcp-guard .claude/codex-mcp-guard` and `[ -f .claude/sync-manifest.yaml ] || cp "$LOOM_PATH/.claude/sync-manifest.yaml" .claude/sync-manifest.yaml`. `$LOOM_PATH` is superseded by the resolver — prefer `resolveRepo("loom").value` per `cross-repo.md` MUST-1. Surface a clear error if neither resolver nor `$LOOM_PATH` yields a path (no positional guessing).
 
 ## Step 5 — CLAUDE.md 3-way reconciliation
 
@@ -72,7 +72,9 @@ Closes the variant-overlay-drift gap (Loom-A). Sister-installed binaries at `.cl
 
 Order: `node .claude/bin/emit-cli-artifacts.mjs --target <variant> --out "$EMIT_TMP"`, copy `$EMIT_TMP/codex/*` and `$EMIT_TMP/gemini/*` into `.codex/` and `.gemini/` subtrees, then `node .claude/bin/emit.mjs --cli codex` (→ `AGENTS.md`) and `--cli gemini` (→ `GEMINI.md`). If `.codex-mcp-guard/policies.json` is missing or empty, `node .codex-mcp-guard/extract-policies.mjs` populates it from `.claude/hooks/`.
 
-**Post-Step-6 self-check:** `[ ! -d codex ] && [ ! -d gemini ] || { echo "stray non-dotted emit dirs"; exit 1; }`. If they exist, the agent invoked `emit-cli-artifacts.mjs --out .` instead of the tmp+move pattern.
+Then emit the unified `.coc/` derivative (#392): `node .claude/bin/emit-coc.mjs --target <variant> --out .`. Unlike `emit-cli-artifacts.mjs`, this writes the dotted target `.coc/` directly via an internal atomic tmp-dir swap — invoke with `--out .` (NOT a tmp dir + move). It produces `COC.md` + `COC.lock` + the `rules/`, `agents/`, `skills/`, `commands/` subtrees conforming to the csq consumer contract (`governance.csq:specs/09-unified-coc-artifact-standard.md`). A `WARN: … > 60 KiB` line is advisory (spec-09 has no consumer cap), not a failure.
+
+**Post-Step-6 self-check:** `[ ! -d codex ] && [ ! -d gemini ] || { echo "stray non-dotted emit dirs"; exit 1; }` (per-CLI emit went to `--out .` instead of tmp+move) AND `[ -f .coc/COC.lock ] || { echo ".coc/ emit missing"; exit 1; }`.
 
 ## Step 7 — Refresh `.github/`
 
@@ -96,9 +98,9 @@ Emit: "Trust posture is per-CLI. `posture show` works on Claude Code today; Code
 
 ## Step 12 — Commit + PR
 
-Stage explicit paths (per `coc-sync-landing.md` Rule 2 — `git add -A` BLOCKED). **Namespace tmp files per repo** via `mktemp -t coc-migrate-msg-XXXXXX` / `mktemp -t coc-migrate-prbody-XXXXXX` to prevent concurrent `/migrate` sessions overwriting each other's commit messages (verified failure mode 2026-05-13 — two consumer migrations running in parallel: one consumer's commit shipped with the other's message body). Stage: `.claude/`, `.codex/`, `.codex-mcp-guard/`, `.gemini/`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, three `.github/` files. Then `git commit -F "$MSGFILE"` + `gh pr create --title "chore(coc): migrate to multi-CLI" --body-file "$PRBODY"`. Shared `/tmp/migrate-msg.txt` paths are BLOCKED.
+Stage explicit paths (per `coc-sync-landing.md` Rule 2 — `git add -A` BLOCKED). **Namespace tmp files per repo** via `mktemp -t coc-migrate-msg-XXXXXX` / `mktemp -t coc-migrate-prbody-XXXXXX` to prevent concurrent `/migrate` sessions overwriting each other's commit messages (verified failure mode 2026-05-13 — two consumer migrations running in parallel: one consumer's commit shipped with the other's message body). Stage: `.claude/`, `.codex/`, `.codex-mcp-guard/`, `.gemini/`, `.coc/`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, three `.github/` files. Then `git commit -F "$MSGFILE"` + `gh pr create --title "chore(coc): migrate to multi-CLI" --body-file "$PRBODY"`. Shared `/tmp/migrate-msg.txt` paths are BLOCKED.
 
-Commit body MUST cite source template, target template, files added, files replaced, verification-table summary, link to skill. PR body MUST embed Step 10 verification table.
+Commit body MUST cite source template, target template, files added, files replaced, verification-table summary, link to skill. When the commit changes the `.coc/` shape (added/removed artifacts, frontmatter or lock-format change), the body MUST also carry a `coc-shape: <description>` marker per `loom-csq-boundary.md` Rule 5 so csq can grep upstream shape changes. PR body MUST embed Step 10 verification table.
 
 ## `--refresh` (multi-CLI consumer re-pull)
 
