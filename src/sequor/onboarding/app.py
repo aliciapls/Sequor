@@ -615,11 +615,17 @@ async def auth_login(request: Request):
             operator = result.scalars().first()
             op_email = operator.email if operator else email
 
-            acct_result = await session.execute(
-                select(Account).where(Account.id == operator.account_id)
-            )
-            account = acct_result.scalars().first()
-            account_name = account.name if account else ""
+            # `operator` can be None if the contact was removed between the
+            # blind-index lookup and this re-select; the op_email line above
+            # already anticipates it, so the account lookup MUST guard too
+            # rather than dereference operator.account_id on None (r2 Pyright).
+            account_name = ""
+            if operator is not None:
+                acct_result = await session.execute(
+                    select(Account).where(Account.id == operator.account_id)
+                )
+                account = acct_result.scalars().first()
+                account_name = account.name if account else ""
 
             await session.commit()
 
@@ -1250,6 +1256,8 @@ async def portal_api_upload_document(
                 },
             )
             row = result.fetchone()
+            if row is None:
+                raise RuntimeError("document insert returned no id row")
             document_id = row[0]
             await session.commit()
 
