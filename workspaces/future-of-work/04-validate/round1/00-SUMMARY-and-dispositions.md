@@ -47,3 +47,20 @@ These are "spec claims a feature ships; code partial" — large builds and/or PD
 ## Convergence status
 
 NOT converged. Round 1 finding pass complete. The ①-defect fixes are in-flight (PR pending). Reaching the convergence criteria (0 CRIT/0 HIGH × 2 clean rounds) requires the ②-scope decision to close the deferred feature-gaps. Receipt for the fixes: commit SHAs on `fix/redteam-r1-security-correctness`.
+
+## Round-2 closure-parity receipt (rt-verify-r2, 2026-07-04)
+
+Independent read-only verification of the fix branch `fix/redteam-r1-security-correctness`:
+
+| Finding | R2 verdict | Receipt |
+| ------- | ---------- | ------- |
+| #1 CRITICAL JWT | CLOSED | `_signing_secret()` raises outside dev; both create/decode route through it; no other constant-signing path |
+| #2 Encryption fail-closed | CLOSED | both bind+result branch on `settings.app_env`; zero raw `os.environ["APP_ENV"]` reads remain |
+| #3 PDPA erasure | CLOSED | message content scrubbed; `DocumentChunk.message_id` gone; empty-`message_ids` path affects zero rows (all-tenant wipe structurally impossible) |
+| #4 RAG text() | CLOSED | search+store wrapped; no bare-string execute in `ai/` |
+| #5 ConfidenceBadge | CLOSED | enum `uncertain` matches migration |
+| #6 Error leaks | CLOSED (R2 initially PARTIAL) | R2 found 2 missed sites (`portal_dashboard` app.py:1843 unauthenticated + :1850); fixed in commit `0a08e30`; `grep -c format_exc src/sequor/onboarding/app.py` → 0 |
+
+Verdict: initial R2 = CHANGES-NEEDED (only #6 partial); after `0a08e30` all 6 CLOSED. Test quality confirmed non-tautological (behavioral fail-closed assertions on both sign+decode; over-deletion guard captures executed statements). Fix-branch commits: `d468dce` (fixes) · `3a791f5` (findings) · `0a08e30` (#6 closure).
+
+NOTE: this closes the ①-DEFECT subset only. Full `/redteam` convergence (0 HIGH × 2 clean rounds) still requires the ②-scope decision to close the deferred feature-gaps.
