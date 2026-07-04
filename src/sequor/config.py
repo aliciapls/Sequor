@@ -15,7 +15,11 @@ _ENCRYPTION_MASTER_KEY = os.environ.get("ENCRYPTION_MASTER_KEY", "")
 
 class Settings(BaseSettings):
     # Application
-    app_env: str = "development"
+    # Default fail-CLOSED: "production" so a deploy that forgets to set APP_ENV
+    # does NOT silently unlock dev-only relaxations (plaintext PII when a tenant
+    # key is missing, the predictable JWT dev-secret, skipped webhook signature
+    # verification). Local development sets APP_ENV=development explicitly in .env.
+    app_env: str = "production"
     debug: bool = False
     log_level: str = "INFO"
 

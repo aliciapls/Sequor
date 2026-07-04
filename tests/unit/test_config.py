@@ -5,9 +5,17 @@ import os
 from sequor.config import Settings
 
 
-def test_settings_loads_defaults():
+def test_settings_loads_defaults(monkeypatch):
+    # Clear the env vars that conftest's .env load injects (APP_ENV, DEBUG) so the
+    # genuine class defaults are observed rather than the dev .env values. Without
+    # this the test reads the process environment, not the defaults it claims to
+    # verify (this was one of the F-C4-05 pre-existing isolation failures).
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("DEBUG", raising=False)
     s = Settings(_env_file=None, database_url="postgresql://localhost/test")
-    assert s.app_env == "development"
+    # Fail-closed default: unset APP_ENV resolves to "production" so a deploy that
+    # forgets the var does not silently unlock dev-only relaxations (r2-security M1).
+    assert s.app_env == "production"
     assert s.debug is False
     assert s.log_level == "INFO"
     assert s.default_escalation_sla_hours == 4

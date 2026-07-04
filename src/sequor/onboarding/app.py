@@ -22,6 +22,12 @@ from sequor.billing.service import handle_webhook as handle_stripe_webhook
 from sequor.dns.service import generate_dns_records, verify_dns_records
 from sequor.schemas import DocumentUploadRequest, OnboardingRequest, StripeWebhookEvent
 
+# Precomputed bcrypt hash used to equalize login timing on the no-contact and
+# no-password paths, defeating the email-enumeration timing oracle (r2-security
+# L2). NOT a secret — a fixed throwaway digest whose only purpose is to burn the
+# same bcrypt CPU cycles whether or not the email exists.
+_DUMMY_PASSWORD_HASH = "$2b$12$NC7MHZUuMc66eBiPfaeemO3phOr6VH5OfxnD.NHaP0Z3g5mu0PC1i"
+
 _logger = structlog.get_logger()
 
 # In-memory rate limiters (per-process; sufficient for single-instance uvicorn)
@@ -181,11 +187,18 @@ async def upload_document(
             content={"detail": "Invalid tenant_id or account_id (must be UUID)"},
         )
 
+    # Cap the read at 25MB (mirrors the portal upload limit) so a large upload
+    # cannot exhaust process memory before any size check (r2-security M6). Read
+    # one byte past the limit to distinguish "exactly at limit" from "over".
+    _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
     try:
-        content = await file.read()
+        content = await file.read(_MAX_UPLOAD_BYTES + 1)
     except Exception:
         _logger.exception("onboarding.upload.read_failed")
         return JSONResponse(status_code=400, content={"detail": "Failed to read file"})
+
+    if len(content) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"detail": "File too large (max 25MB)"})
 
     try:
         from sequor.ai.ingestion import DocumentIngester
@@ -563,12 +576,16 @@ async def auth_login(request: Request):
             contact = row.mappings().first()
 
             if not contact:
+                # Burn equivalent bcrypt cycles so an absent email is not
+                # measurably faster than a present one (r2-security L2).
+                verify_password(password, _DUMMY_PASSWORD_HASH)
                 return JSONResponse(
                     status_code=401, content={"detail": "Invalid email or password"}
                 )
 
             password_hash = contact["password_hash"]
             if not password_hash:
+                verify_password(password, _DUMMY_PASSWORD_HASH)
                 return JSONResponse(
                     status_code=401, content={"detail": "Invalid email or password"}
                 )
@@ -653,8 +670,16 @@ async def backfill_blind_indexes(request: Request):
 
     This is a one-time migration to support the new encrypted email login.
     """
-    _require_auth(request)  # require authentication
+    operator = _require_auth(request)
+    # Cross-tenant migration op — restrict to admin operators. Without this any
+    # authenticated operator could trigger a global iteration over every tenant's
+    # BackupContact records (r2-security M4).
+    if operator.get("role") != "admin":
+        from fastapi import HTTPException
 
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+    from sequor.config import settings
     from sequor.db.database import get_engine
     from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
     from sequor.db.encryption_keys import KeyManager
@@ -691,8 +716,11 @@ async def backfill_blind_indexes(request: Request):
                     .values(email_blind_index=blind_index)
                 )
                 updated += 1
-            except Exception as e:
-                errors.append(f"{contact.id}: {e}")
+            except Exception:
+                # Log the detail server-side; do NOT echo raw exception text back
+                # in the API response (r2-security M4).
+                _logger.exception("admin.backfill.contact_failed", contact_id=str(contact.id))
+                errors.append(str(contact.id))
 
         await session.commit()
 
@@ -1379,6 +1407,7 @@ async def portal_api_keyphrase_create(request: Request):
     from sequor.db.database import get_engine
     from sqlalchemy.ext.asyncio import AsyncSession
     from sequor.db.models import KeyPhraseMapping, Document, KeyPhraseMappingType
+    from sqlalchemy import select
     from pydantic import BaseModel
 
     class CreateMappingRequest(BaseModel):
@@ -1808,22 +1837,6 @@ async def portal_logout():
     response = RedirectResponse(url="/portal/login", status_code=302)
     response.delete_cookie("sequor_session", path="/")
     return response
-
-
-def _portal_guard(request: Request):
-    """Check if operator is logged in. Redirects to /portal/login if not."""
-    from fastapi.responses import RedirectResponse
-
-    token = request.cookies.get("sequor_session") or request.headers.get("x-session-token")
-    operator = sessionStorage = None
-    if token:
-        try:
-            import json as _json
-        except ImportError:
-            _json = None
-    if not operator:
-        return RedirectResponse(url="/portal/login", status_code=302)
-    return None
 
 
 def _read_template(name: str) -> str:
