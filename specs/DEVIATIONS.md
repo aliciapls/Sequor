@@ -82,6 +82,18 @@ Reviving `should_auto_respond` (`classifier.py`, currently dead) as the single a
 - **N4 replay/timestamp** — the empty-body-skip is fixed; binding a signed timestamp to reject replays needs the real SendGrid signed-timestamp format.
 - **N5 prompt-injection** — LLM-side instruction/data separation across 4 prompt sites (blast radius bounded: self-targeted, tenant-scoped, confidence-gated). Mitigation must stay LLM-side per `agent-reasoning.md`, not deterministic filtering.
 
+## Data-model limitation (logged; not a regression)
+
+### Digest tenant-scoping over-counts for multi-account tenants
+
+`digest/service.py::gather_digest_data` scopes escalations + responses by `tenant_id`
+only (a `Message` carries no account FK), using `account_id` solely for the account
+name, `LearnedAnswer` scoping, and the backup-recipient lookup. Correct for the current
+one-account-per-tenant fixtures and the shipped data model, but a tenant with >1 account
+would see each account's digest report ALL of the tenant's escalations/responses. If
+multi-account tenants become a supported shape, add an account linkage to `Message`
+(or join escalations→message→contact→account) and re-scope. Not introduced by R3.
+
 ## Architecture note (whole-codebase, out of redteam scope)
 
 Sequor's data layer is raw SQLAlchemy + FastAPI, not DataFlow. The framework-first hook fires on every `src/` edit; a DataFlow migration is a whole-codebase architectural decision, out of this redteam's scope. Logged so the recurring hook advisory is not mistaken for a per-edit defect.

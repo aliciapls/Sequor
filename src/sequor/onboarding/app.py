@@ -39,8 +39,26 @@ _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
 # anonymous caller driving unbounded server-side resolutions (N2).
 _dns_limiter = IPRateLimiter(max_requests=30, window_seconds=3600)
 _DNS_DOMAIN_RE = re.compile(
-    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(?:\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
+    # \Z (not $) so a trailing newline cannot slip through validation into the
+    # resolver / JSON echo. Labels 1-63 chars, no leading/trailing hyphen, <=253 total.
+    r"^(?=.{1,253}\Z)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(?:\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+\Z"
 )
+
+# Webhook bodies are read whole into memory (`await request.body()`). Reject an
+# oversized body by its declared Content-Length BEFORE buffering it — the same
+# DoS class as the upload bound (N1). This is the in-handler first line; the
+# proxy/ASGI layer is the authoritative enforcement for a spoofed/absent header.
+_MAX_WEBHOOK_BYTES = 5 * 1024 * 1024
+
+
+def _oversized_body(request: Request) -> JSONResponse | None:
+    raw_len = request.headers.get("content-length")
+    try:
+        if raw_len is not None and int(raw_len) > _MAX_WEBHOOK_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length"})
+    return None
 
 
 async def _reprocess_stuck_documents() -> None:
@@ -272,6 +290,9 @@ async def dns_verify(domain: str, request: Request):
 @app.post("/api/v1/billing/webhook")
 async def stripe_webhook(request: Request):
     """Process Stripe webhook events with signature verification."""
+    oversized = _oversized_body(request)
+    if oversized is not None:
+        return oversized
     body = await request.body()
     signature = request.headers.get("stripe-signature", "")
 
@@ -303,6 +324,9 @@ async def stripe_webhook(request: Request):
 @app.post("/api/v1/email/inbound")
 async def email_inbound(request: Request):
     """Receive SendGrid Inbound Parse webhook for incoming emails."""
+    oversized = _oversized_body(request)
+    if oversized is not None:
+        return oversized
     raw_body = await request.body()
     signature = request.headers.get("x-twilio-email-event-webhook-signature")
 
@@ -439,6 +463,9 @@ async def whatsapp_webhook_verify(request: Request):
 @app.post("/api/v1/whatsapp/inbound")
 async def whatsapp_inbound(request: Request):
     """Receive Meta Cloud API webhook for incoming WhatsApp messages."""
+    oversized = _oversized_body(request)
+    if oversized is not None:
+        return oversized
     raw_body = await request.body()
     signature_header = request.headers.get("x-hub-signature-256", "")
 

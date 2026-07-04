@@ -372,6 +372,10 @@ Focus on factual claims, not the answer's framing or structure."""
             # hallucination signal — the ratio must be per-claim).
             if total_claims > 0 and uncited / total_claims > 0.5:
                 passed = False
+            elif total_claims == 0 and uncited > 0:
+                # Malformed judge output: it reports un-cited claims but zero
+                # total. Fail CLOSED rather than defer to its passed flag.
+                passed = False
 
             return {
                 "passed": passed,

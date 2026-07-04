@@ -91,12 +91,43 @@ class TestR3N2DnsDomainValidation:
 
     @pytest.mark.parametrize(
         "bad",
-        ["nodot", "", "http://example.com", "exa mple.com", "-bad.com", "bad-.com", "a" * 300],
+        [
+            "nodot",
+            "",
+            "http://example.com",
+            "exa mple.com",
+            "-bad.com",
+            "bad-.com",
+            "a" * 300,
+            "example.com\n",  # R4: trailing newline must not slip through ($ -> \Z)
+            "example.com\nevil.com",
+        ],
     )
     def test_malformed_domains_rejected(self, bad):
         from sequor.onboarding.app import _DNS_DOMAIN_RE
 
         assert not _DNS_DOMAIN_RE.match(bad)
+
+
+# ── R4 — webhook body Content-Length guard (N1 sibling class) ────────────────
+class TestR4WebhookBodyGuard:
+    def _req(self, content_length):
+        class _Req:
+            headers = {"content-length": content_length} if content_length is not None else {}
+
+        return _Req()
+
+    def test_oversized_body_rejected(self):
+        from sequor.onboarding.app import _MAX_WEBHOOK_BYTES, _oversized_body
+
+        resp = _oversized_body(self._req(str(_MAX_WEBHOOK_BYTES + 1)))
+        assert resp is not None and resp.status_code == 413
+
+    def test_normal_body_allowed(self):
+        from sequor.onboarding.app import _oversized_body
+
+        assert _oversized_body(self._req("1024")) is None
+        assert _oversized_body(self._req(None)) is None  # absent header -> proxy enforces
 
 
 # ── R3 N4 — inbound rejects anything it cannot verify in production ──────────
@@ -143,3 +174,18 @@ class TestR3New5HallucinationPerClaim:
         # Old passage-count denominator (1 > 1*0.5) would have WRONGLY rejected.
         out = await pipe._check_hallucination(query="q", answer="a", passages=[{"text": "p"}])
         assert out["passed"] is True  # 1/10 < 0.5
+
+    @pytest.mark.asyncio
+    async def test_malformed_judge_zero_total_fails_closed(self):
+        """R4: judge reports uncited claims but total_claims=0 -> fail CLOSED."""
+        from unittest.mock import AsyncMock
+
+        from sequor.ai.rag_pipeline import RAGPipeline
+
+        pipe = RAGPipeline.__new__(RAGPipeline)
+        pipe._llm = AsyncMock()
+        pipe._llm.generate = AsyncMock(
+            return_value=json.dumps({"passed": True, "total_claims": 0, "uncited_claims": 2})
+        )
+        out = await pipe._check_hallucination(query="q", answer="a", passages=[{"text": "p"}])
+        assert out["passed"] is False
