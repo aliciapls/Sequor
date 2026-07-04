@@ -72,13 +72,15 @@ class VectorStore:
         async with AsyncSession(self._engine) as session:
             for chunk_index, chunk_text, embedding in chunks:
                 await session.execute(
-                    text("""
+                    text(
+                        """
                     INSERT INTO document_chunks
                     (id, tenant_id, document_id, chunk_text, chunk_index, embedding, created_at)
                     VALUES (gen_random_uuid(), :tenant_id, :document_id, :chunk_text, :chunk_index, :embedding, NOW())
                     ON CONFLICT (tenant_id, document_id, chunk_index)
                     DO UPDATE SET chunk_text = :chunk_text, embedding = :embedding
-                    """),
+                    """
+                    ),
                     {
                         "tenant_id": tenant_id,
                         "document_id": document_id,
@@ -119,13 +121,17 @@ class VectorStore:
         """
         from sqlalchemy.ext.asyncio import AsyncSession
 
+        from sqlalchemy import text
+
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                """
-                SELECT id, document_id, chunk_text, embedding
-                FROM document_chunks
-                WHERE tenant_id = :tenant_id
-                """,
+                text(
+                    """
+                    SELECT id, document_id, chunk_text, embedding
+                    FROM document_chunks
+                    WHERE tenant_id = :tenant_id
+                    """
+                ),
                 {"tenant_id": tenant_id},
             )
             all_chunks = result.fetchall()

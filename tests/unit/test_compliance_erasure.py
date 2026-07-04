@@ -117,34 +117,68 @@ class TestEraseContactPII:
         assert "phone" in ERASURE_NULL_FIELDS
         assert ERASURE_NULL_FIELDS["name"] == "[erased]"
 
-    async def test_removes_document_chunk_embeddings(self):
+    async def test_scrubs_message_content_and_leaves_chunks_untouched(self):
+        # Regression (redteam R1): erasure MUST scrub the contact's message
+        # content, and MUST NOT touch document chunks (chunks belong to the
+        # account KB via document_id and have no contact/message linkage — the
+        # prior code referenced DocumentChunk.message_id, which does not exist).
         contact = _MockContact(_make_uuid(), _make_uuid())
-        chunk_id = _make_uuid()
-        learned_id = _make_uuid()
-
-        call_count = 0
+        msg_id, esc_id, learned_id = _make_uuid(), _make_uuid(), _make_uuid()
+        stmts: list[str] = []
+        call = 0
 
         async def fake_execute(stmt):
-            nonlocal call_count
-            call_count += 1
-            stmt_str = str(stmt)
-            if call_count == 1:
+            nonlocal call
+            call += 1
+            s = str(stmt)
+            stmts.append(s)
+            if call == 1:
                 return _MockResult(scalar=contact)
-            elif "document_chunks" in stmt_str and "SELECT" in stmt_str.upper():
-                return _MockResult(rows=[(chunk_id,)])
-            elif "learned_answers" in stmt_str and "SELECT" in stmt_str.upper():
+            up = s.upper()
+            if up.startswith("SELECT") and "FROM messages" in s:
+                return _MockResult(rows=[(msg_id,)])
+            if up.startswith("SELECT") and "FROM escalations" in s:
+                return _MockResult(rows=[(esc_id,)])
+            if up.startswith("SELECT") and "FROM learned_answers" in s:
                 return _MockResult(rows=[(learned_id,)])
             return _MockResult()
 
         session = _FakeSession()
         session.execute = fake_execute
+        result = await erase_contact_pii(session, contact.tenant_id, contact.id)
 
-        result = await erase_contact_pii(
-            session, contact.tenant_id, contact.id
-        )
+        assert "messages" in result["tables_affected"]
+        assert result.get("messages_scrubbed", 0) == 1
+        assert "learned_answers" in result["tables_affected"]
+        # chunks are NEVER touched by contact erasure
+        assert "document_chunks" not in result["tables_affected"]
+        assert not any("document_chunks" in s.lower() for s in stmts)
 
-        assert "document_chunks" in result["tables_affected"]
-        assert result.get("embeddings_removed", 0) > 0
+    async def test_no_messages_does_not_wipe_tenant_learned_answers(self):
+        # Regression (redteam R1 over-deletion): a contact with NO messages must
+        # affect ZERO learned answers — never fall through to an all-tenant wipe
+        # that destroyed the whole tenant's knowledge base.
+        contact = _MockContact(_make_uuid(), _make_uuid())
+        stmts: list[str] = []
+        call = 0
+
+        async def fake_execute(stmt):
+            nonlocal call
+            call += 1
+            stmts.append(str(stmt))
+            if call == 1:
+                return _MockResult(scalar=contact)
+            return _MockResult(rows=[])  # no messages / escalations / learned
+
+        session = _FakeSession()
+        session.execute = fake_execute
+        result = await erase_contact_pii(session, contact.tenant_id, contact.id)
+
+        assert "learned_answers" not in result["tables_affected"]
+        assert "messages" not in result["tables_affected"]
+        # no UPDATE against learned_answers or document_chunks at all
+        assert not any(s.upper().startswith("UPDATE LEARNED_ANSWERS") for s in stmts)
+        assert not any("document_chunks" in s.lower() for s in stmts)
 
     async def test_flush_called_after_erasure(self):
         contact = _MockContact(_make_uuid(), _make_uuid())
