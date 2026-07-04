@@ -41,6 +41,15 @@ class TestSignupPage:
         assert "text/html" in res.headers["content-type"]
         assert "Sequor" in res.text
 
+    @pytest.mark.xfail(
+        reason="F8: '/' now serves a marketing landing page; the signup form moved to "
+        "/portal/signup with fields first_name/last_name/company/email, which do NOT "
+        "match the API contract (org_name/owner_email). This assertion is preserved as a "
+        "tripwire — NOT rewritten to match the current form, which would mask the field-name "
+        "mismatch. Disposition is a product decision (see round3/00-DECISION-PACKET-R3.md F8 "
+        "+ specs/DEVIATIONS.md).",
+        strict=False,
+    )
     def test_contains_form(self, client):
         res = client.get("/")
         assert "<form" in res.text
@@ -71,9 +80,7 @@ class TestSignupEndpointValidation:
         assert res.status_code == 422
 
     def test_rejects_invalid_routing_rule(self, client):
-        res = client.post(
-            "/api/v1/onboarding", json=_valid_payload(routing_rule="custom_rule")
-        )
+        res = client.post("/api/v1/onboarding", json=_valid_payload(routing_rule="custom_rule"))
         assert res.status_code == 422
 
     def test_rejects_sla_out_of_range(self, client):

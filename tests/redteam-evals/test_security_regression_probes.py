@@ -109,6 +109,69 @@ class TestR3N2DnsDomainValidation:
         assert not _DNS_DOMAIN_RE.match(bad)
 
 
+# ── R3 N1 — onboarding upload rejects an oversized file with 413 ────────────
+class TestR3N1UploadBound:
+    def test_oversized_upload_rejected(self):
+        from uuid import uuid4
+
+        from fastapi.testclient import TestClient
+
+        from sequor.onboarding.app import app
+
+        client = TestClient(app)
+        oversized = b"x" * (25 * 1024 * 1024 + 1)
+        resp = client.post(
+            "/api/v1/onboarding/upload",
+            data={"tenant_id": str(uuid4()), "account_id": str(uuid4()), "document_type": "faq"},
+            files={"file": ("doc.pdf", oversized, "application/pdf")},
+        )
+        assert resp.status_code == 413
+
+
+# ── R3 N2 (timeout) + N6 (logged-not-silent) — DNS resolver hardening ────────
+class TestR3DnsResolverHardening:
+    def test_resolve_carries_a_timeout(self, monkeypatch):
+        """N2: every resolve() must bound its wait with lifetime= (no hang)."""
+        import sequor.dns.service as svc
+
+        captured = {}
+
+        def _fake_resolve(name, rtype, **kwargs):
+            captured.update(kwargs)
+            raise svc.dns.resolver.NXDOMAIN()
+
+        monkeypatch.setattr(svc.dns.resolver, "resolve", _fake_resolve)
+        svc._check_spf("example.com")
+        assert "lifetime" in captured and captured["lifetime"] > 0
+
+    def test_unexpected_error_does_not_propagate(self, monkeypatch):
+        """N6: an unexpected resolver error is caught (logged) and returns False,
+        not swallowed-silently nor propagated."""
+        import sequor.dns.service as svc
+
+        def _boom(name, rtype, **kwargs):
+            raise RuntimeError("resolver exploded")
+
+        monkeypatch.setattr(svc.dns.resolver, "resolve", _boom)
+        assert svc._check_spf("example.com") is False  # caught, not raised
+
+
+# ── R3 latent-crash guard — _score_answerability survives an LLM raise ───────
+class TestR3AnswerabilityUnboundGuard:
+    @pytest.mark.asyncio
+    async def test_llm_raise_returns_default_not_nameerror(self):
+        from unittest.mock import AsyncMock
+
+        from sequor.ai.rag_pipeline import RAGPipeline
+
+        pipe = RAGPipeline.__new__(RAGPipeline)
+        pipe._llm = AsyncMock()
+        pipe._llm.generate = AsyncMock(side_effect=ValueError("bad output"))
+        # Must NOT raise NameError on the `response` reference in the except branch.
+        score = await pipe._score_answerability("q", "passage")
+        assert score == 0.5
+
+
 # ── R4 — webhook body Content-Length guard (N1 sibling class) ────────────────
 class TestR4WebhookBodyGuard:
     def _req(self, content_length):
