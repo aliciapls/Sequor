@@ -7,7 +7,7 @@
  *  PURPOSE
  *
  *  Closes the recurring `/tmp/sync-<target>.sh` ad-hoc-script class in
- *  /sync Gate 2. Every prior cycle re-implemented the tier-subscription
+ *  /sync-to-use (Gate 2). Every prior cycle re-implemented the tier-subscription
  *  filter in hand-written bash; every cycle regressed (the 2026-05-17
  *  cycle's helper leaked 4 categories of inappropriate files into a USE
  *  template before self-reverting). This script IS the structural defense
@@ -15,7 +15,7 @@
  *  Tier-Aware Tooling" clause names — there is now exactly one place
  *  where tier filtering happens, and it ships with regression tests.
  *
- *  CONTRACT (sync-flow.md Gate 2 step 3)
+ *  CONTRACT (sync-flow.md § Gate 2 → Process step 3)
  *
  *    1. Read `repos.<target>.tier_subscriptions` (REQUIRED in v2.21.0+;
  *       missing = manifest defect, halt with non-zero exit).
@@ -58,6 +58,8 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { resolveRepo, LinkError } from "./lib/loom-links.mjs";
+import { applyOverlay } from "./lib/slot-parser.mjs";
+import { stripBuildInternalReferences } from "./lib/strip-build-internal.mjs";
 
 // ────────────────────────────────────────────────────────────────
 // Filesystem safety primitives (security-reviewer Round-1 CRIT/HIGH)
@@ -144,8 +146,42 @@ function safeWriteSync(dest, data, encoding = null) {
   }
 }
 
+/**
+ * Symlink-safe single-source read (#636) — the READ-side twin of
+ * `safeWriteSync`. `fs.readFileSync(path)` follows a symlink at `path`;
+ * this helper opens with `O_RDONLY | O_NOFOLLOW` so a symlink planted at an
+ * artifact-SOURCE path raises ELOOP instead of silently reading the link's
+ * target bytes (a swapped-source read leaks out-of-tree content into the
+ * distribution). #569 hardened the EMIT lane's source reads
+ * (coc-manifest / emit / compose); this closes the DEPLOY lane's read-vs-write
+ * asymmetry (write side was already O_NOFOLLOW via safeWriteSync).
+ *
+ * Routed through it: every loom-INTERNAL artifact-SOURCE read — safeCopyFile's
+ * src read, verifyCopiedBytes' src read, composeOverlayContent's global+overlay
+ * reads, findStrippableVariantOnly, the write-time strip read, expectedCopyBytes,
+ * and the verify-lane variant_only source read.
+ *
+ * Deliberately NOT routed through it (per-site analysis, #636 AC):
+ *   - loadManifest (the committed MANIFEST config read) — config, not artifact;
+ *   - verifyWrittenText / verifyCopiedBytes DEST read — a file THIS process
+ *     just wrote via safeWriteSync (O_NOFOLLOW create); the post-write-verify
+ *     window is not meaningfully swappable;
+ *   - readConsumerVisibility / applyGitignoreAdditions — already fd-based
+ *     O_RDONLY|O_NOFOLLOW reads.
+ */
+function safeReadSync(src, encoding = null) {
+  const fd = fs.openSync(src, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    return encoding === null
+      ? fs.readFileSync(fd)
+      : fs.readFileSync(fd, encoding);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function safeCopyFile(src, dest) {
-  safeWriteSync(dest, fs.readFileSync(src));
+  safeWriteSync(dest, safeReadSync(src));
 }
 
 /**
@@ -163,7 +199,10 @@ function safeCopyFile(src, dest) {
  */
 function verifyCopiedBytes(src, dest) {
   try {
-    const srcBuf = fs.readFileSync(src);
+    // src is a loom-internal artifact source → O_NOFOLLOW (#636). dest was
+    // just written by safeWriteSync (O_NOFOLLOW create) this process — the
+    // post-write-verify read stays plain (documented exclusion in safeReadSync).
+    const srcBuf = safeReadSync(src);
     const destBuf = fs.readFileSync(dest);
     if (srcBuf.equals(destBuf)) return null;
     return `byte mismatch (src ${srcBuf.length}B vs dest ${destBuf.length}B)`;
@@ -303,7 +342,7 @@ const CLAUDE_DIR = path.join(REPO, ".claude");
 // ────────────────────────────────────────────────────────────────
 //
 // These ship to every USE template regardless of tier_subscriptions.
-// Source of truth: `commands/sync.md` Gate 2 step 3 line.
+// Source of truth: sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use).
 //
 // Pinning here (vs computing from manifest) is intentional: these are
 // runtime infrastructure paths, not tier-classified content. Adding a
@@ -321,6 +360,107 @@ const ALWAYS_INCLUDE = [
 // are the committed schemas downstream consumers may copy from. See
 // `bin/lib/loom-links.mjs` § Disclosure discipline.
 const LOOM_LOCAL_PATTERNS = [".claude/bin/*.local.json"];
+
+// ────────────────────────────────────────────────────────────────
+// Plain-global strip exclusion (#475 — the strip half of the
+// complete Gate-2 distributor)
+// ────────────────────────────────────────────────────────────────
+//
+// Plain (non-overlay) copy-action globals are stripped of BUILD-internal
+// references at write time (`stripBuildInternalReferences` — the same
+// transform the overlay pass already applies via composeOverlayContent),
+// EXCEPT the paths below. `stripBuildInternalReferences(content)` is a
+// pure content transform with no path parameter BY DESIGN (shared with
+// emit-cli-artifacts.mjs and verify-overlays.sh --apply); the path
+// classifier therefore lives HERE, at the sync call site.
+//
+// Pinning (vs manifest-driven) is intentional — same rationale as
+// ALWAYS_INCLUDE above: which paths are prose-to-strip vs
+// test-data/code-to-preserve is a deliberate operator decision, not a
+// passive manifest edit. Survey receipt: journal/0259 (47 distinct
+// strippable copy-action files = 39 prose / 3 audit-fixture test data /
+// 5 bin code).
+//
+//  - audit-fixtures/**: committed test data — BUILD-internal-LOOKING
+//    tokens are the test SUBJECT (e.g. strip-build-internal/fixture-01
+//    is byte-compared against its .expected; scan-synced-disclosure
+//    fixtures test the very tokens a strip would remove). Stripping
+//    inverts fixture semantics.
+//  - fixtures/**: fixture-class content (defensive; zero hits today).
+//  - bin/**: CODE — includes lib/strip-build-internal.mjs ITSELF
+//    (its REWRITES regex literals + SELF_TEST_FIXTURES fire its own
+//    patterns; a mechanical strip self-corrupts the shipped helper)
+//    and runtime output strings where a rewrite mutates behavior.
+//  - hooks/**: CODE (defensive; zero hits today — a future pattern
+//    collision in hook code must not be silently rewritten).
+//  - .coc-obsoleted: config path-list, not prose.
+const STRIP_EXCLUDE = [
+  ".claude/audit-fixtures/**",
+  ".claude/fixtures/**",
+  ".claude/bin/**",
+  ".claude/hooks/**",
+  ".claude/.coc-obsoleted",
+];
+
+/**
+ * Path half of the #475 strip classifier — is this copy-action global
+ * ELIGIBLE for the write-time strip? (The content half — utf8
+ * round-trip + did-the-strip-change-anything — is decided in the copy
+ * loop; eligibility is path-only so it is plan-visible in dry-run.)
+ */
+function isStripEligible(relpath) {
+  return !matchesAny(relpath, STRIP_EXCLUDE);
+}
+
+/**
+ * #475 D5 — variant_only strip-dirty completeness gate.
+ *
+ * variant_only ADDITIONS are raw-copied VERBATIM by contract (#427: H9
+ * byte-equal teeth + verify-overlays.sh Pass 2 raw-md5 — deliberate).
+ * Variants are USE-facing sources; a BUILD-internal reference in one is
+ * an AUTHORING defect, not a transform gap. Rather than flip the
+ * verbatim contract, this gate makes the defect LOUD: any variant_only
+ * source whose content the strip transform WOULD change is reported in
+ * the plan, and main() hard-fails the WRITE on a non-empty list
+ * (mirroring the variant_only_missing completeness gate).
+ *
+ * PATTERN-RELATIVE (R4/R5 reviewer): the gate flags exactly what the
+ * CURRENT strip-build-internal.mjs REWRITES set recognizes — a clean
+ * result means "no PATTERN-COVERED reference", not "no BUILD-internal
+ * reference of any conceivable form". Known coverage gaps (trailing-
+ * slash `packages/kailash-X/` form; non-kailash BUILD-monorepo
+ * sub-packages like kaizen-agents) are tracked as strip-helper
+ * follow-ups, not gate defects.
+ *
+ * Binary sources (utf8 round-trip fails) are not prose — skipped.
+ * Absent sources are the variant_only pass's own missing-file surface —
+ * skipped here.
+ *
+ * Read-hardening note (#636, supersedes the R4 disposition): this read — like
+ * every loom-INTERNAL artifact-SOURCE read in this tool (safeCopyFile's src
+ * read, composeOverlayContent, the write-time strip read, expectedCopyBytes) —
+ * now routes through `safeReadSync` (O_RDONLY | O_NOFOLLOW). #569 hardened the
+ * EMIT lane's source reads; #636 closes the DEPLOY lane's read-vs-write
+ * asymmetry. A symlink at a loom-side source is refused (ELOOP) rather than
+ * silently read-through, mirroring the dest-side write guard (safeWriteSync).
+ */
+function findStrippableVariantOnly(variantOnlyFiles) {
+  const strippable = [];
+  for (const vf of variantOnlyFiles || []) {
+    const abs = path.join(REPO, vf.path);
+    let buf;
+    try {
+      buf = safeReadSync(abs);
+    } catch {
+      continue; // absent / symlink (ELOOP) → surfaced by the variant_only pass itself
+    }
+    const text = buf.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(buf)) continue; // binary
+    const { stripped } = stripBuildInternalReferences(text);
+    if (stripped !== text) strippable.push(vf.path);
+  }
+  return strippable;
+}
 
 // ────────────────────────────────────────────────────────────────
 // `.gitignore` apply — managed block markers (GH #368 finding 1)
@@ -351,18 +491,27 @@ const GITIGNORE_MANAGED_END = "# <<< coc:gitignore_additions <<<";
 function parseArgs(argv) {
   const args = {
     target: null,
+    // "use"  → /sync-to-use lane (USE templates; use_exclude / use_obsoleted,
+    //           variant overlay always, strip BUILD-internal refs).
+    // "build" → /sync-to-build lane (ONE BUILD repo; build_exclude, obsoleted-
+    //           only purge, verbatim — no strip, per-target variant policy).
+    mode: "use",
     template: null,
     allTemplates: false,
     dryRun: false,
+    verify: false,
     out: null,
     json: false,
   };
+  let build = null;
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--target") args.target = argv[++i];
+    else if (a === "--build") build = argv[++i];
     else if (a === "--template") args.template = argv[++i];
     else if (a === "--all-templates") args.allTemplates = true;
     else if (a === "--dry-run") args.dryRun = true;
+    else if (a === "--verify") args.verify = true;
     else if (a === "--out") args.out = argv[++i];
     else if (a === "--json") args.json = true;
     else if (a === "-h" || a === "--help") {
@@ -373,8 +522,28 @@ function parseArgs(argv) {
       process.exit(2);
     }
   }
+  // --build <target> selects the /sync-to-build lane: it resolves ONE BUILD
+  // repo (repos.<target>.build via the `build.<target>` resolver key) and
+  // applies BUILD manifest semantics. Mutually exclusive with the USE-lane
+  // flags — a BUILD run has exactly one target and no template array.
+  if (build !== null) {
+    if (args.target !== null) {
+      process.stderr.write(`--build and --target are mutually exclusive\n${usage()}`);
+      process.exit(2);
+    }
+    if (args.template !== null || args.allTemplates) {
+      process.stderr.write(
+        `--template / --all-templates are USE-lane only; not valid with --build\n${usage()}`,
+      );
+      process.exit(2);
+    }
+    args.mode = "build";
+    args.target = build;
+  }
   if (!args.target) {
-    process.stderr.write(`--target is required\n${usage()}`);
+    process.stderr.write(
+      `--target <py|rs|rb|base> OR --build <py|rs|prism> is required\n${usage()}`,
+    );
     process.exit(2);
   }
   return args;
@@ -382,12 +551,22 @@ function parseArgs(argv) {
 
 function usage() {
   return (
-    "Usage: sync-tier-aware.mjs --target <py|rs|rb|base>\n" +
-    "       [--template <repo> | --all-templates] [--dry-run] [--out <dir>] [--json]\n" +
+    "Usage: sync-tier-aware.mjs --target <py|rs|rb|base>          # /sync-to-use lane\n" +
+    "       sync-tier-aware.mjs --build  <py|rs|prism>            # /sync-to-build lane\n" +
+    "       [--template <repo> | --all-templates] [--dry-run] [--verify] [--out <dir>] [--json]\n" +
     "\n" +
-    "  --template <repo>   restrict the write to ONE template in the lane\n" +
-    "  --all-templates     write EVERY template in the lane (explicit opt-in;\n" +
-    "                      required when the lane has >1 template — #401)\n"
+    "  --target <lang>     USE lane — distribute to repos.<lang>.templates[]\n" +
+    "  --build <lang>      BUILD lane — distribute to ONE repos.<lang>.build repo\n" +
+    "                      (build_exclude, obsoleted-only purge, verbatim/no-strip,\n" +
+    "                      variant overlay per repos.<lang>.build_variant_overlay)\n" +
+    "  --template <repo>   USE only — restrict the write to ONE template in the lane\n" +
+    "  --all-templates     USE only — write EVERY template in the lane (explicit\n" +
+    "                      opt-in; required when the lane has >1 template — #401)\n" +
+    "  --verify            read-only consistency check: report every in-plan file\n" +
+    "                      whose target content differs from expected + every\n" +
+    "                      obsoleted path still present. Never writes. Exit 1 on\n" +
+    "                      any mismatch. The deterministic 'is the target in sync?'\n" +
+    "                      gate (F11).\n"
   );
 }
 
@@ -462,6 +641,368 @@ function parseTiers(manifestText) {
 }
 
 /**
+ * Parse `variant_only:` block into { <variant>: [entry, ...] }. Block shape
+ * mirrors `tiers:` — a 2-space variant key, then a 4-space `- entry` list:
+ *
+ *   variant_only:
+ *     py:
+ *       - variants/py/skills/01-core-sdk/otel-tracing.md
+ *     rs:
+ *       - variants/rs/skills/28-ruby-bindings/ruby-nexus-rack.md
+ *       - variants/rs/skills/06-cheatsheets/**
+ *     rb: []
+ *
+ * Inline-empty arrays (`rb: []`) do NOT match the block-header regex (which
+ * anchors `:\s*$`), so they simply produce no section — treated as empty,
+ * which is the correct semantics (no variant-only files for that variant).
+ *
+ * Entries are repo-relative WITHOUT the leading `.claude/` (the manifest
+ * convention: `variants/<variant>/<rest>`). They may be literal paths or
+ * `**`/`*` globs (e.g. `variants/rs/skills/06-cheatsheets/**`).
+ */
+function parseVariantOnly(manifestText) {
+  const block = sliceBlock(manifestText, "variant_only");
+  const out = {};
+  const headerRe = /^  ([a-z_][\w-]*):\s*$/gm;
+  const headers = [];
+  let m;
+  while ((m = headerRe.exec(block)) !== null) {
+    headers.push({ name: m[1], start: m.index, headerEnd: m.index + m[0].length });
+  }
+  for (let i = 0; i < headers.length; i++) {
+    const startBody = headers[i].headerEnd + 1;
+    const endBody = i + 1 < headers.length ? headers[i + 1].start : block.length;
+    out[headers[i].name] = parseList(block.slice(startBody, endBody));
+  }
+  return out;
+}
+
+/**
+ * Expand the declared `variant_only:<variant>` entries against the walked
+ * loom file set, returning the per-file copy plan AND the completeness gap.
+ *
+ * #427 root cause: variant_only files live at `.claude/variants/<variant>/…`
+ * and are EXCLUDED by `classifyFile` (the `variants/**` exclude). They deploy
+ * to the target at the STRIPPED destination (`variants/<variant>/skills/X.md`
+ * → `.claude/skills/X.md`), written as-is (no compose — `coc-sync.md:1405`
+ * confirms variant_only files are pure additions, not slot-composed overlays).
+ * Prior to this pass, their distribution was prose-only in the coc-sync agent
+ * (Step 5), so a forgotten / stale new entry shipped silently.
+ *
+ * Returns:
+ *   { files:  [{ path, dest, variant_only_entry }],  // path = .claude-prefixed
+ *                                                     // loom source (matches the
+ *                                                     // global copy-branch shape);
+ *                                                     // dest = .claude-prefixed
+ *                                                     // stripped destination.
+ *     missing: [entry, ...] }                         // declared entries that
+ *                                                     // matched ZERO loom files
+ *                                                     // (manifest-vs-source defect).
+ *
+ * Security note: the entry string is used ONLY as a glob to MATCH walked loom
+ * files (which `walkClaudeDir` guarantees cannot contain `..`); the `dest` is
+ * derived by stripping a known prefix off a REAL walked path, never by
+ * interpolating the entry into a path. So a malicious manifest glob cannot
+ * escape the target dir through this function — and `safeJoinUnder` is the
+ * final runtime guard at the copy site regardless.
+ */
+function expandVariantOnly(allFiles, variant, entries) {
+  const files = [];
+  const missing = [];
+  if (!variant || !Array.isArray(entries)) return { files, missing };
+  const prefix = `variants/${variant}/`;
+  for (const entry of entries) {
+    const re = globToRegex(entry);
+    let matched = 0;
+    for (const f of allFiles) {
+      const stripped = f.startsWith(".claude/") ? f.slice(".claude/".length) : f;
+      if (!stripped.startsWith(prefix)) continue; // only this variant's tree
+      if (!re.test(stripped)) continue;
+      const rest = stripped.slice(prefix.length); // e.g. "skills/X.md", "scripts/migrate.py"
+      // Dest-root dispatch (coc-sync.md Step 5 § "top-level scripts/ is the
+      // destination"): `scripts/` + `workspaces/` are project-ops top-level
+      // dirs, deployed to `<target>/<rest>` — NOT `.claude/`-rooted (`.claude/
+      // scripts/` is in `obsoleted:` and purged every sync, so a `.claude/`-
+      // rooted scripts entry silently self-destructs). EVERYTHING ELSE —
+      // skills, agents, rules, commands, AND hooks — is `.claude/`-rooted.
+      // hooks/ specifically → `.claude/hooks/` per the v2.9.1 consolidation
+      // (cross-repo.md Rule 3 + ALWAYS_INCLUDE `.claude/hooks/**`); the live
+      // py template confirms `.claude/hooks/<hook>.js`, NOT top-level.
+      const dest = /^(scripts|workspaces)\//.test(rest)
+        ? rest // top-level <target>/scripts/… | workspaces/…
+        : ".claude/" + rest; // <target>/.claude/… (skills/agents/rules/commands/hooks)
+      files.push({
+        path: f,
+        dest,
+        variant_only_entry: entry,
+      });
+      matched++;
+    }
+    if (matched === 0) missing.push(entry);
+  }
+  return { files, missing };
+}
+
+/**
+ * Parse the `variants:` block into { <global-path>: { <axis>: overlayPath|null } }.
+ *
+ * #473 — the `variants:` REPLACEMENT overlay declarations. Block shape mirrors
+ * `tiers:` nesting but keys are full global paths (category/relPath WITHOUT the
+ * leading `.claude/`) and each axis value is an overlay path or `null`:
+ *
+ *   variants:
+ *     rules/patterns.md:
+ *       py: null
+ *       rs: variants/rs/rules/patterns.md
+ *     skills/10-deployment-git/python-version-bump.md:
+ *       rs: variants/rs/skills/10-deployment-git/rust-version-bump.md   # RENAME
+ *
+ * Semantics (per `bin/lib/variant-overlay.mjs::resolveOverlay`):
+ *   - explicit path → REPLACEMENT overlay applies (compose if slot-keyed, else
+ *     full-file), deployed at the rename-aware destination.
+ *   - null / ~ / empty → manifest-null: NO overlay applies for that axis (the
+ *     bare global ships unchanged). Treated identically to a literal `null`.
+ *
+ * This is a SELF-CONTAINED parse over the PASSED manifest text — deliberately
+ * NOT a call into `variant-overlay.mjs::loadManifestVariants` (which reads the
+ * live on-disk manifest + memoizes). Parsing the passed text keeps `buildPlan`
+ * a pure function of its `manifest` argument so synthetic-fixture tests exercise
+ * the overlay pass against synthetic `variants:` blocks.
+ *
+ * BLOCK BOUNDARY (R1 reviewer MED-2): the block extraction uses the SAME regex
+ * as `loadManifestVariants` (stop at the next top-level `\n<word>:` key — inline-
+ * value OR bare — OR end-of-input), NOT `sliceBlock` (whose `^<word>:\s*$` stop
+ * only fires on a BARE top-level key). `sliceBlock` would slurp PAST an inline-
+ * value top-level key (e.g. `consumer_overlays: {}`) placed right after the
+ * variants block and mis-parse a later block's keys as variant entries. Matching
+ * `loadManifestVariants`'s boundary makes the two STRUCTURALLY aligned with yq's
+ * YAML parse, not coincidentally aligned only while the next top-level key
+ * happens to be bare. The inner parse (2-space key / 4-space axis / inline-
+ * comment + quote normalization / empty==null) mirrors `loadManifestVariants`.
+ */
+function parseVariants(manifestText) {
+  // Same boundary as variant-overlay.mjs::loadManifestVariants — see docstring.
+  const blockMatch = manifestText.match(
+    /^variants:\s*\n([\s\S]*?)(?=\n[a-zA-Z_][a-zA-Z0-9_-]*:|(?![\s\S]))/m,
+  );
+  const block = blockMatch ? blockMatch[1] : "";
+  const map = {};
+  const lines = block.split("\n");
+  let currentKey = null;
+  const keyRe = /^ {2}(\S.*?):\s*$/;
+  const axisRe = /^ {4}(\w+):\s*(.*?)\s*$/;
+  for (const ln of lines) {
+    if (/^\s*#/.test(ln)) continue; // whole-line comment (incl. indented)
+    const km = ln.match(keyRe);
+    if (km) {
+      currentKey = km[1];
+      // #477 R1 reviewer HIGH: a duplicate top-level variants: key is
+      // last-wins under plain object assignment — the earlier key's axes
+      // are silently DROPPED, so a lane stops shipping its declared
+      // overlay with zero diagnostics (byte-invisible to J13 and to
+      // verify-overlays, which iterate the same collapsed map). Duplicate
+      // keys are a manifest authoring defect; fail the plan loudly.
+      // Structural signal (key collision in committed YAML), so a throw
+      // is the correct severity per hook-output-discipline.md MUST-2.
+      if (Object.prototype.hasOwnProperty.call(map, currentKey)) {
+        throw new Error(
+          `sync-manifest.yaml variants: duplicate key '${currentKey}' — ` +
+            `declare every axis (py/rs/rb/...) under ONE key; last-wins ` +
+            `would silently drop the earlier block's axes`,
+        );
+      }
+      map[currentKey] = {};
+      continue;
+    }
+    const am = ln.match(axisRe);
+    if (am && currentKey) {
+      const axis = am[1];
+      let raw = am[2].replace(/\s+#.*$/, "").trim(); // strip inline comment
+      if (
+        (raw.startsWith('"') && raw.endsWith('"')) ||
+        (raw.startsWith("'") && raw.endsWith("'"))
+      ) {
+        raw = raw.slice(1, -1);
+      }
+      map[currentKey][axis] =
+        raw === "" || raw === "null" || raw === "~" ? null : raw;
+    }
+  }
+  return map;
+}
+
+/**
+ * Detect a slot-keyed overlay — a variant file containing a `<!-- slot:NAME -->`
+ * marker. MUST mirror `tools/verify-overlays.sh::is_slot_keyed` (`grep -q
+ * '^<!-- slot:'`) byte-for-byte: a divergence here makes the tool and the
+ * independent post-sync auditor disagree on which compose path to take, which
+ * is the exact #427-class drift #473 closes.
+ */
+function isSlotKeyed(overlaySrc) {
+  return /^<!-- slot:/m.test(overlaySrc);
+}
+
+/**
+ * Compose the DEPLOYED content for one `variants:` REPLACEMENT overlay,
+ * mirroring the emit pipeline (`emit-cli-artifacts.mjs`) AND the expected-md5
+ * algorithm in `tools/verify-overlays.sh` EXACTLY:
+ *
+ *   slot-keyed → strip( applyOverlay(global, overlay).composed )
+ *   full-file  → strip( overlay )
+ *
+ * Both forms run through `stripBuildInternalReferences` (idempotent; a no-op on
+ * clean content) so the deployed bytes equal what verify-overlays computes —
+ * `Failing: 0` directly from the tool, no separate agent overlay-apply step.
+ *
+ * Returns { content, slot_keyed, warnings }. THROWS on a compose failure (slot
+ * not present in global, etc.) — the caller HALTS the write rather than ship a
+ * mis-composed overlay.
+ */
+function composeOverlayContent(
+  globalAbs,
+  overlayAbs,
+  stripEnabled = true,
+  buildMode = false,
+) {
+  // #636 — loom-internal artifact sources read through O_NOFOLLOW.
+  const globalSrc = safeReadSync(globalAbs, "utf8");
+  const overlaySrc = safeReadSync(overlayAbs, "utf8");
+  const slot_keyed = isSlotKeyed(overlaySrc);
+  let raw;
+  const warnings = [];
+  if (slot_keyed) {
+    const result = applyOverlay(globalSrc, overlaySrc);
+    raw = result.composed;
+    if (Array.isArray(result.warnings)) warnings.push(...result.warnings);
+  } else {
+    raw = overlaySrc;
+  }
+  // USE strips BUILD-internal refs from the deployed bytes (so they equal
+  // verify-overlays' expected-md5) with the FULL transform. BUILD now strips
+  // the DISCLOSURE-only SUBSET (#673: buildMode → workspace paths + canon org
+  // slug) but PRESERVES the BUILD repo's own package/repo self-references — it
+  // no longer ships the composed overlay fully verbatim.
+  const content = stripEnabled
+    ? stripBuildInternalReferences(raw, { buildMode }).stripped
+    : raw;
+  return { content, slot_keyed, warnings };
+}
+
+/**
+ * Post-write content-equality verification for an overlay — the #401 Defect-2
+ * byte-verify teeth adapted for composed (not raw-copied) content. The global
+ * branch compares src bytes to dest bytes; an overlay's "source" is the
+ * IN-MEMORY composed+stripped string, so re-read the dest and compare to it.
+ * Returns null on equality, else a human-readable reason.
+ */
+function verifyWrittenText(dest, expected) {
+  try {
+    const got = fs.readFileSync(dest, "utf8");
+    if (got === expected) return null;
+    return `byte mismatch (expected ${Buffer.byteLength(expected, "utf8")}B vs dest ${Buffer.byteLength(got, "utf8")}B)`;
+  } catch (e) {
+    return `planned overlay not readable post-write: ${e.message}`;
+  }
+}
+
+/**
+ * Resolve the `variants:<variant>` REPLACEMENT overlays for one target.
+ *
+ * For each global declared with a non-null overlay for `variant`, AND whose
+ * global is tier-matched (action "copy") in `filesByPath`:
+ *   - SUPPRESS the bare-global raw copy (mutate its action to "overlay" so the
+ *     copy loop skips it — the composed overlay replaces it).
+ *   - emit an overlay descriptor (rename-aware dest).
+ *   - on a RENAME (overlay basename ≠ global basename), record the global-named
+ *     dest as an orphan to purge at the target (a stale pre-rename file).
+ *   - a declared overlay whose SOURCE file is absent from loom → `missing`
+ *     (the #427-class completeness gap; main() hard-fails the WRITE on it).
+ *
+ * A declared overlay whose GLOBAL is NOT tier-matched for this target is simply
+ * out-of-lane (the global does not ship here, so neither does its overlay) —
+ * NOT a missing-source defect. It IS recorded in `out_of_lane` so the skip is
+ * VISIBLE, not silent (R1 reviewer LOW-1): `verify-overlays.sh` does NOT model
+ * tier subscriptions — it checks every `.variants` key in every template_for_lang
+ * — so an out-of-lane declared overlay is a tool⟺verifier disagreement surface.
+ * The tool is correct to skip (the global genuinely does not ship to this
+ * target); the advisory makes the asymmetry inspectable rather than hidden.
+ *
+ * Returns { overlays, missing, orphans, out_of_lane }.
+ */
+function resolveVariantOverlays(variantsMap, variant, filesByPath, allFilesSet) {
+  const overlays = [];
+  const missing = [];
+  const orphans = [];
+  const out_of_lane = [];
+  if (!variant) return { overlays, missing, orphans, out_of_lane };
+  for (const globalPath of Object.keys(variantsMap)) {
+    const axes = variantsMap[globalPath];
+    if (!(variant in axes)) continue; // axis not declared for this global
+    const overlayRel = axes[variant];
+    if (overlayRel === null) continue; // manifest-null → no overlay applies
+    // #477 R3 security LOW: explicit source-side path containment, symmetric
+    // with the dest-side safeJoinUnder. Containment today is IMPLICIT via the
+    // exact-string allFilesSet membership gate below (walked paths are
+    // normalized and can never contain ".."), but that invariant is
+    // load-bearing and refactor-fragile — replacing the membership check
+    // with an fs.existsSync/path-resolving probe would silently re-open
+    // ".."-escape reads through path.join(REPO, ...). Reject the shapes
+    // structurally so the guard survives any future read-path refactor.
+    if (
+      path.posix.isAbsolute(overlayRel) ||
+      overlayRel.split("/").includes("..") ||
+      (globalPath !== "" &&
+        (path.posix.isAbsolute(globalPath) ||
+          globalPath.split("/").includes("..")))
+    ) {
+      missing.push(overlayRel); // non-canonical manifest path → never deploys
+      continue;
+    }
+    const globalClaudePath = ".claude/" + globalPath;
+    const globalEntry = filesByPath.get(globalClaudePath);
+    if (!globalEntry || globalEntry.action !== "copy") {
+      // Global out-of-lane (not tier-matched) → overlay does not deploy. Record
+      // it (advisory) so the skip is visible; do NOT treat it as missing-source.
+      out_of_lane.push({
+        global: globalClaudePath,
+        overlay: overlayRel,
+        reason: globalEntry ? globalEntry.reason : "global-absent-from-loom",
+      });
+      continue;
+    }
+    const overlayClaudePath = ".claude/" + overlayRel;
+    if (!allFilesSet.has(overlayClaudePath)) {
+      missing.push(overlayRel); // declared overlay source absent from loom
+      continue;
+    }
+    const globalBase = path.posix.basename(globalPath);
+    const overlayBase = path.posix.basename(overlayRel);
+    let destRel = globalPath;
+    if (overlayBase !== globalBase) {
+      const dir = path.posix.dirname(globalPath);
+      destRel = dir === "." ? overlayBase : path.posix.join(dir, overlayBase);
+      orphans.push(globalClaudePath); // rename → purge the global-named orphan
+    }
+    overlays.push({
+      global_path: globalClaudePath,
+      overlay_path: overlayClaudePath,
+      dest: ".claude/" + destRel,
+      global_basename: globalBase,
+      overlay_basename: overlayBase,
+    });
+    // Suppress the bare-global raw copy — the composed overlay replaces it.
+    globalEntry.action = "overlay";
+    globalEntry.reason = "variant_overlay";
+    // #475 R3 reviewer LOW: drop the copy-lane strip annotation — it is
+    // meaningless on an overlay-suppressed entry (the overlay pass strips
+    // via composeOverlayContent; the copy-lane strip can never fire here)
+    // and a stale `strip:true` misleads plan/JSON inspectors.
+    delete globalEntry.strip;
+  }
+  return { overlays, missing, orphans, out_of_lane };
+}
+
+/**
  * Parse `repos:` block into { name: { tier_subscriptions:[], templates:[{repo,clis,baseline_files}], variant, build } }.
  */
 function parseRepos(manifestText) {
@@ -478,7 +1019,7 @@ function parseRepos(manifestText) {
     const startBody = headers[i].headerEnd + 1;
     const endBody = i + 1 < headers.length ? headers[i + 1].start : reposBlock.length;
     const body = reposBlock.slice(startBody, endBody);
-    // tier_subscriptions: inline array `[cc, co, coc]` OR `[]`
+    // tier_subscriptions: inline array `[cc, coc-core, kailash]` OR `[]`
     const tsMatch = body.match(/^\s*tier_subscriptions:\s*\[([^\]]*)\]\s*$/m);
     const tier_subscriptions =
       tsMatch === null
@@ -494,6 +1035,15 @@ function parseRepos(manifestText) {
     const buildMatch = body.match(/^\s*build:\s*(\S+)\s*$/m);
     const build =
       buildMatch && buildMatch[1] !== "null" ? buildMatch[1] : null;
+    // build_variant_overlay: true|false (F11) — per-target BUILD-lane variant
+    // policy. true → /sync-to-build applies the language variant overlay (the
+    // global content is wrong for this BUILD repo's language; e.g. rs needs
+    // Rust-flavored rules). false (DEFAULT) → BUILD ships the GLOBAL content
+    // (the global is already this language's native form; e.g. py). USE-lane
+    // distribution is UNAFFECTED — it always applies variant overlays. Absent
+    // → false (a BUILD repo that has not declared the field stays on globals).
+    const bvoMatch = body.match(/^\s*build_variant_overlay:\s*(true|false)\s*$/m);
+    const build_variant_overlay = bvoMatch ? bvoMatch[1] === "true" : false;
     // templates: list of { repo, clis, baseline_files }
     const templates = parseTemplates(body);
     repos[headers[i].name] = {
@@ -501,6 +1051,7 @@ function parseRepos(manifestText) {
       templates,
       variant,
       build,
+      build_variant_overlay,
     };
   }
   return repos;
@@ -607,6 +1158,20 @@ function parseVisibilityGitignoreAdditions(manifestText) {
 }
 
 /**
+ * loom#676 — parse `gitignore_reincludes:` from the manifest. These are
+ * UNIVERSAL re-include (`!`-negation) guarantees, DISTINCT from the
+ * state-locality `gitignore_additions`: they ensure a COC subtree whose
+ * basename collides with a common consumer root ignore (e.g. a Python
+ * build-artifact `lib/` swallowing `.claude/bin/lib/`) stays git-TRACKED.
+ * Role-blind + visibility-blind — applied to USE templates AND BUILD repos
+ * (where gitignore_additions is NOT, so the roster etc. stay committed in
+ * BUILD). Returns [] when the block is absent (back-compat).
+ */
+function parseGitignoreReincludes(manifestText) {
+  return parseList(sliceBlock(manifestText, "gitignore_reincludes"));
+}
+
+/**
  * FA — resolve a consumer's visibility from its `.coc-sync-marker`.
  * Returns { visibility, optOut } where visibility ∈ {"public","private"}
  * and optOut is the marker's `visibility_opt_out` array (paths a private
@@ -707,17 +1272,25 @@ function readConsumerVisibility(dir) {
  *   "workspaces" suppresses the /workspaces/* pair. Matching is by the
  *   coarse token the operator writes, not the literal gitignore line.
  */
-function effectiveGitignoreAdditions(base, visibilityAdds, marker) {
-  if (marker.visibility !== "public") return base.slice();
-  const optOut = marker.optOut || [];
-  const optOutMatches = (entry) =>
-    optOut.some((tok) => {
-      if (tok === "session-notes") return entry.includes("session-notes");
-      if (tok === "workspaces") return entry.includes("workspaces");
-      return entry === tok; // exact-line opt-out
-    });
-  const kept = visibilityAdds.filter((e) => !optOutMatches(e));
-  return [...base, ...kept];
+function effectiveGitignoreAdditions(base, visibilityAdds, marker, reincludes = []) {
+  // loom#676 — re-include guarantees are role-blind AND visibility-blind, and
+  // MUST be appended LAST: git evaluates patterns top-to-bottom (last match
+  // wins), so a `!`-negation re-including `.claude/bin/lib/` MUST follow any
+  // broad `lib/` ignore in file order to take effect.
+  const stateLocality =
+    marker.visibility !== "public"
+      ? base.slice()
+      : (() => {
+          const optOut = marker.optOut || [];
+          const optOutMatches = (entry) =>
+            optOut.some((tok) => {
+              if (tok === "session-notes") return entry.includes("session-notes");
+              if (tok === "workspaces") return entry.includes("workspaces");
+              return entry === tok; // exact-line opt-out
+            });
+          return [...base, ...visibilityAdds.filter((e) => !optOutMatches(e))];
+        })();
+  return [...stateLocality, ...reincludes];
 }
 
 /**
@@ -952,6 +1525,142 @@ function applyGitignoreAdditions(dir, additions, dryRun) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// loom#676 — post-sync swallowed-artifact gate
+// ────────────────────────────────────────────────────────────────
+/**
+ * Return the subset of `emittedRelPaths` (paths loom DISTRIBUTED to the
+ * target, relative to `dir`) that the target's `.gitignore` would untrack.
+ *
+ * A COC artifact loom just emitted that the consumer's `.gitignore` swallows
+ * is an invisible-delivery failure (loom#676): the file is on disk NOW from
+ * this sync, but a fresh clone never tracks it — and a tracked importer
+ * (`.claude/bin/sync-tier-aware.mjs` importing `./lib/loom-links.mjs` etc.)
+ * throws at runtime. Same failure class as `coc-sync-landing.md`'s
+ * "uncommitted deliveries vanish".
+ *
+ * `git check-ignore --stdin` exits 0 if ≥1 fed path is ignored (printing
+ * them), 1 if NONE are ignored, 128 on error. Only paths loom WROTE are
+ * fed — state-locality files (operator-id, learning/, roster) are never
+ * copied, so a deliberate gitignore_additions ignore is NOT a false hit.
+ * A non-git target (e.g. a `--out` scratch dir in tests) is skipped — the
+ * gate is a structural no-op there; real consumer/BUILD dirs ARE git repos
+ * so it fires. A genuine git error INSIDE a git repo is surfaced, never
+ * read as clean (per `evidence-first-claims.md` MUST-3).
+ */
+function defaultGitRunner(args, opts) {
+  return execFileSync("git", args, opts);
+}
+
+function findSwallowedArtifacts(dir, emittedRelPaths, runGit = defaultGitRunner) {
+  if (!emittedRelPaths || emittedRelPaths.length === 0) return [];
+  // Precondition: the target must be a git repo. DISTINGUISH a GENUINE non-repo
+  // (a legitimate structural no-op — e.g. a `--out` scratch dir in tests) from a
+  // detector-could-not-run failure (git binary missing on PATH / corrupted
+  // `.git` / transient FS error). Per `evidence-first-claims.md` MUST-3 an
+  // errored detector is NOT an all-clear: ONLY a git-RAN "not a git repository"
+  // verdict (exit 128 + that stderr) licenses the no-op; EVERY other error
+  // (ENOENT, non-128 status, no status) re-throws so the swallowed-artifact gate
+  // fails LOUD rather than silently reporting clean (fail-open == ship a
+  // swallowed COC artifact unflagged).
+  try {
+    runGit(["-C", dir, "rev-parse", "--git-dir"], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (e) {
+    const stderr = e && e.stderr != null ? String(e.stderr) : "";
+    if (e && e.status === 128 && /not a git repository/i.test(stderr)) {
+      return []; // git RAN and reported non-repo — legitimate structural no-op
+    }
+    throw new Error(
+      `findSwallowedArtifacts: swallowed-artifact gate could NOT run at ${dir} ` +
+        `— git rev-parse failed (${e && e.code ? e.code : "status " + (e && e.status)})` +
+        `${stderr ? ": " + stderr.trim() : ""}; refusing to report clean ` +
+        `(threat status UNKNOWN per evidence-first-claims MUST-3 — an errored ` +
+        `detector is not an all-clear).`,
+    );
+  }
+  let out = "";
+  try {
+    out = runGit(["-C", dir, "check-ignore", "--stdin"], {
+      input: emittedRelPaths.join("\n") + "\n",
+      encoding: "utf8",
+    });
+  } catch (e) {
+    if (e.status === 1) return []; // none ignored — clean
+    throw e; // genuine git error in a git repo — surface, never false-clear
+  }
+  return out
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// ────────────────────────────────────────────────────────────────
+// loom#710 — source-.gitignore honoring on the FS-walk emission
+// ────────────────────────────────────────────────────────────────
+/**
+ * Remove from `relPaths` (repo-root-relative, forward-slash) any path that
+ * loom's OWN source `.gitignore` ignores. The ALWAYS_INCLUDE walk
+ * (`.claude/hooks/**`, `.claude/bin/**`, …) is a raw filesystem walk: stray
+ * gitignored junk under those trees on the operator's disk (`.DS_Store`,
+ * an all-commented `.env` template) would otherwise be swept into the
+ * distribution and written to EVERY consumer. A source-gitignored file MUST
+ * NEVER enter the distribution (loom#710); the Rule-6 swallowed-artifact gate
+ * (loom#676) stays the downstream backstop, but the fix is to never emit, not
+ * to force-track downstream (which would make `.env`/`.DS_Store` git-tracked
+ * at 30+ consumers — a `security.md` "No .env in Git" violation).
+ *
+ * Fail-safe (mirrors findSwallowedArtifacts + evidence-first-claims MUST-3):
+ *   - git RAN and reported non-repo (exit 128 "not a git repository") →
+ *     no source `.gitignore` semantics → structural no-op, return all
+ *     (covers a synthetic `--out`/test REPO that is not a git checkout);
+ *   - check-ignore exit 1 → NONE ignored → return all;
+ *   - check-ignore exit 0 → remove the listed (echoed verbatim as fed);
+ *   - ANY other error (git missing, exit 128 inside a repo, transient FS) →
+ *     THROW. An errored ignore-detector is NOT an all-clear: refusing to
+ *     report clean is the only way to honor "never emit source-ignored".
+ */
+function filterSourceIgnored(repoDir, relPaths, runGit = defaultGitRunner) {
+  if (!relPaths || relPaths.length === 0) return relPaths || [];
+  // Precondition: is repoDir a git repo? Distinguish a GENUINE non-repo
+  // (legitimate structural no-op) from a detector-could-not-run failure.
+  try {
+    runGit(["-C", repoDir, "rev-parse", "--git-dir"], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (e) {
+    const stderr = e && e.stderr != null ? String(e.stderr) : "";
+    if (e && e.status === 128 && /not a git repository/i.test(stderr)) {
+      return relPaths.slice(); // git RAN and reported non-repo — no .gitignore to honor
+    }
+    throw new Error(
+      `filterSourceIgnored: source-gitignore filter could NOT run at ${repoDir} ` +
+        `— git rev-parse failed (${e && e.code ? e.code : "status " + (e && e.status)})` +
+        `${stderr ? ": " + stderr.trim() : ""}; refusing to emit unfiltered ` +
+        `(could ship a source-ignored file per loom#710 — detector status UNKNOWN ` +
+        `per evidence-first-claims MUST-3).`,
+    );
+  }
+  let out = "";
+  try {
+    out = runGit(["-C", repoDir, "check-ignore", "--stdin"], {
+      input: relPaths.join("\n") + "\n",
+      encoding: "utf8",
+    });
+  } catch (e) {
+    if (e.status === 1) return relPaths.slice(); // none ignored — emit all
+    throw e; // genuine git error in a git repo — surface, never emit-unfiltered
+  }
+  const ignored = new Set(
+    out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  return relPaths.filter((p) => !ignored.has(p));
+}
+
+// ────────────────────────────────────────────────────────────────
 // Walk loom/.claude/ — emit every file relative to repo root.
 // ────────────────────────────────────────────────────────────────
 function walkClaudeDir() {
@@ -975,7 +1684,9 @@ function walkClaudeDir() {
       }
     }
   }
-  return out.sort();
+  // loom#710 — never emit a file loom's OWN source .gitignore ignores
+  // (.DS_Store / .env junk under an always-include tree must not ship).
+  return filterSourceIgnored(REPO, out.sort());
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1007,7 +1718,8 @@ function matchesAnyManifestGlob(relpath, globs) {
 // ────────────────────────────────────────────────────────────────
 // Inclusion computation
 // ────────────────────────────────────────────────────────────────
-function buildPlan(manifest, target, templateFilter) {
+function buildPlan(manifest, target, templateFilter, mode = "use") {
+  const isBuild = mode === "build";
   const tiersMap = parseTiers(manifest);
   const repos = parseRepos(manifest);
   const repo = repos[target];
@@ -1018,33 +1730,72 @@ function buildPlan(manifest, target, templateFilter) {
         `Available: ${Object.keys(repos).join(", ")}`,
     );
   }
+  // BUILD lane: the target MUST have a BUILD source. base (build: null) ships
+  // USE-template artifacts only — /sync-to-build early-exits per
+  // commands/sync-to-build.md ("build: null is not applicable").
+  if (isBuild && repo.build === null) {
+    fail(
+      2,
+      `repos.${target}.build is null — /sync-to-build is not applicable to ` +
+        `this variant (it ships USE-template artifacts only). Use ` +
+        `--target ${target} (the USE lane) instead.`,
+    );
+  }
   if (repo.tier_subscriptions === null) {
     fail(
       1,
       `manifest defect: repos.${target}.tier_subscriptions missing ` +
-        `(REQUIRED in v2.21.0+; halt per commands/sync.md Gate 2 step 3)`,
+        `(REQUIRED in v2.21.0+; halt per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use))`,
     );
   }
 
   const exclude = parseList(sliceBlock(manifest, "exclude"));
   const loomOnly = parseList(sliceBlock(manifest, "loom_only")); // F104 — positive never-sync
-  const useExclude = parseList(sliceBlock(manifest, "use_exclude"));
-  const useObsoleted = parseList(sliceBlock(manifest, "use_obsoleted"));
+  // Class exclude + purge source diverge by lane (F11):
+  //   USE   → use_exclude  (skip BUILD-only files) + use_obsoleted (purge).
+  //   BUILD → build_exclude (skip USE-only files)  + obsoleted     (purge);
+  //           use_exclude files ARE included (they are BUILD-bound), and
+  //           use_obsoleted is IGNORED (those are BUILD-owned artifacts —
+  //           commands/sync-to-build.md "MUST IGNORE use_obsoleted").
+  const classExclude = isBuild
+    ? parseList(sliceBlock(manifest, "build_exclude"))
+    : parseList(sliceBlock(manifest, "use_exclude"));
+  const purgeList = isBuild
+    ? parseList(sliceBlock(manifest, "obsoleted"))
+    : parseList(sliceBlock(manifest, "use_obsoleted"));
+  // Strip is active on BOTH lanes (#673). USE applies the FULL transform
+  // (downstream consumers must not see any loom-internal reference). BUILD
+  // applies the DISCLOSURE-only SUBSET (`stripBuildMode`): loom-internal
+  // workspace paths + the canon org slug are stripped, but the BUILD repo's
+  // own `packages/<repo>` / `crates/<repo>` / sibling `.claude/` self-references
+  // ship VERBATIM (stripping `kailash-py` → generic ON kailash-py would corrupt
+  // the repo's own names — the F11 reason BUILD shipped fully verbatim before;
+  // the F11 follow-up #673 narrows that to a self-reference-preserving subset).
+  const stripEnabled = true;
+  const stripBuildMode = isBuild;
+  // BUILD applies the language variant overlay ONLY when the target declares
+  // build_variant_overlay: true (per-target policy, F11; e.g. rs needs
+  // Rust-flavored content, py uses the Python-native global). USE always
+  // applies overlays. When false, BUILD ships the GLOBAL — no overlay pass,
+  // no variant_only additions.
+  const applyVariantOverlay = isBuild ? !!repo.build_variant_overlay : true;
   const gitignoreAdditions = parseGitignoreAdditions(manifest);
   // FA — visibility-conditional additions (applied per-consumer in
   // executePlan based on each target's .coc-sync-marker visibility).
   const visibilityGitignoreAdditions =
     parseVisibilityGitignoreAdditions(manifest);
+  // loom#676 — universal re-include guarantees (applied to USE AND BUILD).
+  const gitignoreReincludes = parseGitignoreReincludes(manifest);
 
   // Reject unsafe purge entries at plan-build time (CRIT-1 defense).
   // An absolute / `.` / `..` entry would cause fs.rmSync to escape the
   // template dir; halt before any FS mutation.
-  for (const entry of useObsoleted) {
+  for (const entry of purgeList) {
     const defect = rejectUnsafePurgeEntry(entry);
     if (defect !== null) {
       fail(
         1,
-        `manifest defect: use_obsoleted entry ${defect} ` +
+        `manifest defect: ${isBuild ? "obsoleted" : "use_obsoleted"} entry ${defect} ` +
           `— sync-tier-aware refuses to apply this purge list ` +
           `(would escape target dir)`,
       );
@@ -1080,6 +1831,21 @@ function buildPlan(manifest, target, templateFilter) {
     }
   }
 
+  // loom#676 — same safety gate for re-include guarantees. The `!`
+  // negation prefix (`!.claude/bin/lib/`) is a legitimate gitignore
+  // re-include and is NOT a path-escape; rejectUnsafe checks
+  // line-terminator + marker-collision, neither of which `!` trips.
+  for (const entry of gitignoreReincludes) {
+    const defect = rejectUnsafeGitignoreEntry(entry);
+    if (defect !== null) {
+      fail(
+        1,
+        `manifest defect: gitignore_reincludes entry ${defect} ` +
+          `— sync-tier-aware refuses to apply this entry`,
+      );
+    }
+  }
+
   // Compose inclusion globs from subscribed tiers.
   const inclusionGlobs = [];
   for (const tier of repo.tier_subscriptions) {
@@ -1094,17 +1860,23 @@ function buildPlan(manifest, target, templateFilter) {
     inclusionGlobs.push(...g);
   }
 
-  const templates =
-    templateFilter === null
+  // BUILD lane resolves ONE repo (repos.<target>.build); USE resolves the
+  // template array. targetRepoNames carries the repo NAME(s) for reporting;
+  // the on-disk dir is resolved in executePlan (build.<target> via
+  // resolveBuildDir vs use-template.<key> via resolveTemplateDir).
+  const templates = isBuild
+    ? null
+    : templateFilter === null
       ? repo.templates
       : repo.templates.filter((t) => t.repo === templateFilter);
-  if (templateFilter !== null && templates.length === 0) {
+  if (!isBuild && templateFilter !== null && templates.length === 0) {
     fail(
       2,
       `--template ${templateFilter} not found under repos.${target}. ` +
         `Available: ${repo.templates.map((t) => t.repo).join(", ")}`,
     );
   }
+  const targetRepoNames = isBuild ? [repo.build] : templates.map((t) => t.repo);
   const allFiles = walkClaudeDir();
 
   // Per-file disposition.
@@ -1114,26 +1886,114 @@ function buildPlan(manifest, target, templateFilter) {
       f,
       inclusionGlobs,
       exclude,
-      useExclude,
+      classExclude,
       loomOnly,
+      mode,
     );
-    files.push({ path: f, ...disposition });
+    const entry = { path: f, ...disposition };
+    // #475 — plan-visible strip eligibility (path half of the classifier).
+    // The content half (utf8 round-trip + rewrite-fired) is decided at
+    // write time in executePlan; eligibility here makes the disposition
+    // inspectable in --dry-run / --json before any write. #673 — BUILD no
+    // longer ships verbatim: stripEnabled is true on BOTH lanes, so BUILD
+    // copy files ARE strip-eligible; the buildMode disclosure-only SUBSET
+    // (vs USE's full transform) is applied at write time via strip_build_mode.
+    if (entry.action === "copy") entry.strip = stripEnabled && isStripEligible(f);
+    files.push(entry);
   }
+
+  // #427 — variant_only distribution pass. classifyFile EXCLUDES every
+  // `variants/**` path (the global enumerator is tier-only); variant_only
+  // ADDITIONS are distributed here, copied to their stripped destination
+  // (see expandVariantOnly). `variant_only_missing` is the completeness
+  // gap (a declared entry matching zero loom files) — main() hard-fails the
+  // WRITE path on it, mirroring the #401 Defect-2 byte-verify teeth.
+  const variantOnlyMap = parseVariantOnly(manifest);
+  // Applied when this lane uses variant overlays (USE always; BUILD only when
+  // build_variant_overlay: true). A globals-only BUILD repo has no variant
+  // additions — it ships globals exactly.
+  const { files: variantOnlyFiles, missing: variantOnlyMissing } =
+    applyVariantOverlay
+      ? expandVariantOnly(allFiles, repo.variant, variantOnlyMap[repo.variant] || [])
+      : { files: [], missing: [] };
+
+  // #475 D5 — variant_only strip-dirty gate. USE-lane only (gate fires the
+  // FULL strip against verbatim-copied variant_only ADDITIONS). The gate stays
+  // USE-scoped (`!isBuild`) even though #673 now strips BUILD copy-globals +
+  // overlays: variant_only ADDITIONS are raw-copied verbatim on BOTH lanes
+  // (#427 H9 byte-equal contract — no strip pass ever touches them), so a
+  // BUILD variant_only source carrying a workspace/org token is a residual
+  // (pre-existing, unchanged by #673; only build_variant_overlay=true repos
+  // ship variant_only additions, and #673's copy-global+overlay subset is what
+  // the issue scopes). Flipping this gate to BUILD would newly hard-fail any rs
+  // BUILD sync whose variant_only source carries a buildSafe token — out of
+  // scope here; the in-tool gate covers the strip-PATH surfaces #673 names.
+  const variantOnlyStrippable = !isBuild
+    ? findStrippableVariantOnly(variantOnlyFiles)
+    : [];
+
+  // #473 — variants: REPLACEMENT overlay pass. classifyFile EXCLUDES every
+  // `variants/**` path (overlay sources never enter the global copy plan); the
+  // overlay APPLY composes the deployed content (slot → compose, full → as-is;
+  // both stripped) and SUPPRESSES the bare-global raw copy it replaces. Without
+  // this, sync-tier-aware raw-copied the bare global over a declared overlay —
+  // the #427 failure class, one level over. The byte-equal verify teeth (#401
+  // Defect-2) and the source-missing completeness gate mirror the variant_only
+  // pass above; main() hard-fails the WRITE on either.
+  const variantsMap = parseVariants(manifest);
+  const filesByPath = new Map(files.map((f) => [f.path, f]));
+  const allFilesSet = new Set(allFiles);
+  // Applied when this lane uses variant overlays. When OFF (globals-only
+  // BUILD), no global is suppressed → every tier-matched global copies as-is.
+  const {
+    overlays,
+    missing: overlayMissing,
+    orphans: overlayOrphans,
+    out_of_lane: overlayOutOfLane,
+  } = applyVariantOverlay
+    ? resolveVariantOverlays(variantsMap, repo.variant, filesByPath, allFilesSet)
+    : { overlays: [], missing: [], orphans: [], out_of_lane: [] };
 
   return {
     target,
+    mode,
     variant: repo.variant,
+    build_variant_overlay: applyVariantOverlay,
+    strip_enabled: stripEnabled,
+    // #673 — false = USE full strip; true = BUILD disclosure-only subset
+    // (workspace paths + canon org slug; package/repo self-refs preserved).
+    strip_build_mode: stripBuildMode,
     tier_subscriptions: repo.tier_subscriptions,
-    templates: templates.map((t) => t.repo),
+    templates: targetRepoNames,
     files,
-    purge: useObsoleted.slice(),
-    gitignore_additions: gitignoreAdditions.slice(),
-    visibility_gitignore_additions: visibilityGitignoreAdditions.slice(),
+    variant_only: variantOnlyFiles,
+    variant_only_missing: variantOnlyMissing,
+    variant_only_strippable: variantOnlyStrippable,
+    overlays,
+    overlay_missing: overlayMissing,
+    overlay_orphans: overlayOrphans,
+    overlay_out_of_lane: overlayOutOfLane,
+    purge: purgeList.slice(),
+    gitignore_additions: isBuild ? [] : gitignoreAdditions.slice(),
+    visibility_gitignore_additions: isBuild
+      ? []
+      : visibilityGitignoreAdditions.slice(),
+    // loom#676 — re-include guarantees apply to BOTH lanes (role-blind):
+    // BUILD repos also need `.claude/bin/lib/` tracked despite a broad `lib/`.
+    gitignore_reincludes: gitignoreReincludes.slice(),
   };
 }
 
-function classifyFile(relpath, inclusionGlobs, exclude, useExclude, loomOnly = []) {
-  // 1. Always-include — wins over everything except loom-local.
+function classifyFile(
+  relpath,
+  inclusionGlobs,
+  exclude,
+  classExclude,
+  loomOnly = [],
+  mode = "use",
+) {
+  // 1. Always-include — wins over tier/class-exclude/no-tier-match, but NOT
+  //    over loom-local, loom_only, or a universal `exclude` (see step 3).
   const alwaysInc = matchesAny(relpath, ALWAYS_INCLUDE);
   // 2. Loom-local — universal skip (gitignored operator config).
   if (matchesAny(relpath, LOOM_LOCAL_PATTERNS)) {
@@ -1147,21 +2007,46 @@ function classifyFile(relpath, inclusionGlobs, exclude, useExclude, loomOnly = [
   if (matchesAnyManifestGlob(relpath, loomOnly)) {
     return { action: "skip", reason: "loom_only" };
   }
-  if (alwaysInc) {
-    return { action: "copy", reason: "always_include" };
-  }
-  // 3. exclude (universal).
+  // 3. exclude (universal) — checked BEFORE always-include so an explicitly
+  // excluded file is never force-shipped. ALWAYS_INCLUDE guarantees the
+  // runtime trees (hooks/**, hooks/lib/**, bin/**) are present at every
+  // consumer; it MUST NOT override a universal exclude such as
+  // `**/*.test.mjs` (loom's own node:test unit tests live under bin/** but
+  // are build-internal — the SAME "consumers do not run loom's tests" class
+  // as test-harness/**). The only always-include paths that also match a
+  // universal exclude glob are those test files (+ a stray `**/.env`),
+  // exactly the files that SHOULD be skipped — so this reorder has no
+  // collateral on the runtime trees ALWAYS_INCLUDE exists to guarantee.
+  // (Class-exclude / use_exclude stays AFTER always-include below — its
+  // current precedence is unchanged; only the universal exclude moved up.)
   if (matchesAnyManifestGlob(relpath, exclude)) {
     return { action: "skip", reason: "exclude" };
   }
-  // 4. use_exclude (USE-template only — this tool emits to USE templates).
-  if (matchesAnyManifestGlob(relpath, useExclude)) {
-    return { action: "skip", reason: "use_exclude" };
+  if (alwaysInc) {
+    return { action: "copy", reason: "always_include" };
+  }
+  // 4. Class exclude — USE lane: use_exclude (BUILD-only files skipped here);
+  //    BUILD lane: build_exclude (USE-only files skipped here). The reason
+  //    label tracks the lane so the plan/report names the right list.
+  if (matchesAnyManifestGlob(relpath, classExclude)) {
+    return {
+      action: "skip",
+      reason: mode === "build" ? "build_exclude" : "use_exclude",
+    };
   }
   // 5. Tier inclusion.
   if (matchesAnyManifestGlob(relpath, inclusionGlobs)) {
     return { action: "copy", reason: "tier_match" };
   }
+  // Silent exclusion (journal/0362 STEP-2): a file in NO subscribed tier is
+  // skipped here with no per-file warning — correct for a genuinely off-axis
+  // artifact (e.g. a `kailash`-tier SDK skill on the non-Kailash `base` target),
+  // but it is ALSO how a GENERAL COC coding rule mis-placed in `kailash` falls
+  // silently out of the `base` axis (the F10 base-coverage gap). classifyFile is
+  // per-target and has no cross-tier view, so the heuristic guard lives at emit
+  // time where it does: emit.mjs validateTierCompleteness() (validator-15) flags
+  // a kailash-only rule with zero Kailash/loom coupling as a non-blocking
+  // base-exclusion advisory. Keep that guard in sync with this skip path.
   return { action: "skip", reason: "no_tier_match" };
 }
 
@@ -1195,6 +2080,29 @@ function resolveTemplateDir(repo, outOverride) {
   return r.value;
 }
 
+/**
+ * Resolve the on-disk path of ONE BUILD repo (F11). The logical key is
+ * `build.<target>` directly (py/rs/prism) — NOT the use-template short-key
+ * derivation. A BUILD lane has exactly one target dir (no template array).
+ */
+function resolveBuildDir(target, outOverride) {
+  if (outOverride !== null) return outOverride;
+  const key = `build.${target}`;
+  const r = resolveRepo(key, { require: false });
+  if (r.skipped) {
+    fail(
+      3,
+      `loom-links resolver: ${r.reason}\n` +
+        `(declare 'build.${target}' in loom-links.local.json, ` +
+        `or pass --out <dir> to override)`,
+    );
+  }
+  if (r.kind !== "path") {
+    fail(3, `loom-links: '${key}' is a ${r.kind}, expected path linkage`);
+  }
+  return r.value;
+}
+
 // ────────────────────────────────────────────────────────────────
 // Execution — copy + purge
 // ────────────────────────────────────────────────────────────────
@@ -1203,9 +2111,10 @@ function executePlan(plan, outOverride, dryRun) {
   // BEFORE any FS mutation. A missing resolver entry halts the whole
   // run rather than leaving partial state across templates 1..N-1 when
   // template N fails.
-  const resolvedDirs = plan.templates.map((tmpl) =>
-    resolveTemplateDir(tmpl, outOverride),
-  );
+  const resolvedDirs =
+    plan.mode === "build"
+      ? plan.templates.map(() => resolveBuildDir(plan.target, outOverride))
+      : plan.templates.map((tmpl) => resolveTemplateDir(tmpl, outOverride));
 
   const results = [];
   for (let i = 0; i < plan.templates.length; i++) {
@@ -1222,11 +2131,24 @@ function executePlan(plan, outOverride, dryRun) {
       copied: [],
       verified: 0,
       verify_failures: [],
+      stripped: [],
+      variant_only_copied: [],
+      variant_only_verified: 0,
+      variant_only_verify_failures: [],
+      overlay_applied: [],
+      overlay_verified: 0,
+      overlay_verify_failures: [],
+      overlay_orphans_purged: [],
       purged: [],
+      // loom#676 — emitted `.claude/**` paths the target's .gitignore would
+      // untrack (a swallowed-delivery failure). Populated post-apply below;
+      // a non-empty list hard-fails the sync in main().
+      swallowed: [],
       skipped: {
         loom_local: 0,
         exclude: 0,
         use_exclude: 0,
+        build_exclude: 0,
         no_tier_match: 0,
       },
     };
@@ -1239,11 +2161,38 @@ function executePlan(plan, outOverride, dryRun) {
       presync.count > 0
         ? { dir: path.basename(presync.snapshotDir), count: presync.count }
         : null;
+    // #473 R1 reviewer MED-1: the rename-orphan purge runs AFTER the write
+    // loops; without a guard it would delete a path a SAME-plan write just
+    // shipped (e.g. a variant_only ADDITION landing at the exact path a rename
+    // overlay records as its orphan → silent data loss, the #427/#473 class one
+    // mechanism over). Collect every absolute dest THIS plan writes; the orphan
+    // purge skips any path in the set (a same-plan write owns it).
+    const shippedDests = new Set();
+    // #475 R4 reviewer LOW: a variant_only ADDITION sharing a dest with a
+    // copy-action global OVERWRITES it (the variant_only loop runs after
+    // the copy loop — pre-existing #427 ordering). Strip-writing such a
+    // global would waste the transform AND inflate the `stripped` counter
+    // with a write that never ships. Collect the variant_only dests
+    // up-front; the copy loop downgrades collision dests to a plain raw
+    // copy (pre-#475 behavior — the final state is the variant source).
+    // R6 reviewer LOW: the f.path-vs-vf.dest comparison relies on copy
+    // globals and `.claude/`-rooted variant_only dests sharing the same
+    // `.claude/`-prefixed convention. A top-level (scripts/, workspaces/)
+    // variant_only dest can never collide with a copy global because
+    // walkClaudeDir enumerates ONLY `.claude/`-rooted paths into the copy
+    // plan — so the key shapes coincide exactly on the reachable surface.
+    const variantOnlyDestRel = new Set(
+      (plan.variant_only || []).map((vf) => vf.dest),
+    );
     for (const f of plan.files) {
       if (f.action === "skip") {
         result.skipped[f.reason] = (result.skipped[f.reason] || 0) + 1;
         continue;
       }
+      // #473 — a global SUPPRESSED by a variants: overlay (action "overlay")
+      // is NOT raw-copied here; the composed overlay replaces it in the overlay
+      // pass below. It is neither a skip (not tallied) nor a copy.
+      if (f.action !== "copy") continue;
       const src = path.join(REPO, f.path);
       // CRIT-2 defense: containment check on dest. f.path comes from
       // walkClaudeDir() which cannot produce `..` segments today, but
@@ -1254,18 +2203,64 @@ function executePlan(plan, outOverride, dryRun) {
       } catch (e) {
         fail(1, `copy refused: ${e.message}`);
       }
+      shippedDests.add(dest); // MED-1: a same-plan write owns this path
       if (!dryRun) {
         fs.mkdirSync(path.dirname(dest), { recursive: true });
-        // HIGH-1 defense: O_NOFOLLOW refuses symlink targets at dest.
-        safeCopyFile(src, dest);
-        // #401 Defect-2 fix: post-copy byte-equality. A plain `copied++`
-        // count trusts that safeCopyFile landed the bytes; the incident
-        // proved a copy can silently no-op (dest left at stale HEAD).
-        const reason = verifyCopiedBytes(src, dest);
-        if (reason === null) {
-          result.verified++;
+        // #475 — strip plain-global prose at write time. Path eligibility
+        // was decided at plan time (f.strip, isStripEligible); the content
+        // half is decided here: (i) the source must round-trip utf8
+        // byte-exactly (binary safety — stripBuildInternalReferences is a
+        // text transform; a lossy utf8 decode of a binary file would
+        // corrupt it), and (ii) the strip must actually CHANGE the text.
+        // Clean files and binaries take the raw-copy fast path, keeping
+        // them byte-identical to source and re-runs byte-stable (the
+        // strip is idempotent, so a re-sync over an already-stripped
+        // template converges).
+        let strippedWrite = null;
+        if (f.strip === true && !variantOnlyDestRel.has(f.path)) {
+          const srcBuf = safeReadSync(src); // #636 — O_NOFOLLOW source read
+          const text = srcBuf.toString("utf8");
+          if (Buffer.from(text, "utf8").equals(srcBuf)) {
+            // #673 — BUILD uses the disclosure-only subset (plan.strip_build_mode);
+            // USE uses the full transform (strip_build_mode false).
+            const { stripped } = stripBuildInternalReferences(text, {
+              buildMode: plan.strip_build_mode === true,
+            });
+            if (stripped !== text) strippedWrite = stripped;
+          }
+        }
+        if (strippedWrite !== null) {
+          // Stripped write: dest ≠ src BY DESIGN, so the #401 Defect-2
+          // teeth route through the overlay shape — verifyWrittenText
+          // against the in-memory expected string (same as the #473
+          // overlay pass), never verifyCopiedBytes(src, dest).
+          safeWriteTextSync(dest, strippedWrite);
+          const reason = verifyWrittenText(dest, strippedWrite);
+          if (reason === null) {
+            result.verified++;
+            // #477 item 3 (#475 redteam R-4): count a stripped write ONLY
+            // on verify success. Pushing before the verify outcome let a
+            // FAILED stripped write inflate strippedN, understating the
+            // emitText `N−K byte-equal to source` arithmetic in the same
+            // run that prints the FAILED message and exits 1.
+            result.stripped.push(path.relative(dir, dest));
+          } else {
+            result.verify_failures.push(
+              `${path.relative(dir, dest)} — ${reason}`,
+            );
+          }
         } else {
-          result.verify_failures.push(`${path.relative(dir, dest)} — ${reason}`);
+          // HIGH-1 defense: O_NOFOLLOW refuses symlink targets at dest.
+          safeCopyFile(src, dest);
+          // #401 Defect-2 fix: post-copy byte-equality. A plain `copied++`
+          // count trusts that safeCopyFile landed the bytes; the incident
+          // proved a copy can silently no-op (dest left at stale HEAD).
+          const reason = verifyCopiedBytes(src, dest);
+          if (reason === null) {
+            result.verified++;
+          } else {
+            result.verify_failures.push(`${path.relative(dir, dest)} — ${reason}`);
+          }
         }
       }
       result.copied.push({
@@ -1273,6 +2268,121 @@ function executePlan(plan, outOverride, dryRun) {
         dest: path.relative(dir, dest),
         reason: f.reason,
       });
+    }
+    // #427 — variant_only distribution. These live under `variants/<variant>/`
+    // in loom (EXCLUDED from the global copy above) and land at the STRIPPED
+    // destination (vf.dest, already `.claude/`-prefixed). Same O_NOFOLLOW copy
+    // + post-copy byte-equality (#401 Defect-2) as the global branch, so a
+    // silent no-op / stale-bytes copy surfaces as a verify failure and blocks.
+    for (const vf of plan.variant_only || []) {
+      const src = path.join(REPO, vf.path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, vf.dest);
+      } catch (e) {
+        fail(1, `variant_only copy refused: ${e.message}`);
+      }
+      shippedDests.add(dest); // MED-1: a same-plan write owns this path
+      if (!dryRun) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        safeCopyFile(src, dest);
+        const reason = verifyCopiedBytes(src, dest);
+        if (reason === null) {
+          result.variant_only_verified++;
+        } else {
+          result.variant_only_verify_failures.push(
+            `${path.relative(dir, dest)} — ${reason}`,
+          );
+        }
+      }
+      result.variant_only_copied.push({
+        src: vf.path,
+        dest: path.relative(dir, dest),
+        entry: vf.variant_only_entry,
+      });
+    }
+    // #473 — variants: REPLACEMENT overlay apply. The deployed content is
+    // strip(compose(global, overlay)) for slot-keyed overlays, strip(overlay)
+    // for full-file — mirroring the emit pipeline AND verify-overlays.sh's
+    // expected-md5 EXACTLY. Written to the rename-aware dest (vo.dest). The
+    // bare global it replaces was suppressed in the copy loop above (action
+    // "overlay"). Post-write content-equality (verifyWrittenText) shares the
+    // #401 Defect-2 teeth: a mis-written overlay surfaces as a verify failure
+    // and blocks the sync (main()).
+    for (const ov of plan.overlays || []) {
+      const globalAbs = path.join(REPO, ov.global_path);
+      const overlayAbs = path.join(REPO, ov.overlay_path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, ov.dest);
+      } catch (e) {
+        fail(1, `overlay apply refused: ${e.message}`);
+      }
+      shippedDests.add(dest); // MED-1: a same-plan write owns this path
+      let composed;
+      try {
+        composed = composeOverlayContent(
+          globalAbs,
+          overlayAbs,
+          plan.strip_enabled,
+          plan.strip_build_mode === true, // #673 BUILD disclosure-only subset
+        );
+      } catch (e) {
+        // A compose failure (slot missing in global, etc.) is a manifest-vs-
+        // source defect — HALT rather than ship a mis-composed overlay.
+        fail(
+          1,
+          `overlay compose failed for ${ov.overlay_path} ` +
+            `(global ${ov.global_path}): ${e.message}`,
+        );
+      }
+      if (!dryRun) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        // O_NOFOLLOW refuses a symlink at dest (HIGH-1 parity with the copy
+        // branch); composed content is written as utf8 text.
+        safeWriteTextSync(dest, composed.content);
+        const reason = verifyWrittenText(dest, composed.content);
+        if (reason === null) {
+          result.overlay_verified++;
+        } else {
+          result.overlay_verify_failures.push(
+            `${path.relative(dir, dest)} — ${reason}`,
+          );
+        }
+      }
+      result.overlay_applied.push({
+        global: ov.global_path,
+        overlay: ov.overlay_path,
+        dest: path.relative(dir, dest),
+        mode: composed.slot_keyed ? "slot" : "full",
+      });
+    }
+    // #473 — rename-orphan purge. When a variants: overlay RENAMES the global
+    // (e.g. python-version-bump.md → rust-version-bump.md), the global-named
+    // file must NOT linger at the target from a pre-rename sync. The renamed
+    // overlay shipped above; purge the stale global-named orphan if present.
+    // Containment-guarded (CRIT-1 parity); orphans are always files.
+    for (const orphan of plan.overlay_orphans || []) {
+      let targetAbs;
+      try {
+        targetAbs = safeJoinUnder(dir, orphan);
+      } catch (e) {
+        fail(1, `overlay orphan purge refused: ${e.message}`);
+      }
+      // MED-1: NEVER purge a path a same-plan write owns (a variant_only
+      // ADDITION or another overlay may legitimately ship at the global-named
+      // path). The explicit write wins; the orphan purge only removes STALE
+      // pre-rename files nothing in this plan re-ships.
+      if (shippedDests.has(targetAbs)) continue;
+      if (fs.existsSync(targetAbs)) {
+        if (!dryRun) {
+          const st = fs.lstatSync(targetAbs);
+          if (st.isDirectory())
+            fs.rmSync(targetAbs, { recursive: true, force: true });
+          else fs.unlinkSync(targetAbs);
+        }
+        result.overlay_orphans_purged.push({ path: orphan });
+      }
     }
     // Purge use_obsoleted at target (only if path exists at target).
     // CRIT-1 defense: containment check rejects `..` / absolute /
@@ -1305,21 +2415,286 @@ function executePlan(plan, outOverride, dryRun) {
     // entries. Public → base + visibility (session-notes + active
     // workspaces ignored, _template preserved). Private → base only
     // (TRACK session-notes + workspaces as team knowledge).
-    const marker = readConsumerVisibility(dir);
-    const effectiveAdds = effectiveGitignoreAdditions(
-      plan.gitignore_additions,
-      plan.visibility_gitignore_additions,
-      marker,
-    );
-    result.visibility = marker.visibility;
-    try {
-      result.gitignore = applyGitignoreAdditions(dir, effectiveAdds, dryRun);
-    } catch (e) {
-      fail(1, `gitignore apply refused: ${e.message}`);
+    // gitignore management is USE-only (consumer .coc-sync-marker visibility
+    // model). BUILD repos have no such model — skip the marker read + the
+    // state-locality additions. But the loom#676 RE-INCLUDE guarantees are
+    // role-blind: a BUILD repo's own broad `lib/` ignore swallows
+    // `.claude/bin/lib/` exactly as a consumer's does, so BUILD applies the
+    // re-includes (and ONLY those — the roster etc. stay committed in BUILD).
+    if (plan.mode === "build") {
+      result.visibility = null;
+      if (plan.gitignore_reincludes && plan.gitignore_reincludes.length > 0) {
+        try {
+          result.gitignore = applyGitignoreAdditions(
+            dir,
+            plan.gitignore_reincludes,
+            dryRun,
+          );
+        } catch (e) {
+          fail(1, `gitignore apply refused: ${e.message}`);
+        }
+      } else {
+        result.gitignore = null;
+      }
+    } else {
+      const marker = readConsumerVisibility(dir);
+      const effectiveAdds = effectiveGitignoreAdditions(
+        plan.gitignore_additions,
+        plan.visibility_gitignore_additions,
+        marker,
+        plan.gitignore_reincludes,
+      );
+      result.visibility = marker.visibility;
+      try {
+        result.gitignore = applyGitignoreAdditions(dir, effectiveAdds, dryRun);
+      } catch (e) {
+        fail(1, `gitignore apply refused: ${e.message}`);
+      }
+    }
+
+    // loom#676 — post-apply swallowed-artifact gate. After the .gitignore is
+    // written, verify NO path loom just emitted is untracked by the target's
+    // ignore rules. Only the files loom WROTE are checked (copied dests +
+    // stripped dests + overlay/variant_only dests) — state-locality files are
+    // never emitted, so a deliberate gitignore_additions ignore is not a hit.
+    // Skipped on dry-run (nothing written; the .gitignore negation isn't on
+    // disk yet). A hit hard-fails the sync in main().
+    if (!dryRun) {
+      const emitted = [
+        ...result.copied.map((c) => c.dest),
+        ...result.stripped,
+        ...result.variant_only_copied.map((c) => c.dest),
+        ...result.overlay_applied.map((c) => c.dest),
+      ].filter(Boolean);
+      result.swallowed = findSwallowedArtifacts(dir, emitted);
     }
     results.push(result);
   }
   return results;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Consistency verification (F11) — read-only "is the target in sync?"
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * The bytes apply WOULD write for a copy-action file. Mirrors the
+ * executePlan copy branch EXACTLY (raw vs strip), so apply-then-verify is
+ * a fixed point: a divergence between this and the write path is itself a
+ * bug the apply→verify regression test catches.
+ */
+function expectedCopyBytes(srcAbs, strip, buildMode = false) {
+  const srcBuf = safeReadSync(srcAbs); // #636 — O_NOFOLLOW source read
+  if (strip === true) {
+    const text = srcBuf.toString("utf8");
+    if (Buffer.from(text, "utf8").equals(srcBuf)) {
+      // #673 — mirror the write path's buildMode so apply↔verify is a fixed
+      // point on BOTH lanes (BUILD subset strip + USE full strip).
+      const { stripped } = stripBuildInternalReferences(text, { buildMode });
+      if (stripped !== text) return Buffer.from(stripped, "utf8");
+    }
+  }
+  return srcBuf;
+}
+
+function _compareExpected(r, dest, expectedBuf, relName) {
+  let got;
+  try {
+    got = fs.readFileSync(dest);
+  } catch (e) {
+    r.missing.push(relName);
+    return;
+  }
+  if (!got.equals(expectedBuf)) r.differs.push(relName);
+}
+
+/**
+ * Read-only consistency check (F11): for each resolved target, assert every
+ * in-plan file's current content equals what apply WOULD write, and every
+ * obsoleted path is absent. Returns per-target { missing, differs,
+ * purge_present, checked }. Writes NOTHING. This is the deterministic gate
+ * that surfaces the exact drift the silent /sync-to-build divergence left
+ * undetected (py: obsoleted not purged; rs: codify-anchor missing).
+ */
+function verifyConsistency(plan, outOverride) {
+  const resolvedDirs =
+    plan.mode === "build"
+      ? plan.templates.map(() => resolveBuildDir(plan.target, outOverride))
+      : plan.templates.map((tmpl) => resolveTemplateDir(tmpl, outOverride));
+  const results = [];
+  // Mirror executePlan: a copy-global whose dest collides with a variant_only
+  // ADDITION is overwritten by the variant source (the variant_only loop runs
+  // AFTER the copy loop). The variant_only branch OWNS that dest, so the copy
+  // branch must NOT also assert the (stripped) global there — otherwise verify
+  // and apply disagree on a collision path.
+  const variantOnlyDestRel = new Set(
+    (plan.variant_only || []).map((vf) => vf.dest),
+  );
+  for (let i = 0; i < plan.templates.length; i++) {
+    const tmpl = plan.templates[i];
+    const dir = resolvedDirs[i];
+    const r = {
+      template: tmpl,
+      target_basename: path.basename(dir),
+      checked: 0,
+      missing: [],
+      differs: [],
+      purge_present: [],
+      // loom#676 — in-plan dest paths the target's .gitignore would untrack.
+      swallowed: [],
+    };
+    // loom#676 — collect every in-plan dest (copy + variant_only + overlay)
+    // so the read-only --verify gate can pre-flight "would the target's
+    // .gitignore swallow what a /sync-to-* WOULD emit?" without writing.
+    const inPlanDestsRel = [];
+    for (const f of plan.files) {
+      if (f.action !== "copy") continue; // overlay-suppressed + skips handled below/elsewhere
+      if (variantOnlyDestRel.has(f.path)) continue; // variant_only source wins at this dest
+      const src = path.join(REPO, f.path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, f.path);
+      } catch (e) {
+        fail(1, `verify refused: ${e.message}`);
+      }
+      r.checked++;
+      inPlanDestsRel.push(path.relative(dir, dest));
+      _compareExpected(
+        r,
+        dest,
+        expectedCopyBytes(src, f.strip === true, plan.strip_build_mode === true),
+        f.path,
+      );
+    }
+    for (const vf of plan.variant_only || []) {
+      const src = path.join(REPO, vf.path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, vf.dest);
+      } catch (e) {
+        fail(1, `verify refused: ${e.message}`);
+      }
+      r.checked++;
+      inPlanDestsRel.push(path.relative(dir, dest));
+      _compareExpected(r, dest, safeReadSync(src), vf.dest); // #636 — O_NOFOLLOW source read
+    }
+    for (const ov of plan.overlays || []) {
+      const globalAbs = path.join(REPO, ov.global_path);
+      const overlayAbs = path.join(REPO, ov.overlay_path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, ov.dest);
+      } catch (e) {
+        fail(1, `verify refused: ${e.message}`);
+      }
+      let composed;
+      try {
+        composed = composeOverlayContent(
+          globalAbs,
+          overlayAbs,
+          plan.strip_enabled,
+          plan.strip_build_mode === true, // #673 BUILD disclosure-only subset
+        );
+      } catch (e) {
+        fail(1, `verify overlay compose failed for ${ov.overlay_path}: ${e.message}`);
+      }
+      r.checked++;
+      inPlanDestsRel.push(path.relative(dir, dest));
+      _compareExpected(r, dest, Buffer.from(composed.content, "utf8"), ov.dest);
+    }
+    for (const p of plan.purge) {
+      let targetAbs;
+      try {
+        targetAbs = safeJoinUnder(dir, p);
+      } catch (e) {
+        fail(1, `verify purge refused: ${e.message}`);
+      }
+      if (fs.existsSync(targetAbs)) r.purge_present.push(p);
+    }
+    // loom#676 — read-only pre-flight of the swallowed-artifact gate: would
+    // the target's CURRENT .gitignore untrack any artifact this plan emits?
+    // Mirrors the executePlan write-path gate so `--verify` is a superset.
+    r.swallowed = findSwallowedArtifacts(dir, inPlanDestsRel);
+    results.push(r);
+  }
+  return results;
+}
+
+function emitVerifyText(plan, results) {
+  const lane = plan.mode === "build" ? "BUILD" : "USE";
+  const lines = [
+    `# sync-tier-aware VERIFY [${lane}] — target=${plan.target} ` +
+      `variant=${plan.variant ?? "—"}` +
+      (plan.mode === "build"
+        ? ` build_variant_overlay=${plan.build_variant_overlay} strip=${plan.strip_enabled}`
+        : ""),
+  ];
+  let total = 0;
+  for (const r of results) {
+    lines.push("");
+    lines.push(`## target: ${r.template} (${r.target_basename}/)`);
+    lines.push(`   checked: ${r.checked} in-plan file(s)`);
+    const n =
+      r.missing.length +
+      r.differs.length +
+      r.purge_present.length +
+      (r.swallowed || []).length;
+    total += n;
+    if (n === 0) {
+      lines.push(
+        `   ✓ CONSISTENT — every in-plan file matches expected; no obsoleted path present`,
+      );
+      continue;
+    }
+    const block = (label, arr) => {
+      if (!arr.length) return;
+      lines.push(`   ✗ ${label} (${arr.length}):`);
+      for (const e of arr.slice(0, 40)) lines.push(`      - ${e}`);
+      if (arr.length > 40) lines.push(`      …and ${arr.length - 40} more`);
+    };
+    block("MISSING — expected file absent at target", r.missing);
+    block("DIFFERS — target content ≠ expected", r.differs);
+    block("OBSOLETED-PRESENT — should be purged but still at target", r.purge_present);
+    block(
+      "SWALLOWED — emitted artifact untracked by target .gitignore (loom#676; add a `!`-re-include to gitignore_reincludes)",
+      r.swallowed || [],
+    );
+  }
+  // Manifest-completeness defects (plan-level) — the SAME gates the WRITE path
+  // hard-fails on (#427 / #473 / #475). --verify MUST be a SUPERSET of the apply
+  // gate: a declared variant_only/overlay whose loom SOURCE is absent, or a
+  // strip-dirty variant_only source, makes the sync incompletable even when
+  // every landed file matches — so it counts as OUT OF SYNC.
+  total += planCompletenessDefects(plan, lines);
+  lines.push("");
+  lines.push(
+    total === 0
+      ? `RESULT: CONSISTENT ✓`
+      : `RESULT: ${total} mismatch(es) — OUT OF SYNC ✗`,
+  );
+  return lines.join("\n") + "\n";
+}
+
+// Shared by emitVerifyText (display) and main's --verify exit (count) so the
+// two never disagree on what "OUT OF SYNC" means.
+function planCompletenessDefects(plan, lines) {
+  const cdefs = [
+    ["variant_only INCOMPLETE (declared entry, zero loom source)", plan.variant_only_missing],
+    ["variants: overlay INCOMPLETE (declared overlay, zero loom source)", plan.overlay_missing],
+    ["variant_only STRIP-DIRTY (carries BUILD-internal refs)", plan.variant_only_strippable],
+  ];
+  let n = 0;
+  for (const [label, arr] of cdefs) {
+    const a = arr || [];
+    if (!a.length) continue;
+    n += a.length;
+    if (lines) {
+      lines.push("");
+      lines.push(`## manifest-completeness: ✗ ${label} (${a.length}):`);
+      for (const e of a.slice(0, 40)) lines.push(`      - ${e}`);
+    }
+  }
+  return n;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1328,11 +2703,65 @@ function executePlan(plan, outOverride, dryRun) {
 function emitText(plan, results, dryRun) {
   const mode = dryRun ? "DRY RUN" : "WRITE";
   const lines = [];
+  const lane = plan.mode === "build" ? "BUILD" : "USE";
   lines.push(
-    `# sync-tier-aware ${mode} — target=${plan.target} ` +
+    `# sync-tier-aware ${mode} [${lane}] — target=${plan.target} ` +
       `variant=${plan.variant ?? "—"} ` +
+      (plan.mode === "build"
+        ? `build_variant_overlay=${plan.build_variant_overlay} strip=${plan.strip_enabled} `
+        : "") +
       `tiers=[${plan.tier_subscriptions.join(",")}]`,
   );
+  // #427 — completeness gap: declared variant_only entries with ZERO loom
+  // matches. Surfaced in BOTH dry-run (preview) and write; main() additionally
+  // hard-fails the WRITE path on a non-empty list.
+  if (plan.variant_only_missing && plan.variant_only_missing.length) {
+    lines.push(
+      `  ✗ variant_only INCOMPLETE — ${plan.variant_only_missing.length} declared ` +
+        `entr${plan.variant_only_missing.length === 1 ? "y" : "ies"} matched ZERO loom ` +
+        `source files (manifest declares a file absent from loom):`,
+    );
+    for (const e of plan.variant_only_missing) lines.push(`      - ${e}`);
+  }
+  // #473 — variants: overlay completeness gap: declared overlay source files
+  // absent from loom. Surfaced in BOTH dry-run and write; main() hard-fails the
+  // WRITE path on a non-empty list (same teeth as variant_only_missing).
+  if (plan.overlay_missing && plan.overlay_missing.length) {
+    lines.push(
+      `  ✗ variants: overlay INCOMPLETE — ${plan.overlay_missing.length} declared ` +
+        `overlay${plan.overlay_missing.length === 1 ? "" : "s"} matched ZERO loom ` +
+        `source files (manifest declares an overlay file absent from loom):`,
+    );
+    for (const e of plan.overlay_missing) lines.push(`      - ${e}`);
+  }
+  // #475 D5 — variant_only strip-dirty gate: variant_only sources whose
+  // content the strip transform WOULD change. They ship VERBATIM by the
+  // #427 contract, so a strippable source is an AUTHORING defect in the
+  // variant file. Surfaced in BOTH dry-run and write; main() hard-fails
+  // the WRITE path on a non-empty list (same teeth as variant_only_missing).
+  if (plan.variant_only_strippable && plan.variant_only_strippable.length) {
+    lines.push(
+      `  ✗ variant_only STRIP-DIRTY — ${plan.variant_only_strippable.length} ` +
+        `source${plan.variant_only_strippable.length === 1 ? "" : "s"} carry ` +
+        `BUILD-internal references (variant_only ships VERBATIM; fix the ` +
+        `variant source — see strip-build-internal.mjs --check):`,
+    );
+    for (const e of plan.variant_only_strippable) lines.push(`      - ${e}`);
+  }
+  // #473 R1 reviewer LOW-1 — declared overlays whose global is NOT tier-matched
+  // for this target (out-of-lane). The tool correctly does NOT deploy them
+  // (the global does not ship here); verify-overlays.sh is tier-blind and would
+  // flag them as deployed-missing, so this advisory makes the asymmetry visible.
+  // NON-blocking (no exit teeth) — it is a manifest-inspection signal, not a defect.
+  if (plan.overlay_out_of_lane && plan.overlay_out_of_lane.length) {
+    lines.push(
+      `  ⚠ variants: ${plan.overlay_out_of_lane.length} declared ` +
+        `overlay${plan.overlay_out_of_lane.length === 1 ? "" : "s"} out-of-lane ` +
+        `(global not tier-matched for ${plan.target}; not deployed — advisory):`,
+    );
+    for (const e of plan.overlay_out_of_lane)
+      lines.push(`      - ${e.global} → ${e.overlay} (${e.reason})`);
+  }
   for (const r of results) {
     // HIGH-2 defense: result carries target_basename (set in
     // executePlan); the absolute path never escapes the function.
@@ -1350,18 +2779,55 @@ function emitText(plan, results, dryRun) {
     lines.push(`   copied:  ${r.copied.length}`);
     if (!dryRun) {
       // #401 Defect-2: byte-equality verified count + any under-delivery.
+      // #475: stripped writes verify content-equal to the in-memory
+      // stripped string (verifyWrittenText); raw copies verify byte-equal
+      // to source. Both count toward `verified`. R5 reviewer LOW: the
+      // label distinguishes the two verification targets explicitly —
+      // "byte-equal" is asserted only of the raw-copy subset.
+      const strippedN = (r.stripped || []).length;
       lines.push(
-        `   verified: ${r.verified}/${r.copied.length} byte-equal` +
+        `   verified: ${r.verified}/${r.copied.length}` +
+          (strippedN
+            ? ` delivered — ${strippedN} content-equal after strip (BUILD-internal refs), ` +
+              `${r.verified - strippedN} byte-equal to source`
+            : " byte-equal") +
           (r.verify_failures.length
             ? ` — ${r.verify_failures.length} FAILED (sync under-delivered)`
             : ""),
       );
     }
+    // #427 — variant_only distribution line (one per template).
+    const voCopied = r.variant_only_copied ? r.variant_only_copied.length : 0;
+    lines.push(
+      `   variant_only: ${voCopied} copied` +
+        (!dryRun
+          ? ` — ${r.variant_only_verified}/${voCopied} byte-equal` +
+            (r.variant_only_verify_failures && r.variant_only_verify_failures.length
+              ? ` — ${r.variant_only_verify_failures.length} FAILED (variant_only under-delivered)`
+              : "")
+          : ""),
+    );
+    // #473 — variants: overlay apply line (one per template).
+    const ovApplied = r.overlay_applied ? r.overlay_applied.length : 0;
+    lines.push(
+      `   overlays: ${ovApplied} applied` +
+        (!dryRun
+          ? ` — ${r.overlay_verified}/${ovApplied} byte-equal` +
+            (r.overlay_verify_failures && r.overlay_verify_failures.length
+              ? ` — ${r.overlay_verify_failures.length} FAILED (overlay under-delivered)`
+              : "")
+          : "") +
+        (r.overlay_orphans_purged && r.overlay_orphans_purged.length
+          ? ` (+${r.overlay_orphans_purged.length} rename-orphan${r.overlay_orphans_purged.length === 1 ? "" : "s"} purged)`
+          : ""),
+    );
     lines.push(`   purged:  ${r.purged.length}`);
     lines.push(
       `   skipped: loom_local=${r.skipped.loom_local || 0} ` +
         `exclude=${r.skipped.exclude || 0} ` +
-        `use_exclude=${r.skipped.use_exclude || 0} ` +
+        (plan.mode === "build"
+          ? `build_exclude=${r.skipped.build_exclude || 0} `
+          : `use_exclude=${r.skipped.use_exclude || 0} `) +
         `no_tier_match=${r.skipped.no_tier_match || 0}`,
     );
     if (r.gitignore) {
@@ -1397,7 +2863,44 @@ function fail(code, msg) {
 function main() {
   const args = parseArgs(process.argv);
   const manifest = loadManifest();
-  const plan = buildPlan(manifest, args.target, args.template);
+  const plan = buildPlan(manifest, args.target, args.template, args.mode);
+
+  // --verify (F11): read-only consistency gate. Never writes; exits 1 on any
+  // mismatch. The deterministic "is the target in sync with loom?" check that
+  // was missing when /sync-to-build diverged silently across py + rs.
+  if (args.verify) {
+    const vres = verifyConsistency(plan, args.out);
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify({ plan, verify: vres, dry_run: true }, null, 2) + "\n",
+      );
+    } else {
+      process.stdout.write(emitVerifyText(plan, vres));
+    }
+    const total =
+      vres.reduce(
+        (n, r) =>
+          n +
+          r.missing.length +
+          r.differs.length +
+          r.purge_present.length +
+          (r.swallowed || []).length, // loom#676
+        0,
+      ) + planCompletenessDefects(plan, null);
+    if (total > 0) {
+      // Set exitCode (NOT process.exit) so the report on stdout flushes fully
+      // before the process exits — a large --json report exceeds the pipe
+      // buffer and a hard process.exit() would truncate it mid-stream.
+      process.stderr.write(
+        `sync-tier-aware: consistency check FAILED — ${total} mismatch(es); ` +
+          `the target is OUT OF SYNC with loom ` +
+          `(run /sync-to-${plan.mode === "build" ? "build" : "use"} to converge).\n`,
+      );
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   // #401 Defect-1 fix (ROOT CAUSE of the data loss): an un-scoped
   // `--target <lane>` WRITE fans out to EVERY template in the lane as
   // collateral. The incident: a sync intended for one consumer also wrote
@@ -1407,8 +2910,10 @@ function main() {
   // on the WRITE path only — `--dry-run` inspection is free to preview the
   // whole lane (that is its purpose; the danger is the write, not the
   // preview). When the lane has >1 template and neither --template nor
-  // --all-templates was given, HALT before any FS mutation.
+  // --all-templates was given, HALT before any FS mutation. A BUILD lane has
+  // exactly one target, so the guard is inert there (mode-gated for clarity).
   if (
+    plan.mode !== "build" &&
     !args.dryRun &&
     args.template === null &&
     !args.allTemplates &&
@@ -1438,15 +2943,87 @@ function main() {
   // caller can NEVER trust a success count that masks an under-delivery.
   if (!args.dryRun) {
     const failed = results.flatMap((r) =>
-      (r.verify_failures || []).map((f) => `${r.template}: ${f}`),
+      [
+        ...(r.verify_failures || []),
+        // #427 — variant_only byte-equality failures share the #401 Defect-2
+        // teeth: a copy that silently no-ops / lands stale bytes blocks the sync.
+        ...(r.variant_only_verify_failures || []),
+        // #473 — variants: overlay byte-equality failures share the same teeth:
+        // a mis-composed / silently-no-op overlay write blocks the sync.
+        ...(r.overlay_verify_failures || []),
+      ].map((f) => `${r.template}: ${f}`),
     );
     if (failed.length > 0) {
       fail(
         1,
         `post-copy byte-equality verification FAILED for ${failed.length} ` +
-          `path(s) — the sync under-delivered (#401 Defect 2):\n  ` +
+          `path(s) — the sync under-delivered (#401 Defect 2 / #427):\n  ` +
           failed.slice(0, 20).join("\n  ") +
           (failed.length > 20 ? `\n  …and ${failed.length - 20} more` : ""),
+      );
+    }
+    // loom#676 — swallowed-artifact gate: a COC artifact loom emitted that the
+    // target's .gitignore would untrack is an invisible-delivery failure (the
+    // file lands now but a fresh clone never tracks it → a tracked importer
+    // throws). HARD-FAIL the sync and name the fix (a `!`-re-include in
+    // sync-manifest.yaml::gitignore_reincludes for the colliding subtree).
+    const swallowed = results.flatMap((r) =>
+      (r.swallowed || []).map((p) => `${r.template}: ${p}`),
+    );
+    if (swallowed.length > 0) {
+      fail(
+        1,
+        `swallowed-artifact gate FAILED for ${swallowed.length} emitted ` +
+          `path(s) — the consumer's .gitignore would UNTRACK COC artifacts ` +
+          `loom just delivered (loom#676; a fresh clone never tracks them and ` +
+          `the tracked importer throws). Add a \`!\`-re-include for the ` +
+          `colliding subtree to sync-manifest.yaml::gitignore_reincludes:\n  ` +
+          swallowed.slice(0, 20).join("\n  ") +
+          (swallowed.length > 20 ? `\n  …and ${swallowed.length - 20} more` : ""),
+      );
+    }
+    // #427 — completeness gate: a declared variant_only entry that matched
+    // ZERO loom source files is a manifest-vs-source defect. Block the WRITE
+    // so a sync can NEVER complete with a declared-but-undistributable file.
+    if (plan.variant_only_missing && plan.variant_only_missing.length > 0) {
+      fail(
+        1,
+        `variant_only INCOMPLETE (#427): ${plan.variant_only_missing.length} ` +
+          `declared entr${plan.variant_only_missing.length === 1 ? "y" : "ies"} ` +
+          `for variant '${plan.variant}' matched ZERO loom source files ` +
+          `(manifest declares a file that does not exist in loom):\n  ` +
+          plan.variant_only_missing.join("\n  "),
+      );
+    }
+    // #473 — variants: overlay completeness gate: a declared overlay whose
+    // SOURCE file is absent from loom. Block the WRITE so a sync can NEVER
+    // complete with a declared-but-undistributable overlay (same teeth as the
+    // variant_only completeness gate above).
+    if (plan.overlay_missing && plan.overlay_missing.length > 0) {
+      fail(
+        1,
+        `variants: overlay INCOMPLETE (#473): ${plan.overlay_missing.length} ` +
+          `declared overlay${plan.overlay_missing.length === 1 ? "" : "s"} ` +
+          `for variant '${plan.variant}' matched ZERO loom source files ` +
+          `(manifest declares an overlay file that does not exist in loom):\n  ` +
+          plan.overlay_missing.join("\n  "),
+      );
+    }
+    // #475 D5 — variant_only strip-dirty gate: a variant_only source whose
+    // content the strip transform would change carries BUILD-internal
+    // references INTO a USE template verbatim (variant_only ships as-is by
+    // the #427 contract). That is an authoring defect in the variant
+    // source — block the WRITE and name the fix, never ship the leak.
+    if (plan.variant_only_strippable && plan.variant_only_strippable.length > 0) {
+      fail(
+        1,
+        `variant_only STRIP-DIRTY (#475): ${plan.variant_only_strippable.length} ` +
+          `variant_only source${plan.variant_only_strippable.length === 1 ? "" : "s"} ` +
+          `for variant '${plan.variant}' carr${plan.variant_only_strippable.length === 1 ? "ies" : "y"} ` +
+          `BUILD-internal references. variant_only ADDITIONS ship VERBATIM — ` +
+          `fix the variant source (preview the rewrite with ` +
+          `\`node .claude/bin/lib/strip-build-internal.mjs --check <file>\`):\n  ` +
+          plan.variant_only_strippable.join("\n  "),
       );
     }
   }
@@ -1483,6 +3060,13 @@ export {
   parseArgs,
   parseTiers,
   parseRepos,
+  parseVariantOnly,
+  expandVariantOnly,
+  parseVariants,
+  resolveVariantOverlays,
+  isSlotKeyed,
+  composeOverlayContent,
+  verifyWrittenText,
   parseList,
   sliceBlock,
   globToRegex,
@@ -1492,13 +3076,17 @@ export {
   classifyFile,
   buildPlan,
   safeJoinUnder,
+  safeReadSync,
   snapshotUntrackedFiles,
   verifyCopiedBytes,
   rejectUnsafePurgeEntry,
   parseGitignoreAdditions,
   parseVisibilityGitignoreAdditions,
+  parseGitignoreReincludes,
   readConsumerVisibility,
   effectiveGitignoreAdditions,
+  findSwallowedArtifacts,
+  filterSourceIgnored,
   rejectUnsafeGitignoreEntry,
   composeGitignoreBlock,
   findGitignoreBlock,
@@ -1508,4 +3096,13 @@ export {
   GITIGNORE_MANAGED_END,
   ALWAYS_INCLUDE,
   LOOM_LOCAL_PATTERNS,
+  STRIP_EXCLUDE,
+  isStripEligible,
+  findStrippableVariantOnly,
+  // F11 — BUILD lane
+  resolveBuildDir,
+  verifyConsistency,
+  expectedCopyBytes,
+  emitVerifyText,
+  planCompletenessDefects,
 };

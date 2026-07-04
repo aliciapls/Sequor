@@ -3,6 +3,13 @@ name: codex-architect
 description: Codex artifact architect. Use for .codex/**, MCP guard, hooks, AGENTS.md emission, skills, slash commands.
 tools: Read, Write, Edit, Grep, Glob, Bash, Task
 model: opus
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js"'
+          timeout: 5
 ---
 
 # Codex CLI Architecture Specialist
@@ -175,7 +182,7 @@ When emitting `AGENTS.md` / `.codex/skills/**` OR participating in a `/cli-audit
 ## Full Documentation
 
 - `.claude/sync-manifest.yaml` → `cli_variants` + `parity_enforcement` — emission configuration
-- `workspaces/multi-cli-coc/02-plans/07-loom-multi-cli-spec-v6.md` — authoritative spec
+- (loom-internal reference) — authoritative spec
 - `.claude/rules/variant-authoring.md` — overlay authoring rules
 - `.claude/rules/cross-cli-parity.md` — parity contract
 - `.claude/codex-mcp-guard/README.md` — MCP-guard operational notes
