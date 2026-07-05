@@ -32,14 +32,18 @@ JWT_SECRET=<≥32B> APP_ENV=development .venv/bin/python -m pytest ...`
     over-retention). Shares scheduler plumbing.
   - **1e — R7-01 login/backup separation.** Separate owner-login identity from the escalation
     backup contact; re-point login + escalation; clears the xfail tripwire. Touches auth.
-  - **1f — Account inbound-lookup blind index (NEW, CRITICAL — blocks first prod deploy).**
-    Surfaced by R7 redteam (journal/0013, pre-existing). `email/whatsapp inbound._resolve_account`
-    resolve the tenant by reading Account.owner_email/email_address (EncryptedString since the
-    initial schema) → equality-on-encrypted-column can never match + fail-closes with no tenant
-    known → every inbound webhook 500s in prod. Fix = Account.owner_email_blind_index +
-    email_address_blind_index (mirror BackupContact.email_blind_index), populate in signup,
-    rewrite both resolvers to look up by blind index via raw-`text()` non-encrypted projection
-    (ref: `onboarding/app.py::auth_login`). Tier-2 inbound-resolves-account test.
+  - **1f — Account inbound-lookup blind index (CRITICAL — blocked first prod deploy).**
+    ✅ DONE + redteam-CONVERGED (4 rounds: R1 security+reviewer → R2 adversarial → R3 inline →
+    R4 final-gate CONFIRMED). Closes journal/0013 (AMENDMENT 0014). Commits `aca5672` +
+    `578fd9f` + `4faba46`. Added `Account.owner_email_blind_index` + `email_address_blind_index`
+    (HMAC under the global master-key-derived lookup key; both UNIQUE), populated in signup;
+    rewrote both `inbound._resolve_account` to look up by blind index / plain `whatsapp_phone`
+    via `SessionCrud.raw_execute` (raw `text()` projection, SELECT-only guard) — mirrors
+    `onboarding/app.py::auth_login`. Dev (no master key) falls back to the plaintext ORM path.
+    Declared `alembic>=1.13.0` in pyproject (was imported by migrations but undeclared). Tier-2:
+    5 new tests (incl. UNIQUE regression + a prod-fail-close/resolver-success proof). Unit
+    438/1-xfailed (hermetic both env regimes); Tier-2 51/1-xfailed. 5 LOW/info deferrals tracked
+    in journal/0015 (none block prod).
 
 ### Shard 1b implementation map (derived this session — verify against the live code)
 
