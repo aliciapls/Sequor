@@ -309,10 +309,6 @@ These aggregate patterns are used to set default routing confidence thresholds f
 
 ### Outcome Tracking Instrumentation
 
-The `RoutingOutcome` record model is defined as the instrumentation substrate. The end-to-end learning loop is a scoped moat build tracked in `DEVIATIONS.md` (F3 — routing flywheel), sequenced behind the F5 validation gate; `RoutingThresholdConfig` / `RoutingOutcomeAggregate` are not yet modelled and no outcomes are written today. When built, the loop delivers:
-
-- A `RoutingOutcome` record written at the time of every routing decision, with `resolved_at` and `auto_response_accepted/rejected` updated when the outcome is known (contact responds, escalation acknowledged, etc.)
-- A nightly aggregation job computing per-category acceptance rates and updating the routing model
-- New-tenant onboarding pre-loading industry-specific default thresholds from the aggregate model
+The `RoutingOutcome` record model is defined as the instrumentation substrate. The end-to-end learning loop — an outcome write-path on every routing decision, a nightly aggregation job computing per-category acceptance rates, and per-tenant threshold calibration for new-tenant onboarding — is a scoped moat build tracked in `DEVIATIONS.md` (F3 — routing flywheel), sequenced behind the F5 validation gate. Today only the `RoutingOutcome` model exists; `RoutingThresholdConfig` / `RoutingOutcomeAggregate` are not yet modelled and no outcomes are written.
 
 A competitor replicating the product in 3-6 months gets a working UI. They do not get 2 years of routing outcome data. They cannot replicate the thresholds that were calibrated from real routing decisions across hundreds of businesses.
