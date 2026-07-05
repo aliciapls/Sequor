@@ -175,10 +175,17 @@ class EncryptedString(TypeDecorator):
             # precedence) — NOT a second raw os.environ read that can diverge
             # and default to "development" on a misconfigured deploy.
             if settings.app_env != "development":
+                # Per observability Rule 8, schema-revealing field names MUST
+                # NOT appear at WARN (log aggregators have broader access than
+                # the DB). Emit a hash so operators can grep without leaking the
+                # column name.
+                field_hash = hashlib.sha256((self._field_name or "default").encode()).hexdigest()[
+                    :8
+                ]
                 logger.warning(
                     "encrypted.fail_closed",
                     op="bind",
-                    field_name=self._field_name,
+                    field_hash=field_hash,
                     app_env=settings.app_env,
                 )
                 raise RuntimeError(
@@ -199,10 +206,13 @@ class EncryptedString(TypeDecorator):
             # Fail-CLOSED outside development (see process_bind_param). Source
             # from settings.app_env, not a raw os.environ read.
             if settings.app_env != "development":
+                field_hash = hashlib.sha256((self._field_name or "default").encode()).hexdigest()[
+                    :8
+                ]
                 logger.warning(
                     "encrypted.fail_closed",
                     op="result",
-                    field_name=self._field_name,
+                    field_hash=field_hash,
                     app_env=settings.app_env,
                 )
                 raise RuntimeError(

@@ -17,6 +17,21 @@ import pytest
 from sqlalchemy import text
 
 from sequor.db.database import get_engine, init_db
+from sequor.db.encrypted_column import set_tenant_key
+
+
+@pytest.fixture(autouse=True)
+async def _reset_tenant_key():
+    """Clear the per-tenant encryption contextvar around every integration test.
+
+    pytest-asyncio's per-test event loop already isolates contextvars, but a few
+    tests deliberately `set_tenant_key(None)` to assert fail-close / prove a
+    re-bind. This guard makes that hygiene explicit so a future move to a
+    session-scoped loop can't let a stale key leak across tests.
+    """
+    set_tenant_key(None)
+    yield
+    set_tenant_key(None)
 
 
 @pytest.fixture(autouse=True)

@@ -436,12 +436,17 @@ async def test_erase_contact_pii_encrypts_erasure_markers(db_session):
 
 
 class _FakeEscalationSender:
-    """EmailSender stand-in for the scheduler/escalation flow (no real sends)."""
+    """EmailSender stand-in for the scheduler/escalation flow (no real sends).
+    Records escalation emails so a test can assert the reminder dispatched."""
+
+    def __init__(self):
+        self.escalation_emails_sent = 0
 
     async def send_email(self, **kwargs):
         return "fake-msg-id"
 
     async def send_escalation_email(self, **kwargs):
+        self.escalation_emails_sent += 1
         return "fake-esc-id"
 
 
@@ -490,16 +495,21 @@ async def test_scheduler_binds_tenant_before_processing_breach(db_session):
 
     # Build the scheduler stack on the SAME session as the seed. bind_tenant on
     # the service binds this session, so its encrypted reads/writes decrypt/encrypt.
+    sender = _FakeEscalationSender()
     crud = SessionCrud(db_session)
-    service = EscalationService(db_express=crud, email_sender=_FakeEscalationSender())  # type: ignore[arg-type]
+    service = EscalationService(db_express=crud, email_sender=sender)  # type: ignore[arg-type]
     scheduler = SLAScheduler(service, crud, interval_seconds=999)
     # Clear the key to prove _tick re-binds (it must not rely on the seed's bind).
     set_tenant_key(None)
     await scheduler._tick()
     await db_session.commit()
 
-    # The breach was processed: status moved to expired and resolution_summary
-    # was written through EncryptedString (raw column = ciphertext, not plaintext).
+    # The breach was processed END-TO-END: status moved to expired, the
+    # resolution_summary was written through EncryptedString (raw column =
+    # ciphertext, not plaintext), AND the SLA-breach reminder email dispatched.
+    # Asserting the reminder catches a silent per-tenant `except Exception` that
+    # would otherwise let the test pass while process_breached_escalation aborts
+    # mid-function (the round-2 H1/H2 uuid.UUID-on-UUID-object class).
     raw_summary = (
         await db_session.execute(
             text("SELECT status, resolution_summary FROM escalations WHERE id = :id"),
@@ -509,6 +519,10 @@ async def test_scheduler_binds_tenant_before_processing_breach(db_session):
     assert raw_summary.status == EscalationStatus.expired.value
     assert raw_summary.resolution_summary is not None
     assert "SLA breached" not in raw_summary.resolution_summary  # it's ciphertext
+    assert sender.escalation_emails_sent >= 1, (
+        "SLA-breach reminder did not dispatch — process_breached_escalation "
+        "likely aborted before the reminder (silent tenant_error)"
+    )
 
     # And an ORM read with the key bound decrypts it.
     await set_tenant_context(db_session, tenant_id)

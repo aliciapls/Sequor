@@ -363,15 +363,18 @@ class EscalationService:
             },
         )
 
-        # Write audit trail
+        # Write audit trail. _orm_to_dict returns UUID columns as uuid.UUID
+        # objects, so str()-coerce before uuid.UUID() (uuid.UUID(<UUID>) raises).
         await self._write_audit(
-            tenant_id=uuid.UUID(existing["tenant_id"]),
+            tenant_id=uuid.UUID(str(existing["tenant_id"])),
             action="escalation.resolved",
             doer_type="backup_contact",
-            doer_id=uuid.UUID(existing["backup_contact_id"]),
+            doer_id=uuid.UUID(str(existing["backup_contact_id"])),
             recipient_type="contact",
-            recipient_id=uuid.UUID(existing.get("message_id", str(escalation_id))),
-            message_id=uuid.UUID(existing["message_id"]) if existing.get("message_id") else None,
+            recipient_id=uuid.UUID(str(existing.get("message_id") or escalation_id)),
+            message_id=(
+                uuid.UUID(str(existing["message_id"])) if existing.get("message_id") else None
+            ),
             metadata={"resolution_summary": resolution_summary[:200]},
         )
 
@@ -480,7 +483,7 @@ class EscalationService:
         scheduler tick that reads the escalation after the update will
         see expired and skip it.
         """
-        escalation_id = escalation["id"]
+        escalation_id = str(escalation["id"])
         tier = escalation.get("tier", 1)
 
         current = await self._db.read("Escalation", str(escalation_id))
@@ -553,13 +556,13 @@ class EscalationService:
                         ),
                         body_html=(
                             "<p>The escalation for message "
-                            f"{escalation.get('message_id', 'unknown')[:8]} "
+                            f"{str(escalation.get('message_id', 'unknown'))[:8]} "
                             "has not been acknowledged within the SLA window "
                             "and has been escalated.</p>"
                         ),
                         body_text=(
                             "The escalation for message "
-                            f"{escalation.get('message_id', 'unknown')[:8]} "
+                            f"{str(escalation.get('message_id', 'unknown'))[:8]} "
                             "has not been acknowledged within the SLA window "
                             "and has been escalated."
                         ),

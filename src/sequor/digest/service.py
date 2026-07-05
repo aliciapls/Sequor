@@ -112,7 +112,7 @@ class DigestService:
         results = []
         for account in accounts:
             try:
-                result = await self.send_digest(tenant_id, uuid.UUID(account["id"]))
+                result = await self.send_digest(tenant_id, uuid.UUID(str(account["id"])))
                 if result:
                     results.append(result)
             except Exception:
@@ -128,7 +128,7 @@ class DigestService:
         results = []
         for tenant in tenants:
             try:
-                tenant_results = await self.send_all_accounts(uuid.UUID(tenant["id"]))
+                tenant_results = await self.send_all_accounts(uuid.UUID(str(tenant["id"])))
                 results.extend(tenant_results)
             except Exception:
                 logger.exception(

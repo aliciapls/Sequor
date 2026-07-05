@@ -268,9 +268,9 @@ class InboundEmailProcessor:
 
             loop = LearningLoop(engine=get_engine())
             await loop.capture_human_answer(
-                tenant_id=uuid.UUID(tenant_id),
-                account_id=uuid.UUID(account_id),
-                escalation_id=uuid.UUID(escalation_id),
+                tenant_id=uuid.UUID(str(tenant_id)),
+                account_id=uuid.UUID(str(account_id)),
+                escalation_id=uuid.UUID(str(escalation_id)),
                 original_query=parent["body_text"],
                 human_reply=human_reply or "",
             )
