@@ -161,8 +161,10 @@ class InboundWhatsAppProcessor:
         Production (ENCRYPTION_MASTER_KEY set): ``whatsapp_phone`` is a plain
         column (equality works), but an ORM load would also materialize
         ``owner_email`` (``EncryptedString``) and fail-close before the tenant
-        key is known — use a raw projection of non-encrypted columns. Tries the
-        raw and digit-stripped forms in one query via ``= ANY(:phones)``.
+        key is known — use a raw projection of non-encrypted columns. Queries
+        both the raw and digit-stripped forms in one shot via ``= ANY(:phones)``
+        (row order is unspecified in the implausible case where two accounts
+        hold the two forms).
 
         Dev (no master key): ``owner_email`` materializes as plaintext, so the
         ORM list path works; mirror ``bind_tenant``'s no-op-in-dev split.

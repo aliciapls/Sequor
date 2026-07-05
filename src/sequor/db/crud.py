@@ -116,8 +116,13 @@ class SessionCrud:
         fail-close during an ORM load before the tenant key is set (inbound
         webhook account resolution; mirrors ``onboarding.app.auth_login``).
         Read-only by contract. ``sql`` is a literal in the calling service,
-        never user input; values are bound via ``params``.
+        never user input; values are bound via ``params``. The read-only
+        contract is enforced (not just documented): a statement that isn't a
+        SELECT/WITH is rejected so a future caller can't route DDL/DML through it.
         """
+        head = sql.lstrip().upper()
+        if not head.startswith(("SELECT", "WITH")):
+            raise ValueError("raw_execute is read-only; statement must start with SELECT or WITH")
         result = await self._session.execute(text(sql), params or {})
         return [dict(row) for row in result.mappings().all()]
 

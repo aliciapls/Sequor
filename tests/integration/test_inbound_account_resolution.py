@@ -26,14 +26,15 @@ PostgreSQL under a master key.
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sequor.config import settings
 from sequor.db.crud import SessionCrud
 from sequor.db.database import close_engine, get_engine, init_db
 from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
-from sequor.db.models import Account
-from sequor.db.tenant_context import set_tenant_context
+from sequor.db.models import Account, Tenant
+from sequor.db.tenant_context import reset_key_manager, set_tenant_context
 from sequor.email.inbound import InboundEmailProcessor
 from sequor.onboarding.service import signup
 from sequor.schemas import OnboardingRequest
@@ -170,3 +171,57 @@ async def test_whatsapp_resolver_finds_account_by_phone_under_prod(db_session, m
     assert account is not None
     assert str(account["tenant_id"]) == str(tenant_id)
     assert str(account["id"]) == str(account_id)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_blind_index_rejected_at_db_layer(db_session):
+    """Regression for the UNIQUE constraint on the Account blind-index columns
+    (redteam Security LOW-4). The inbound resolver's LIMIT 1 assumes one account
+    per blind index; a collision would route inbound to an arbitrary tenant.
+    signup's BackupContact dup-check is the happy-path gate, but the DB UNIQUE
+    index is the structural backstop that enforces the invariant regardless of
+    creation path (admin endpoint, import tool, signup race). Two Account rows
+    sharing a blind index MUST be rejected at flush."""
+    reset_key_manager()
+    idx = compute_email_blind_index("dup@uniq.com")
+
+    # Tenant 1 + account carrying the blind index.
+    tenant1 = Tenant(name="uniq1", email_domain="uniq1.com", plan="starter", settings={})
+    db_session.add(tenant1)
+    await db_session.flush()
+    await set_tenant_context(db_session, tenant1.id, provision=True)
+    acct1 = Account(
+        tenant_id=tenant1.id,
+        name="A1",
+        ownership_type="individual",
+        owner_email="dup@uniq.com",
+        owner_email_blind_index=idx,
+        email_address="dup@uniq.com",
+        email_address_blind_index=idx,
+        routing_rules={},
+        escalation_sla_hours=4,
+    )
+    db_session.add(acct1)
+    await db_session.flush()
+
+    # Tenant 2 + a SECOND account with the SAME owner_email_blind_index. signup's
+    # dup-check is bypassed (direct ORM insert); the DB UNIQUE constraint MUST
+    # still reject the colliding row.
+    tenant2 = Tenant(name="uniq2", email_domain="uniq2.com", plan="starter", settings={})
+    db_session.add(tenant2)
+    await db_session.flush()
+    await set_tenant_context(db_session, tenant2.id, provision=True)
+    acct2 = Account(
+        tenant_id=tenant2.id,
+        name="A2",
+        ownership_type="individual",
+        owner_email="dup@uniq.com",
+        owner_email_blind_index=idx,
+        email_address="dup@uniq.com",
+        email_address_blind_index=idx,
+        routing_rules={},
+        escalation_sla_hours=4,
+    )
+    db_session.add(acct2)
+    with pytest.raises(IntegrityError):
+        await db_session.flush()

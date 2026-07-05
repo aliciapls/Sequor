@@ -284,9 +284,14 @@ class Account(Base):
         Index("ix_accounts_tenant_id", "tenant_id"),
         # Blind-index lookups replace ix_accounts_owner_email, which indexed
         # non-deterministic AES-GCM ciphertext and could never serve an equality
-        # lookup (dropped in migration add_account_email_blind_index).
-        Index("ix_accounts_owner_email_blind_index", "owner_email_blind_index"),
-        Index("ix_accounts_email_address_blind_index", "email_address_blind_index"),
+        # lookup (dropped in migration add_account_email_blind_index). The
+        # indexes are UNIQUE so the inbound resolver's LIMIT 1 is provably
+        # correct (one account per inbox address) and a signup race / future
+        # Account-creation path can't silently create a colliding row that would
+        # route inbound to the wrong tenant. NULLs are distinct under PG UNIQUE,
+        # so pre-backfill rows (NULL index) don't conflict.
+        Index("ix_accounts_owner_email_blind_index", "owner_email_blind_index", unique=True),
+        Index("ix_accounts_email_address_blind_index", "email_address_blind_index", unique=True),
         Index("ix_accounts_status", "status"),
     )
 

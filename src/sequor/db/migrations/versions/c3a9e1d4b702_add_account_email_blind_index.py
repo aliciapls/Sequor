@@ -58,11 +58,17 @@ def upgrade() -> None:
         "accounts",
         sa.Column("email_address_blind_index", sa.String(length=64), nullable=True),
     )
-    op.create_index("ix_accounts_owner_email_blind_index", "accounts", ["owner_email_blind_index"])
+    op.create_index(
+        "ix_accounts_owner_email_blind_index",
+        "accounts",
+        ["owner_email_blind_index"],
+        unique=True,
+    )
     op.create_index(
         "ix_accounts_email_address_blind_index",
         "accounts",
         ["email_address_blind_index"],
+        unique=True,
     )
     # Dead weight since Account encryption landed: indexes non-deterministic
     # AES-GCM ciphertext, so no equality lookup can ever use it.

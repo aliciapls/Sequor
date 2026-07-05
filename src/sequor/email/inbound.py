@@ -82,7 +82,7 @@ class InboundEmailProcessor:
 
         account = await self._resolve_account(inbound.to_email)
         if account is None:
-            logger.warning("inbound.no_account", to=inbound.to_email)
+            logger.warning("inbound.no_account", to=_mask_email(inbound.to_email))
             return {"status": "no_account", "from": inbound.from_email}
 
         tenant_id = account["tenant_id"]
