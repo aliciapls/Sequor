@@ -17,17 +17,27 @@ async def test_init_db_creates_all_tables():
             )
 
         expected = [
-            "tenants", "accounts", "backup_contacts", "contacts",
-            "channel_consents", "messages", "classifications",
-            "rag_retrievals", "documents", "document_chunks",
-            "learned_answers", "responses", "escalations",
-            "audit_entries", "routing_outcomes",
+            "tenants",
+            "accounts",
+            "backup_contacts",
+            "contacts",
+            "channel_consents",
+            "messages",
+            "classifications",
+            "rag_retrievals",
+            "documents",
+            "document_chunks",
+            "learned_answers",
+            "responses",
+            "escalations",
+            "audit_entries",
+            "routing_outcomes",
         ]
         for table in expected:
             assert table in tables, f"Table {table!r} not found in database"
 
     finally:
-        await drop_all()
+        await drop_all(force=True)
         await close_engine()
 
 
@@ -38,7 +48,7 @@ async def test_drop_all_removes_tables():
     engine = get_engine()
     try:
         await init_db()
-        await drop_all()
+        await drop_all(force=True)
 
         async with engine.connect() as conn:
             tables = await conn.run_sync(
@@ -46,7 +56,10 @@ async def test_drop_all_removes_tables():
             )
 
         for table in [
-            "tenants", "accounts", "messages", "escalations",
+            "tenants",
+            "accounts",
+            "messages",
+            "escalations",
         ]:
             assert table not in tables, f"Table {table!r} still exists after drop_all"
 

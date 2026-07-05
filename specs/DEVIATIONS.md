@@ -170,3 +170,39 @@ finding) or a security-hardening/flow decision. Builds sequence behind the F5 va
 
 - **Reality:** `auth.py::_signing_secret` deliberately logs `auth.jwt_secret_too_short` and returns a set-but-short secret ("do not hard-break a running deployment"); only the **unset** case fails closed. The R3 merge-gate note states "JWT_SECRET (≥32 bytes)" as if enforced.
 - **Disposition:** claim corrected — a short secret is **warned, not rejected** (128-bit HMAC is still infeasible to brute-force). Recommended hardening: enforce ≥32 bytes at **startup** (consistent with the unset-secret fail-closed boot posture) — an owner deploy-config decision, not changed unprompted here to avoid breaking a running deploy with a short secret.
+
+## R7 additions (2026-07-05 build-wave Tier-2 activation — newly-surfaced)
+
+Evidence: `workspaces/future-of-work/04-validate/round7/` (this session). Surfaced while
+wiring the Tier-2 PostgreSQL feedback loop (dedicated `sequor-test-pg` pgvector container)
+that the A1/A2/F2/A3 build wave requires. The loop had been **dark** — the committed
+integration suite had never run against a live Postgres (stale `drop_all()` calls, no
+per-test DB isolation), which masked the finding below. Wave-0 (green the loop) fixes:
+`drop_all(force=True)` in `test_db_init.py`, `plan "starter"→"free"` (spec-verified: Free is
+the entry tier), and `tests/integration/conftest.py` autouse per-test truncate + per-tenant
+schema drop. Unit suite unaffected (437 pass in the normal env).
+
+### R7-01 — `backup_contacts` conflates owner-login identity with escalation backup contact (HIGH — correctness/routing) — recommend BUILD (own shard)
+
+- **Reality:** `onboarding/service.py` signup creates ONE `BackupContact` row mixing the
+  backup person's `name`/`tier` with the OWNER's `email` + `password_hash` +
+  `email_blind_index`. `backup_contacts` is simultaneously the operator-login table
+  (`onboarding/app.py` login: `WHERE email_blind_index = blind_index(owner_email)` +
+  `verify_password`) AND the escalation recipient table
+  (`escalation/service.py`: tier-1/tier-2 send `to=backup["email"]`).
+- **Impact:** the designated backup person's `backup_email` is **discarded** (only their
+  name is stored); every escalation emails the **account owner**, not the backup person —
+  the backup-contact feature is silently non-functional. The blind-index dedup also keys on
+  the owner's email, so the "duplicate email" check compares owner-vs-owner.
+- **Why it's a design change, not a one-liner:** one row cannot hold both the owner's
+  blind index (login lookup needs `blind_index(owner_email)`) and the backup's email (an
+  `EncryptedString` whose blind index must be consistent with its own value). The two are
+  different people/emails. Correct fix = separate the owner-login identity (own row/table
+  keyed on owner_email + password) from the escalation backup contact (backup person's
+  email), and re-point login + escalation accordingly. Touches auth (security-critical),
+  schema (migration), signup, and escalation routing.
+- **Tripwire:** `tests/integration/test_onboarding_integration.py::test_signup_creates_backup_contact`
+  is `xfail(strict=True)` referencing this row — it auto-fails (XPASS) the moment the fix
+  lands, forcing removal of the marker in the same shard (per `testing.md` xfail-strict).
+- **Disposition:** BUILD as its own value-ranked shard in the build wave (pairs with the
+  A1 data-layer wave — both touch the tenant-key/connection boundary and the same models).

@@ -43,6 +43,7 @@ async def db_session():
 
 def _unique_domain() -> str:
     import uuid
+
     return f"e2e-{uuid.uuid4().hex[:8]}.example.com"
 
 
@@ -66,13 +67,14 @@ async def test_e2e_happy_path_signup_through_digest(db_session):
     result = await signup(db_session, req)
 
     from uuid import UUID
+
     tenant_id = UUID(result["tenant_id"])
     account_id = UUID(result["account_id"])
 
     # Verify tenant created
     tenant = await db_session.get(Tenant, tenant_id)
     assert tenant is not None
-    assert tenant.plan.value == "starter"
+    assert tenant.plan.value == "free"  # new signups land on the Free entry tier
     assert tenant.email_domain == domain
 
     # Verify account created
