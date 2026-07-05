@@ -69,6 +69,19 @@ class _FakeSession:
         self.flushed += 1
 
 
+@pytest.fixture(autouse=True)
+def _stub_tenant_context(monkeypatch):
+    """erase_contact_pii loads the tenant encryption key via set_tenant_context,
+    which queries the DB. These unit tests run against a _FakeSession with no
+    real key, so stub the call to a no-op — the assertions verify the SQL
+    statements issued, not encryption (covered by the Tier-2 erasure test).
+    This makes the suite deterministic whether or not ENCRYPTION_MASTER_KEY
+    happens to be set in the environment."""
+    import sequor.db.tenant_context as _tc
+
+    monkeypatch.setattr(_tc, "set_tenant_context", AsyncMock())
+
+
 class TestEraseContactPII:
     async def test_raises_if_contact_not_found(self):
         session = _FakeSession(contact_found=False)

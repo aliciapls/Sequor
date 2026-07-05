@@ -354,3 +354,66 @@ async def test_learning_raw_sql_encrypts_and_decrypts(db_session):
     ).scalar_one()
     assert orm_la.question_text == "What is your return policy?"
     assert orm_la.answer_text == "Items can be returned within 30 days of purchase."
+
+
+@pytest.mark.asyncio
+async def test_erase_contact_pii_encrypts_erasure_markers(db_session):
+    """The PDPA erasure path writes '[erased]' through EncryptedString under a
+    real per-tenant key: raw columns store ciphertext (not the literal marker,
+    not the original PII), email/phone are NULLed, and ORM reads with the key
+    bound decrypt back to '[erased]'."""
+    from sequor.compliance import erase_contact_pii
+
+    tenant_id, _, _ = await _provision_tenant(db_session, "erasure.test")
+    await set_tenant_context(db_session, tenant_id)
+
+    contact = Contact(tenant_id=tenant_id, email="doomed@erasure.test", name="Real Name")
+    db_session.add(contact)
+    await db_session.flush()
+    contact_id = contact.id
+    msg = Message(
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+        direction=MessageDirection.inbound,
+        channel=MessageChannel.email,
+        subject="Private subject",
+        body_text="Private body",
+    )
+    db_session.add(msg)
+    await db_session.commit()
+    message_id = msg.id
+
+    summary = await erase_contact_pii(db_session, tenant_id, contact_id)
+    await db_session.commit()
+
+    assert "contacts" in summary["tables_affected"]
+    assert "messages" in summary["tables_affected"]
+
+    # Raw columns: the '[erased]' markers were ENCRYPTED (ciphertext, not the
+    # literal marker, not the original PII); email was NULLed.
+    raw_c = (
+        await db_session.execute(
+            text("SELECT name, email FROM contacts WHERE id = :id"), {"id": contact_id}
+        )
+    ).one()
+    assert raw_c.name != "[erased]"
+    assert raw_c.name != "Real Name"
+    assert raw_c.email is None
+    raw_m = (
+        await db_session.execute(
+            text("SELECT subject, body_text FROM messages WHERE id = :id"), {"id": message_id}
+        )
+    ).one()
+    assert raw_m.subject != "[erased]"
+    assert raw_m.subject != "Private subject"
+    assert raw_m.body_text != "Private body"
+
+    # ORM reads (re-bind for the new transaction) decrypt to '[erased]'.
+    from sqlalchemy import select
+
+    await set_tenant_context(db_session, tenant_id)
+    c2 = (await db_session.execute(select(Contact).where(Contact.id == contact_id))).scalar_one()
+    m2 = (await db_session.execute(select(Message).where(Message.id == message_id))).scalar_one()
+    assert c2.name == "[erased]"
+    assert m2.subject == "[erased]"
+    assert m2.body_text == "[erased]"
