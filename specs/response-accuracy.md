@@ -130,8 +130,8 @@ Audit rows are written for every state transition:
 ### Staleness Detection
 
 - Each document has a `last_indexed_at` timestamp
-- If a document's index age exceeds the configured staleness threshold (default: 7 days), RAG retrieval from that document is flagged as potentially stale
-- The response confidence badge MUST include a staleness warning if any retrieved document is >7 days old: "[Sources may be outdated — last updated X days ago]"
+- If a document's index age exceeds the configured **per-document-type** staleness threshold (7 days for rosters/price lists, 30 days for policies — the canonical rule in `rag-pipeline.md`; resolved 2026-07-05 per `DEVIATIONS.md` CS-3), RAG retrieval from that document is flagged as potentially stale
+- The response confidence badge MUST include a staleness warning when any retrieved document is past its type's staleness threshold: "[Sources may be outdated — last updated X days ago]"
 
 ---
 
@@ -163,6 +163,6 @@ Every message, classification, retrieval, response, and escalation is logged. Th
 - Tenant-isolated (no tenant can see another tenant's logs)
 - Immutable (append-only; no deletion)
 - Exportable (user can download their audit log as CSV)
-- Retained for 24 months minimum (PDPA requirement for Singapore)
+- Retained per plan tier — 90 days (Starter), 12 months (Professional), 24 months (Enterprise) — the canonical schedule in `data-model.md`. (PDPA governs retention _limitation_ and protection, not a fixed minimum; the earlier "24 months minimum (PDPA requirement)" was a mis-statement — 24 months is the Enterprise-tier maximum, not a floor. Resolved 2026-07-05 per `DEVIATIONS.md` CS-4.)
 
 The primary user sees on return: a summary email of all messages received during OOO, what was auto-resolved (and the confidence of each), what was escalated, and what is still pending. No dashboard login required — everything is in the inbox.

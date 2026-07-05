@@ -180,7 +180,7 @@ message_id: UUID (FK → Message)
 response_id: UUID (FK → Response, nullable)
 backup_contact_id: UUID (FK → BackupContact)
 tier: integer (1 = primary, 2 = second_tier)
-status: enum (pending, acknowledged, resolved, expired)
+status: enum (pending, acknowledged, resolved, expired, notification_pending)
 priority: enum (low, medium, high, critical)
 assigned_at: timestamp
 acknowledged_at: timestamp (nullable)

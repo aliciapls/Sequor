@@ -23,7 +23,7 @@ WhatsApp Business API enforces a 24-hour session window from the last contact me
 ### Template Message Strategy
 
 - A library of generic templates MUST be pre-approved at onboarding before the first OOO deployment
-- Required templates (minimum set): acknowledgement, OOO notice, escalation notice, urgent routing, "I don't have this information" notice
+- Required templates: these 5 named templates are the mandatory minimum set — acknowledgement, OOO notice, escalation notice, urgent routing, "I don't have this information" notice. Onboarding pre-approves **8 templates total** (these 5 + a 3-template buffer for account-specific needs), per the onboarding checklist below. (Resolves the 5-vs-6-vs-8 drift 2026-07-05 per `DEVIATIONS.md` CS-5: 5 named-required ⊆ 8 pre-approved.)
 - Template approval takes 24-48 hours per new template; this is a one-time onboarding cost
 - Template pool is limited per business account; the system MUST track template usage and request new templates before the pool is exhausted
 
@@ -170,7 +170,7 @@ Email does not have a session window constraint. Messages can be responded to at
 ### Threading Rules
 
 - Use `Message-ID`, `In-Reply-To`, and `References` headers for thread reconstruction
-- Forwarded emails may lose threading headers — fall back to subject-line similarity matching (subject unchanged + same sender within 48hr window)
+- Forwarded emails may lose threading headers — fall back to subject-line similarity matching (subject unchanged + same sender within 72hr window, matching the deduplication window below)
 - CC/BCC semantics: messages CC'd to the primary (who is OOO) are treated as addressed to the system; messages BCC'd require inference from context
 
 ### Email Parsing Requirements
@@ -194,8 +194,8 @@ When the same contact reaches out on WhatsApp and email about the same topic wit
 ### Deduplication Key
 
 - Contact identity resolution: match by email address (primary) + phone number (secondary) + name similarity (tertiary)
-- Content similarity: if same sender within 48hr and subject/query content overlaps >70% (semantic similarity via embedding), treat as same thread
-- Deduplication window: 48 hours from first contact
+- Thread key (shipped mechanism, see `src/sequor/escalation/thread_key.py::derive_thread_key`): a stable `SHA256(normalized_email_or_phone + "|" + extract_topic(first 5 significant words))`. Two messages from the same contact about the same topic share a thread key and are treated as the same thread. (An earlier draft of this spec described an embedding/semantic-similarity match at >70%; that is NOT what ships — the shipped dedup is the deterministic SHA256 thread key. Resolved 2026-07-05 per `specs/DEVIATIONS.md` CS-2.)
+- Deduplication window: 72 hours from first contact (matches `channel-coordination.md` and the shipped 72h thread-key window; resolved 2026-07-05 per `DEVIATIONS.md` CS-1)
 
 ### Unified Backup View
 

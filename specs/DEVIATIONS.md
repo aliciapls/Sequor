@@ -11,8 +11,15 @@ value-ranked wave behind the F5 validation gate) · **COUNSEL-PENDING** (a compl
 decision that needs legal input).
 
 > Convergence note: these are LOGGED deviations, not un-logged divergences — they do not
-> count as open `/redteam` HIGH findings. The BUILD-PENDING / COUNSEL-PENDING items are the
-> product/compliance decisions surfaced for the user in `04-validate/round3/00-DECISION-PACKET-R3.md`.
+> count as open `/redteam` HIGH findings. The BUILD-PENDING items are unbuilt-feature work
+> trackers whose canonical home is the workspace ledger + `04-validate/round3/00-DECISION-PACKET-R3.md`
+> (per `spec-accuracy.md` Rule 4); this register keeps the decision + rationale.
+
+> **RATIFIED 2026-07-05** (user "approved all"): A1 encryption → BUILD (scoped wave, paired
+> with A2); **A2 tenant isolation → PostgreSQL RLS** (below); A3 threshold → the conservative
+> 95%/80–95% Badge table; A4 feature-moats → sequence behind the F5 validation gate; all
+> RECONCILE contradictions → the recommended canonical values, now **applied to the spec files**
+> (see each row). PR #7 merge remains the owner's action (production deploy).
 
 ## FIXED this round (code now matches spec)
 
@@ -49,15 +56,28 @@ decision that needs legal input).
 
 - All 7 `src/sequor/whatsapp/` modules have 0 importing tests, including `signature.py` (webhook HMAC — a security control that works but is untested) and `rate_limiter.py`. → add Tier-1/2 coverage; the signature + rate-limit tests are the highest priority (untested security controls on a shipped channel).
 
-## COUNSEL-PENDING (compliance fact — needs legal input)
+## A2 — Tenant isolation — RESOLVED (2026-07-05, user-ratified): adopt PostgreSQL Row-Level Security (RLS)
 
-### A2 — Schema-per-tenant isolation (HIGH)
+Decision: neither literal schema-per-tenant NOR plain column-isolation — adopt **PostgreSQL Row-Level Security** on the shared schema.
 
-- **Spec:** `data-model.md` "separate schema per tenant … shared schema with tenant_id NOT sufficient for Singapore PDPA".
-- **Reality:** per-tenant schemas created at signup but `get_tenant_session` (`SET search_path`) has ZERO callers; every live path uses `AsyncSession(engine)` + `WHERE tenant_id` on public tables. Isolation hinges on the (now fail-closed) JWT.
-- **Recommendation:** get a PDPA determination first. If column-isolation + strong tenant-scoping is acceptable → AMEND the spec (cheap). If the schema-per-tenant mandate stands → BUILD (route every query through `get_tenant_session`; large invariant-heavy refactor, its own wave). Do NOT amend a written PDPA statement without counsel on record.
+- **Spec today:** `data-model.md` "separate schema per tenant … shared schema with tenant_id NOT sufficient for PDPA".
+- **Reality:** per-tenant schemas created at signup but `get_tenant_session` (the `SET search_path` helper) has ZERO callers; every live path uses `AsyncSession(engine)` + `WHERE tenant_id`. Isolation is **application-enforced only** — one forgotten `WHERE tenant_id` leaks across tenants.
+- **Why RLS is optimal long-term (the analysis):**
+  - The spec's real objection to "just a tenant_id column" is that a column filter is app-enforced — a single missing `WHERE` leaks. RLS moves enforcement **into the database**: `ENABLE ROW LEVEL SECURITY` + `CREATE POLICY tenant_isolation USING (tenant_id = current_setting('app.current_tenant')::uuid)`. The DB refuses another tenant's rows even when app code forgets the filter — the defense-in-depth the spec wants, at a layer an app bug can't bypass.
+  - **Scales** where schema-per-tenant does not: schema-per-tenant sprawls to thousands of schemas and multiplies **every migration** by tenant count; RLS keeps ONE schema + ONE migration path.
+  - **PDPA-defensible:** DB-layer, auditable, declarative per-table policies — the industry-standard multi-tenant Postgres pattern and the modern equivalent of namespace separation. (Confirm-not-block: have counsel confirm DB-enforced RLS meets the PDPA segregation intent.)
+  - **Shares plumbing with A1:** RLS needs `SET app.current_tenant` at every connection checkout — the SAME per-request tenant-context wiring A1's `set_tenant_key` needs. One connection-boundary hook sets both.
+- **Build shape (its own wave, paired with A1):** (1) connection-checkout hook sets `app.current_tenant` (+ encryption key) from the authenticated tenant; (2) RLS-enable + `tenant_isolation` policy migration on every tenant-scoped table; (3) drop the unused per-tenant schemas + `get_tenant_session`; (4) Tier-2 test: a session scoped to tenant A cannot read tenant B even with a filter-less query.
+- **Con (honest):** RLS correctness hinges on the GUC being set on EVERY checkout (a miss = policy sees no tenant → rows hidden → fails closed, safe but breaks the query); policies tested per table. Same discipline as the A1 key plumbing — which is why they pair.
+- **Spec action (deferred to the A1+A2 build wave, so spec + code land together per `spec-accuracy.md`):** amend `data-model.md` "separate schema per tenant" → "DB-enforced tenant isolation via PostgreSQL Row-Level Security (shared schema + per-row `tenant_id` policy)".
 
-## RECONCILE (spec self-contradiction or value mismatch; recommended canonical value — RATIFY/OVERRIDE)
+## RECONCILE — RESOLVED 2026-07-05 (canonical values applied to the spec files)
+
+All rows below were ratified and the canonical value has been **written into the spec files**
+(`message-routing.md`, `rag-pipeline.md`, `data-model.md`, `channel-coordination.md`,
+`response-accuracy.md`). Each spec edit cites this register + the resolution date. The A3 CODE
+unification (auto-send gate) remains a scoped safety-critical shard — the spec horn is resolved
+to the 95% Badge table; the code paths unify in the A3 build (needs Tier-2 PG).
 
 | ID    | Contradiction                                                                                                                                                                                         | Recommended canonical                                                                         | Rationale                                                                                                                                                                                                                                      |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
