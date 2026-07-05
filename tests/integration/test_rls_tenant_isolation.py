@@ -67,6 +67,10 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 GRANT USAGE ON SCHEMA public TO {_RLS_ROLE};
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {_RLS_ROLE};
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {_RLS_ROLE};
+-- Revoke access to the one table this shard EXEMPTS from RLS (chicken-and-egg
+-- with KeyManager): the test role must not normalize direct access to the
+-- encrypted tenant-key blobs, even though it is NOLOGIN/test-only.
+REVOKE SELECT, INSERT, UPDATE, DELETE ON tenant_encryption_keys FROM {_RLS_ROLE};
 """
 
 
@@ -276,9 +280,6 @@ async def test_lookup_function_bypasses_rls_for_tenant_discovery(rls_engine):
     resolution + login. A direct SELECT on accounts under the same (no-bind)
     conditions returns nothing, proving the bypass is scoped to the function."""
     reset_key_manager()
-    async with get_engine().begin() as conn:  # seed via raw connection (owner)
-        # Use a session over the raw conn so set_tenant_context + ORM flush work.
-        pass
 
     # Seed two accounts with distinct blind indexes (encrypted owner_email).
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -287,7 +288,9 @@ async def test_lookup_function_bypasses_rls_for_tenant_discovery(rls_engine):
         _, _, idx_a = await _seed_account_with_blind_index(session, "a@rlslookup.com")
     reset_key_manager()
     async with AsyncSession(get_engine(), expire_on_commit=False) as session:
-        tenant_b, _, idx_b = await _seed_account_with_blind_index(session, "b@rlslookup.com")
+        tenant_b, acct_b_id, idx_b = await _seed_account_with_blind_index(
+            session, "b@rlslookup.com"
+        )
 
     # As the non-superuser role with NO tenant bound:
     async with rls_engine.connect() as conn:
@@ -305,6 +308,28 @@ async def test_lookup_function_bypasses_rls_for_tenant_discovery(rls_engine):
                 )
             ).scalar_one()
             assert str(looked_up) == tenant_b
+
+            # auth_login regression (R1 security HIGH): the lookup returns the
+            # tenant; the caller MUST then bind the tenant before the ORM reload.
+            # Pre-fix the reload ran with no GUC → fail-closed → operator=None.
+            # Prove the bind→reload sequence now works: bind tenant B's GUC, then
+            # a direct SELECT for account B's id returns the row.
+            reload_pre = (
+                await conn.execute(
+                    text("SELECT id FROM accounts WHERE id = :id"), {"id": acct_b_id}
+                )
+            ).first()
+            assert reload_pre is None, "pre-bind reload must be RLS-hidden (the HIGH bug scenario)"
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :tid, true)"),
+                {"tid": tenant_b},
+            )
+            reload_post = (
+                await conn.execute(
+                    text("SELECT id FROM accounts WHERE id = :id"), {"id": acct_b_id}
+                )
+            ).first()
+            assert reload_post is not None, "post-bind reload must see the row (the fix)"
 
             # And account A by its index.
             looked_a = (

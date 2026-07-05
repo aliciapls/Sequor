@@ -597,9 +597,8 @@ async def auth_login(request: Request):
         return JSONResponse(status_code=400, content={"detail": "Email and password required"})
 
     from sequor.db.database import get_engine
-    from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
+    from sequor.db.encrypted_column import compute_email_blind_index
     from sequor.auth import verify_password, create_access_token_for_operator
-    from sequor.db.encryption_keys import KeyManager
     from sequor.config import settings
     from sqlalchemy import select
     from sequor.db.models import BackupContact, Account
@@ -653,12 +652,17 @@ async def auth_login(request: Request):
                 contact["tier"].value if hasattr(contact["tier"], "value") else str(contact["tier"])
             )
 
-            # Now set tenant key so we can read encrypted columns
-            km = KeyManager(settings.encryption_master_key)
-            tenant_key = await km.get_tenant_key(session, UUID(op_tenant_id))
-            set_tenant_key(tenant_key)
+            # Bind the operator's tenant — installs the encryption key AND sets
+            # the RLS GUC — so the ORM re-selects below (canonical email,
+            # account name) are scoped to this tenant under RLS. The lookup
+            # function above bypassed RLS to FIND the row; this re-bind scopes
+            # the reload. bind_tenant uses the shared KeyManager singleton (LRU
+            # key cache) rather than the ad-hoc KeyManager() it replaces.
+            from sequor.db.tenant_context import bind_tenant
 
-            # Load the full ORM object now that tenant key is set
+            await bind_tenant(session, UUID(op_tenant_id))
+
+            # Load the full ORM object now that tenant key + RLS GUC are set
             result = await session.execute(
                 select(BackupContact).where(BackupContact.id == contact["id"])
             )

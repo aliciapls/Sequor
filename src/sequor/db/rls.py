@@ -42,8 +42,23 @@ role separation that makes it effective.
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
+
+# Defense-in-depth (dataflow-identifier-safety Rule 5): the table names below are
+# interpolated into DDL f-strings. They are a hardcoded literal (never config or
+# user input), but validating them at apply time guards against a future refactor
+# that reads the list from a less-trusted source.
+_IDENTIFIER_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+
+def _check_identifier(name: str) -> str:
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"unsafe SQL identifier in TENANT_SCOPED_TABLES: {name!r}")
+    return name
+
 
 # Every table that carries a per-row tenant_id and is therefore subject to the
 # tenant_isolation policy. Mirrors the __tablename__ values in models.py that have
@@ -79,6 +94,7 @@ async def apply_rls_and_policies(conn: AsyncConnection) -> None:
     functions. Safe to run on every init_db() / create_all bootstrap.
     """
     for tbl in TENANT_SCOPED_TABLES:
+        _check_identifier(tbl)  # defense-in-depth before DDL interpolation
         # ENABLE is a no-op if already enabled.
         await conn.execute(text(f'ALTER TABLE "{tbl}" ENABLE ROW LEVEL SECURITY'))
         # CREATE POLICY has no IF NOT EXISTS in PG; drop-then-create is idempotent.
