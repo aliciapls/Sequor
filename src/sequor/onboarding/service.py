@@ -211,19 +211,10 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     account.backup_contact_ids = [backup.id]
     session.add(account)
 
-    # 5. Create tenant schema for isolation
-    try:
-        from sequor.db.schema_manager import create_tenant_schema, tenant_id_to_schema
-
-        schema_name = tenant_id_to_schema(tenant.id)
-        tenant.schema_name = schema_name
-        session.add(tenant)
-
-        conn = await session.connection()
-        await create_tenant_schema(conn, schema_name)
-        logger.info("onboarding.schema_created", schema_name=schema_name)
-    except Exception:
-        logger.exception("onboarding.schema_creation_failed", tenant_id=str(tenant.id))
+    # Tenant isolation is DB-enforced via Row-Level Security on the shared
+    # schema (db.rls, shard 1c) — no per-tenant PostgreSQL schema is provisioned
+    # at signup. The retired schema-per-tenant mechanism (schema_manager) had no
+    # callers; RLS replaces it. See DEVIATIONS §A2.
 
     # Capture IDs before commit
     tenant_id = str(tenant.id)

@@ -66,6 +66,28 @@ def reset_key_manager() -> None:
     _key_manager = None
 
 
+async def _set_rls_guc(session: AsyncSession, tenant_id: UUID | str) -> None:
+    """Set the transaction-local ``app.current_tenant`` GUC (the RLS policy input).
+
+    ``is_local=true`` (SET LOCAL) scopes the GUC to the current transaction so it
+    clears on commit/rollback and can never leak to the next checkout of a pooled
+    connection — the pool-safety invariant the ``tenant_isolation`` RLS policy
+    relies on. Parameterized so the uuid text can't inject.
+
+    Split out of ``set_tenant_context`` so the GUC can be set on its own when the
+    per-tenant encryption key is unavailable (dev without a master key): RLS
+    enforcement is independent of encryption, so the GUC must be set in BOTH the
+    production (key + GUC) and dev (GUC only) branches — otherwise the RLS
+    policy hides every tenant-scoped row in dev.
+    """
+    if isinstance(tenant_id, str):
+        tenant_id = UUID(tenant_id)
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', :tid, true)"),
+        {"tid": str(tenant_id)},
+    )
+
+
 async def set_tenant_context(
     session: AsyncSession,
     tenant_id: UUID | str,
@@ -92,12 +114,8 @@ async def set_tenant_context(
     else:
         key = await km.get_tenant_key(session, tenant_id)
     _encrypted_column.set_tenant_key(key)
-    # RLS GUC — transaction-local (is_local=true) so it never leaks across pooled
-    # connections. Parameterized so the uuid can't inject.
-    await session.execute(
-        text("SELECT set_config('app.current_tenant', :tid, true)"),
-        {"tid": str(tenant_id)},
-    )
+    # RLS GUC (transaction-local so it never leaks across pooled connections).
+    await _set_rls_guc(session, tenant_id)
     return key
 
 
@@ -107,14 +125,21 @@ async def bind_tenant(
     *,
     provision: bool = False,
 ) -> None:
-    """Set tenant context IFF encryption is configured; no-op otherwise.
+    """Bind *session* to *tenant_id* for BOTH encryption and RLS.
 
-    The one-liner every write/read path calls. When ENCRYPTION_MASTER_KEY is set
-    (always, in production) this binds the session to the tenant so encrypted
-    columns work. When unset (local dev), it no-ops — matching EncryptedString's
-    dev fail-open; in production the master key is present so context is always
-    set, and if it were somehow missing EncryptedString still fails CLOSED
-    (app_env != "development" raises), never silent plaintext.
+    The one-liner every write/read path calls.
+
+    - Production (``ENCRYPTION_MASTER_KEY`` set): installs the per-tenant AES key
+      AND sets the RLS GUC via ``set_tenant_context``.
+    - Dev (no master key): encryption is fail-open per ``EncryptedString``, but
+      the RLS GUC is STILL set — without it the ``tenant_isolation`` policy would
+      hide every tenant-scoped row. Encryption fail-open does NOT imply RLS
+      fail-open; the two are independent and RLS is enforced in dev too.
+
+    If the master key is somehow missing in production, ``EncryptedString``
+    fails CLOSED (``app_env != "development"`` raises), never silent plaintext.
     """
     if settings.encryption_master_key:
         await set_tenant_context(session, tenant_id, provision=provision)
+    else:
+        await _set_rls_guc(session, tenant_id)

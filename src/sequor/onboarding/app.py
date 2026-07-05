@@ -610,13 +610,16 @@ async def auth_login(request: Request):
         async with AsyncSession(engine) as session:
             blind_index = compute_email_blind_index(email)
             # Use raw SQL to avoid triggering EncryptedString decryption
-            # before we have the tenant key set
+            # before we have the tenant key set. Route through the SECURITY
+            # DEFINER lookup function so the query bypasses RLS — login is a
+            # cross-tenant lookup (any backup contact, any tenant, can log in);
+            # the session has no tenant bound yet.
             from sqlalchemy import text
 
             row = await session.execute(
                 text(
                     "SELECT id, tenant_id, account_id, name, password_hash, tier "
-                    "FROM backup_contacts WHERE email_blind_index = :idx AND active = true"
+                    "FROM resolve_backup_contact_by_email_blind_index(:idx)"
                 ),
                 {"idx": blind_index},
             )

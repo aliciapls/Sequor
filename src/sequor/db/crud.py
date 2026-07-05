@@ -58,6 +58,21 @@ class SessionCrud:
 
         await _bind_tenant(self._session, tenant_id)
 
+    async def commit(self) -> None:
+        """Commit the underlying session's current transaction.
+
+        Exposed so background loops that share one session across tenants (the
+        SLA scheduler) can put a per-tenant commit boundary in place: the RLS GUC
+        is set transaction-local (``SET LOCAL``), so committing clears it and the
+        next tenant starts a fresh transaction with no tenant bound — preventing
+        one tenant's GUC from leaking into another's query window.
+        """
+        await self._session.commit()
+
+    async def rollback(self) -> None:
+        """Roll back the underlying session's current transaction."""
+        await self._session.rollback()
+
     async def list(self, model_name: str, filters: dict[str, Any] | None = None) -> list[dict]:
         model = _get_model(model_name)
         stmt = select(model)

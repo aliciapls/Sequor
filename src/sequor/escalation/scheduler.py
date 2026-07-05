@@ -80,7 +80,27 @@ class SLAScheduler:
                     for esc in breached:
                         await self._service.process_breached_escalation(esc)
                         total_processed += 1
+                    # Per-tenant commit boundary. The RLS GUC is set transaction-
+                    # local (SET LOCAL via bind_tenant), so committing here:
+                    #   (a) clears the GUC — the next tenant starts a fresh
+                    #       transaction with no tenant bound, then rebinds;
+                    #   (b) isolates a tenant's writes from the next tenant's
+                    #       (a failure rolled back below cannot un-roll a tenant
+                    #       that already committed).
+                    # Without this boundary one session-spanning transaction would
+                    # either hold the first tenant's GUC stale across the loop or,
+                    # under autocommit, lose the GUC between statements.
+                    await self._db.commit()
                 except Exception:
+                    # Roll back this tenant's partial work so the next tenant's
+                    # bind_tenant starts from a clean transaction (the GUC and
+                    # any unflushed writes do not leak forward).
+                    try:
+                        await self._db.rollback()
+                    except Exception:
+                        logger.exception(
+                            "scheduler.tenant_rollback_failed", tenant_id=tenant.get("id")
+                        )
                     logger.exception(
                         "scheduler.tenant_error",
                         tenant_id=tenant.get("id"),

@@ -184,11 +184,13 @@ class InboundWhatsAppProcessor:
 
         cleaned = to_phone.replace("+", "").replace("-", "").replace(" ", "")
         candidates = [to_phone] if cleaned == to_phone else [to_phone, cleaned]
+        # Route through the SECURITY DEFINER lookup function so the query bypasses
+        # RLS — this lookup IS the tenant discovery (it must cross tenants to find
+        # which tenant owns the phone). A direct SELECT on accounts under RLS
+        # would see no rows (the inbound request has no tenant bound yet).
         rows = await self._db.raw_execute(
             "SELECT id, tenant_id, name, whatsapp_phone, status "
-            "FROM accounts "
-            "WHERE whatsapp_phone = ANY(:phones) "
-            "LIMIT 1",
+            "FROM resolve_account_by_phone(:phones)",
             {"phones": candidates},
         )
         return rows[0] if rows else None

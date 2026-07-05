@@ -33,6 +33,12 @@ class FakeExpress:
     async def bind_tenant(self, tenant_id) -> None:
         """No-op stand-in for SessionCrud.bind_tenant (unit tests run without a master key)."""
 
+    async def commit(self) -> None:
+        """No-op stand-in for SessionCrud.commit (per-tenant boundary; in-memory fake has no txn)."""
+
+    async def rollback(self) -> None:
+        """No-op stand-in for SessionCrud.rollback (in-memory fake has no txn to roll back)."""
+
     def _ensure_model(self, model: str) -> None:
         if model not in self.storage:
             self.storage[model] = {}

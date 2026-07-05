@@ -347,12 +347,12 @@ class InboundEmailProcessor:
         from sequor.db.encrypted_column import compute_email_blind_index
 
         idx = compute_email_blind_index(to_email)
+        # Route through the SECURITY DEFINER lookup function so the query bypasses
+        # RLS — this lookup IS the tenant discovery (it must cross tenants to find
+        # which tenant owns the address). A direct SELECT on accounts under RLS
+        # would see no rows (the inbound request has no tenant bound yet).
         rows = await self._db.raw_execute(
-            "SELECT id, tenant_id, name, status "
-            "FROM accounts "
-            "WHERE owner_email_blind_index = :idx "
-            "OR email_address_blind_index = :idx "
-            "LIMIT 1",
+            "SELECT id, tenant_id, name, status " "FROM resolve_account_by_email_blind_index(:idx)",
             {"idx": idx},
         )
         return rows[0] if rows else None

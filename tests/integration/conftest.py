@@ -41,11 +41,15 @@ async def _clean_db():
     # Idempotent: creates tables + pgvector extension if missing.
     await init_db()
     async with engine.begin() as conn:
-        # Drop any per-tenant schemas left by prior signup tests. The signup flow
-        # provisions a `tenant_<uuid>` schema per tenant; Base.metadata.drop_all
-        # only touches `public`, so these accumulate and their columns pin shared
-        # enum types (ownership_type), breaking a later drop_all(). CASCADE clears
-        # them fully. (These schemas are the isolation mechanism A2/RLS replaces.)
+        # Drop any per-tenant schemas left by prior signup tests on this shared
+        # PG instance. Shard 1c RETIRED the schema-per-tenant mechanism (signup
+        # no longer provisions `tenant_<uuid>` schemas; isolation is now
+        # DB-enforced via RLS on the shared schema — see db.rls), but this loop
+        # remains as defensive cleanup for schemas created by older test runs
+        # before the retirement: Base.metadata.drop_all only touches `public`,
+        # so without this they accumulate and their columns pin shared enum
+        # types (ownership_type), breaking a later drop_all(). CASCADE clears
+        # them fully. A no-op on any 1c-or-later DB.
         tenant_schemas = await conn.execute(
             text(
                 "SELECT schema_name FROM information_schema.schemata "
