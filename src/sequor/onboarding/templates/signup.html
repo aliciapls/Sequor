@@ -319,6 +319,8 @@
 
         .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
 
+        .try-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; max-width: 760px; margin: 0 auto; align-items: start; }
+
         .pricing-card {
             background: white;
             border: 1.5px solid var(--slate-200);
@@ -500,7 +502,7 @@
             <span class="logo-text">Sequor</span>
         </a>
         <div class="nav-buttons">
-            <a href="/portal/login" class="btn-ghost">Log in</a>
+            <a href="/portal/signin" class="btn-ghost">Log in</a>
             <a href="/portal/signup" class="btn-nav-primary">Get started</a>
         </div>
     </div>
@@ -512,8 +514,8 @@
         <h1>Instant AI replies from your documents.<br>Escalations that actually need it.</h1>
         <p>Connect WhatsApp and email, add your documents, and Sequor answers clients for you — escalating only what truly needs a human.</p>
         <div class="hero-actions">
-            <a href="/portal/signup" class="btn-primary-lg">Start free trial</a>
-            <a href="/portal/signin" class="btn-outline-lg">Sign in</a>
+            <a href="/portal/login" class="btn-primary-lg">See sandbox demo</a>
+            <a href="mailto:hello@sequor.app" class="btn-outline-lg">Talk to us</a>
         </div>
     </div>
 </section>
@@ -603,11 +605,42 @@
     </div>
 </div>
 
+<!-- Two ways to try Sequor -->
+<section class="pricing">
+    <div class="section-label">Get started</div>
+    <h2 class="section-title">Two ways to try Sequor</h2>
+    <p class="section-subtitle">No account wall — pick the path that fits.</p>
+    <div class="try-grid">
+        <div class="pricing-card">
+            <div class="pricing-name">Sandbox demo</div>
+            <div class="pricing-desc">Zero setup · 30 seconds</div>
+            <div class="pricing-divider"></div>
+            <ul class="pricing-features">
+                <li>A pre-loaded sample company with real documents and incoming messages</li>
+                <li>Watch Sequor resolve live client queries, instantly</li>
+                <li>No signup and no commitment</li>
+            </ul>
+            <a href="/portal/login" class="btn-pricing btn-pricing-primary">Open the sandbox</a>
+        </div>
+        <div class="pricing-card">
+            <div class="pricing-name">Guided trial</div>
+            <div class="pricing-desc">Onboarded on a call</div>
+            <div class="pricing-divider"></div>
+            <ul class="pricing-features">
+                <li>We load your documents with you and tune the replies live</li>
+                <li>A design-partner pilot, carried forward under a new label</li>
+                <li>Your setup effort becomes your retention</li>
+            </ul>
+            <a href="mailto:hello@sequor.app" class="btn-pricing btn-pricing-outline">Book a guided trial</a>
+        </div>
+    </div>
+</section>
+
 <!-- Pricing -->
 <section class="pricing">
     <div class="section-label">Pricing</div>
     <h2 class="section-title">Flat pricing. No per-seat surprises.</h2>
-    <p class="section-subtitle">One price per plan — invite your whole team. 14-day free trial, no credit card required.</p>
+    <p class="section-subtitle">Try the sandbox demo first — zero setup — then book a guided trial on a call.</p>
 
     <div class="pricing-grid">
         <div class="pricing-card">
@@ -623,7 +656,7 @@
                 <li>RAG auto-replies</li>
                 <li>30-day audit log</li>
             </ul>
-            <a href="/portal/signup" class="btn-pricing btn-pricing-outline">Start free trial</a>
+            <a href="mailto:hello@sequor.app" class="btn-pricing btn-pricing-outline">Contact us</a>
         </div>
 
         <div class="pricing-card featured">
@@ -639,7 +672,7 @@
                 <li>90-day audit trail</li>
                 <li>Priority support</li>
             </ul>
-            <a href="/portal/signup" class="btn-pricing btn-pricing-primary">Start free trial</a>
+            <a href="mailto:hello@sequor.app" class="btn-pricing btn-pricing-primary">Contact us</a>
         </div>
 
         <div class="pricing-card">
@@ -655,7 +688,7 @@
                 <li>Advanced analytics</li>
                 <li>PDPA compliance report</li>
             </ul>
-            <a href="/portal/signup" class="btn-pricing btn-pricing-outline">Start free trial</a>
+            <a href="mailto:hello@sequor.app" class="btn-pricing btn-pricing-outline">Contact us</a>
         </div>
     </div>
 </section>
@@ -664,9 +697,9 @@
 <section class="cta">
     <div class="cta-inner">
         <h2>Start covering your clients today</h2>
-        <p>Connect your channels and documents in under 5 minutes. No credit card required.</p>
+        <p>Explore the sandbox demo in 30 seconds, or book a guided trial and we'll onboard you on a call.</p>
         <div class="cta-actions">
-            <a href="/portal/signup" class="btn-white-lg">Start free trial</a>
+            <a href="mailto:hello@sequor.app" class="btn-white-lg">Book a guided trial</a>
             <a href="/portal/signin" class="btn-white-outline-lg">Sign in</a>
         </div>
     </div>
