@@ -319,14 +319,43 @@ class InboundEmailProcessor:
             )
 
     async def _resolve_account(self, to_email: str) -> dict | None:
-        lower = to_email.lower()
-        by_email = await self._db.list("Account", {"email_address": lower})
-        if by_email:
-            return by_email[0]
-        by_owner = await self._db.list("Account", {"owner_email": lower})
-        if by_owner:
-            return by_owner[0]
-        return None
+        """Resolve the destination mailbox to an Account.
+
+        Production (ENCRYPTION_MASTER_KEY set): ``owner_email``/``email_address``
+        are ``EncryptedString`` (random AES-GCM nonce per write), so an equality
+        filter on the ciphertext never matches and an ORM load would call
+        ``process_result_value`` and fail-close before the tenant key is known.
+        Look up by the global email blind index via a raw projection of
+        non-encrypted columns — mirrors ``onboarding.app.auth_login``.
+
+        Dev (no master key): ``EncryptedString`` stores plaintext and no blind
+        index exists, so fall back to plaintext equality on the ORM path. This
+        mirrors ``bind_tenant``'s no-op-in-dev split.
+        """
+        from sequor.config import settings
+
+        if not settings.encryption_master_key:
+            lower = to_email.lower()
+            by_email = await self._db.list("Account", {"email_address": lower})
+            if by_email:
+                return by_email[0]
+            by_owner = await self._db.list("Account", {"owner_email": lower})
+            if by_owner:
+                return by_owner[0]
+            return None
+
+        from sequor.db.encrypted_column import compute_email_blind_index
+
+        idx = compute_email_blind_index(to_email)
+        rows = await self._db.raw_execute(
+            "SELECT id, tenant_id, name, status "
+            "FROM accounts "
+            "WHERE owner_email_blind_index = :idx "
+            "OR email_address_blind_index = :idx "
+            "LIMIT 1",
+            {"idx": idx},
+        )
+        return rows[0] if rows else None
 
     async def _resolve_or_create_contact(
         self,

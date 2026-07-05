@@ -255,6 +255,14 @@ class Account(Base):
     email_address: Mapped[Optional[str]] = mapped_column(
         EncryptedString(field_name="email_address"), nullable=True
     )
+    # Blind indexes for inbound account resolution. owner_email/email_address are
+    # EncryptedString (random GCM nonce per write → equality on ciphertext never
+    # matches; ORM load fail-closes before the tenant key is known). The blind
+    # index is an HMAC under the GLOBAL master-key-derived lookup key (see
+    # compute_email_blind_index), so inbound webhooks resolve the tenant without
+    # a tenant key — mirrors BackupContact.email_blind_index.
+    owner_email_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    email_address_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     whatsapp_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     backup_contact_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid), nullable=True)
     routing_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -274,7 +282,11 @@ class Account(Base):
 
     __table_args__ = (
         Index("ix_accounts_tenant_id", "tenant_id"),
-        Index("ix_accounts_owner_email", "owner_email"),
+        # Blind-index lookups replace ix_accounts_owner_email, which indexed
+        # non-deterministic AES-GCM ciphertext and could never serve an equality
+        # lookup (dropped in migration add_account_email_blind_index).
+        Index("ix_accounts_owner_email_blind_index", "owner_email_blind_index"),
+        Index("ix_accounts_email_address_blind_index", "email_address_blind_index"),
         Index("ix_accounts_status", "status"),
     )
 

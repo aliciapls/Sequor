@@ -2,11 +2,13 @@
 the db_express pattern (list/create/read/update with model name strings).
 """
 
+from __future__ import annotations
+
 import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger()
@@ -102,6 +104,22 @@ class SessionCrud:
                 setattr(obj, key, value)
         await self._session.flush()
         return _orm_to_dict(obj)
+
+    async def raw_execute(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute raw SQL and return rows as plain dicts (column-name keyed).
+
+        Use for projections that MUST bypass ORM materialization — notably
+        resolving a tenant/account by a NON-encrypted key when the same row has
+        ``EncryptedString`` columns whose ``process_result_value`` would
+        fail-close during an ORM load before the tenant key is set (inbound
+        webhook account resolution; mirrors ``onboarding.app.auth_login``).
+        Read-only by contract. ``sql`` is a literal in the calling service,
+        never user input; values are bound via ``params``.
+        """
+        result = await self._session.execute(text(sql), params or {})
+        return [dict(row) for row in result.mappings().all()]
 
 
 def _orm_to_dict(obj: Any) -> dict[str, Any]:

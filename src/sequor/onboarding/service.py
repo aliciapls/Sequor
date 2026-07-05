@@ -170,15 +170,20 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         logger.exception("onboarding.encryption_key_failed", tenant_id=str(tenant.id))
         raise RuntimeError("Failed to provision tenant encryption key")
 
-    # 3. Create Account (encrypted columns require tenant key set above)
+    # 3. Create Account (encrypted columns require tenant key set above).
+    # Populate BOTH email blind indexes (email_index computed above) so inbound
+    # webhooks can resolve the account without decrypting owner_email/email_address
+    # (shard 1f; see email/whatsapp inbound._resolve_account).
     routing_rules = ROUTING_RULES[request.routing_rule]
     account = Account(
         tenant_id=tenant.id,
         name=request.account_name,
         ownership_type=request.ownership_type,
         owner_email=request.owner_email,
+        owner_email_blind_index=email_index,
         channels=["email"],
         email_address=request.owner_email,
+        email_address_blind_index=email_index,
         routing_rules=routing_rules,
         confidence_threshold=0.90,
         escalation_sla_hours=request.escalation_sla_hours,
