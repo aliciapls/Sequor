@@ -108,13 +108,10 @@ async def erase_contact_pii(
     # 2. Load tenant encryption key so encrypted columns can be updated
     try:
         from sequor.config import settings
-        from sequor.db.encryption_keys import KeyManager
-        from sequor.db.encrypted_column import set_tenant_key
+        from sequor.db.tenant_context import set_tenant_context
 
         if settings.encryption_master_key:
-            km = KeyManager(settings.encryption_master_key)
-            key = await km.get_tenant_key(session, tenant_id)
-            set_tenant_key(key)
+            await set_tenant_context(session, tenant_id)
     except Exception:
         logger.exception("compliance.erasure_key_failed", tenant_id=str(tenant_id))
         raise RuntimeError("Cannot load tenant encryption key for erasure")

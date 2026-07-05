@@ -58,8 +58,10 @@ class _FakeSession:
         self.flushed = 0
         self._existing_account = existing_account
 
-    async def execute(self, stmt):
-        # Return mock result for the duplicate email check
+    async def execute(self, stmt, params=None):
+        # Mirror AsyncSession.execute(statement, params=None): the tenant-context
+        # boundary sets the RLS GUC via execute(text(...), {params}). Return the
+        # duplicate-email mock result for the signup path's select.
         return _FakeResult(first_val=self._existing_account)
 
     def add(self, obj):
@@ -187,7 +189,9 @@ class TestOnboardingSchemaProvisioning:
         MockKM.return_value = mock_km_instance
 
         session = _FakeSession()
-        with patch("sequor.db.schema_manager.create_tenant_schema", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "sequor.db.schema_manager.create_tenant_schema", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.side_effect = RuntimeError("Schema creation failed")
             result = await signup(session, _valid_request())
 

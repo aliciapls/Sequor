@@ -27,6 +27,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode(), password_hash.encode())
 
+
 # Pre-defined routing rule templates that map to database JSONB values.
 # Each template defines which categories get auto-replied vs escalated.
 ROUTING_RULES = {
@@ -154,18 +155,14 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     # 2. Provision encryption key BEFORE creating encrypted records
     try:
         from sequor.config import settings as app_settings
-        from sequor.db.encryption_keys import KeyManager
-        from sequor.db.encrypted_column import set_tenant_key
+        from sequor.db.tenant_context import set_tenant_context
 
         if app_settings.encryption_master_key:
-            km = KeyManager(app_settings.encryption_master_key)
-            tenant_key = await km.provision_tenant_key(session, tenant.id)
-            set_tenant_key(tenant_key)
+            await set_tenant_context(session, tenant.id, provision=True)
             logger.info("onboarding.encryption_key_provisioned", tenant_id=str(tenant.id))
         else:
             raise RuntimeError(
-                "ENCRYPTION_MASTER_KEY is not configured. "
-                "Set it in .env before running signup."
+                "ENCRYPTION_MASTER_KEY is not configured. " "Set it in .env before running signup."
             )
     except RuntimeError:
         raise
@@ -246,5 +243,3 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         "account_id": account_id,
         "backup_contact_id": backup_id,
     }
-
-
