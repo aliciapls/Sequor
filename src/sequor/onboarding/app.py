@@ -926,6 +926,9 @@ async def portal_api_messages(request: Request, limit: int = 50, offset: int = 0
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Message, Contact)
             .join(Contact, Message.contact_id == Contact.id)
@@ -972,6 +975,9 @@ async def portal_api_escalations(request: Request, limit: int = 50, offset: int 
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Escalation, Message, Contact, BackupContact)
             .join(Message, Escalation.message_id == Message.id)
@@ -1033,6 +1039,9 @@ async def portal_api_escalation_resolve(request: Request, esc_id: str):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         await session.execute(
             update(Escalation)
             .where(Escalation.tenant_id == tenant_id, Escalation.id == esc_id)
@@ -1056,6 +1065,9 @@ async def portal_api_escalation_detail(request: Request, esc_id: str):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Escalation, Message, Contact, BackupContact)
             .join(Message, Escalation.message_id == Message.id)
@@ -1116,6 +1128,9 @@ async def portal_api_contacts(request: Request, limit: int = 100, offset: int = 
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Contact)
             .where(Contact.tenant_id == tenant_id)

@@ -39,6 +39,23 @@ class SessionCrud:
         self._session = session
         self._session_inner = session
 
+    async def bind_tenant(self, tenant_id: Any) -> None:
+        """Bind this session to a tenant for encrypted-column access.
+
+        A1 (encryption) + A2 (RLS GUC) both derive from the tenant, so one call
+        installs the per-tenant key in the context var ``EncryptedString`` reads
+        and sets the ``app.current_tenant`` GUC on the current transaction.
+        No-op when ``ENCRYPTION_MASTER_KEY`` is unset (local dev fail-open) per
+        ``tenant_context.bind_tenant``.
+
+        Services that receive a ``SessionCrud`` via injection (inbound/escalation/
+        digest) call this once the tenant is known — typically right after account
+        resolution and before the first encrypted-column write/read.
+        """
+        from sequor.db.tenant_context import bind_tenant as _bind_tenant
+
+        await _bind_tenant(self._session, tenant_id)
+
     async def list(self, model_name: str, filters: dict[str, Any] | None = None) -> list[dict]:
         model = _get_model(model_name)
         stmt = select(model)
@@ -69,7 +86,9 @@ class SessionCrud:
         row = result.scalar_one_or_none()
         return _orm_to_dict(row) if row else None
 
-    async def update(self, model_name: str, record_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+    async def update(
+        self, model_name: str, record_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         model = _get_model(model_name)
         stmt = select(model).where(model.id == uuid.UUID(record_id))
         result = await self._session.execute(stmt)
@@ -87,10 +106,12 @@ class SessionCrud:
 
 def _orm_to_dict(obj: Any) -> dict[str, Any]:
     """Convert an ORM object to a plain dict."""
-    result = {}
+    result: dict[str, Any] = {}
     for col in obj.__table__.columns:
         val = getattr(obj, col.name, None)
-        if hasattr(val, "value"):
-            val = val.value
+        # Enum members expose ``.value``; extract so the dict carries the scalar
+        # enum value, not the member. ``getattr``-with-default returns ``val``
+        # itself when no ``value`` attribute exists (plain str/int/datetime/None).
+        val = getattr(val, "value", val)
         result[col.name] = val
     return result

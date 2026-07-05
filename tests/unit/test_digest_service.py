@@ -19,6 +19,9 @@ class FakeExpress:
     def __init__(self, storage: dict | None = None):
         self.storage: dict[str, dict[str, dict]] = storage or {}
 
+    async def bind_tenant(self, tenant_id) -> None:
+        """No-op stand-in for SessionCrud.bind_tenant (unit tests run without a master key)."""
+
     def _ensure_model(self, model: str) -> None:
         if model not in self.storage:
             self.storage[model] = {}
@@ -83,9 +86,7 @@ class TestDigestService:
         email = FakeEmailSender()
         service = DigestService(db, email)
 
-        result = await service.send_digest(
-            uuid.UUID(tenant_id), uuid.UUID(account_id)
-        )
+        result = await service.send_digest(uuid.UUID(tenant_id), uuid.UUID(account_id))
 
         assert result is not None
         assert result["sent_to"] == "backup@test.com"
@@ -129,9 +130,7 @@ class TestDigestService:
         email = FakeEmailSender()
         service = DigestService(db, email)
 
-        result = await service.send_digest(
-            uuid.UUID(tenant_id), uuid.UUID(account_id)
-        )
+        result = await service.send_digest(uuid.UUID(tenant_id), uuid.UUID(account_id))
 
         assert result is None
         assert len(email.sent) == 0

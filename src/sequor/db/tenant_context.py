@@ -68,7 +68,7 @@ def reset_key_manager() -> None:
 
 async def set_tenant_context(
     session: AsyncSession,
-    tenant_id: UUID,
+    tenant_id: UUID | str,
     *,
     provision: bool = False,
 ) -> bytes:
@@ -77,7 +77,15 @@ async def set_tenant_context(
     Returns the 32-byte tenant key. With ``provision=True`` a new key is
     generated and stored (signup); otherwise the existing key is loaded (raising
     if the tenant has none). Requires ENCRYPTION_MASTER_KEY to be set.
+
+    ``tenant_id`` may be a ``UUID`` or a string; a string is coerced so callers
+    that read the id from an ORM dict (where it round-trips as ``str``) do not
+    have to convert at every site. ``None`` and non-string values pass through
+    unchanged (the provisioning path tolerates a not-yet-flushed id under mocked
+    sessions; production always supplies a real UUID).
     """
+    if isinstance(tenant_id, str):
+        tenant_id = UUID(tenant_id)
     km = get_key_manager()
     if provision:
         key = await km.provision_tenant_key(session, tenant_id)

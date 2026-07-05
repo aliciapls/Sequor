@@ -36,12 +36,22 @@ async def db_session():
 async def _setup_escalation_test(session: AsyncSession, sla_hours: int = 1):
     """Create tenant, account, contacts for escalation testing."""
     import uuid
+
     domain = f"esc-{uuid.uuid4().hex[:8]}.test"
 
     tenant = Tenant(name="Esc Test", email_domain=domain, plan="starter", settings={})
     session.add(tenant)
     await session.flush()
     tenant_id = tenant.id
+
+    # Provision an encryption key for this tenant, mirroring signup. Tests that
+    # bypass signup and create tenants directly MUST do this: every production
+    # tenant has a key, so bind_tenant fail-closes without one. Binding here
+    # also makes the seed's encrypted Account/BackupContact writes consistent.
+    from sequor.db.tenant_context import reset_key_manager, set_tenant_context
+
+    reset_key_manager()
+    await set_tenant_context(session, tenant_id, provision=True)
 
     account = Account(
         tenant_id=tenant_id,
@@ -58,12 +68,20 @@ async def _setup_escalation_test(session: AsyncSession, sla_hours: int = 1):
     account_id = account.id
 
     primary = BackupContact(
-        tenant_id=tenant_id, account_id=account_id,
-        name="Primary Backup", email=f"primary@{domain}", tier="primary", active=True,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        name="Primary Backup",
+        email=f"primary@{domain}",
+        tier="primary",
+        active=True,
     )
     secondary = BackupContact(
-        tenant_id=tenant_id, account_id=account_id,
-        name="Secondary Backup", email=f"secondary@{domain}", tier="second_tier", active=True,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        name="Secondary Backup",
+        email=f"secondary@{domain}",
+        tier="second_tier",
+        active=True,
     )
     session.add_all([primary, secondary])
     await session.flush()
@@ -91,8 +109,10 @@ async def test_escalation_to_primary_backup(db_session):
     tenant_id, account_id, primary_id, _, contact_id = await _setup_escalation_test(db_session)
 
     msg = Message(
-        tenant_id=tenant_id, contact_id=contact_id,
-        direction="inbound", channel="email",
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+        direction="inbound",
+        channel="email",
         body_text="Complex legal question about contract terms",
         received_at=datetime.now(timezone.utc),
     )
@@ -100,8 +120,10 @@ async def test_escalation_to_primary_backup(db_session):
     await db_session.flush()
 
     esc = Escalation(
-        tenant_id=tenant_id, message_id=msg.id,
-        backup_contact_id=primary_id, tier=1,
+        tenant_id=tenant_id,
+        message_id=msg.id,
+        backup_contact_id=primary_id,
+        tier=1,
         status=EscalationStatus.pending,
         priority=EscalationPriority.high,
         assigned_at=datetime.now(timezone.utc),
@@ -117,11 +139,15 @@ async def test_escalation_to_primary_backup(db_session):
 @pytest.mark.asyncio
 async def test_sla_breach_detection(db_session):
     """Escalation past SLA deadline is flagged as breached."""
-    tenant_id, account_id, primary_id, _, contact_id = await _setup_escalation_test(db_session, sla_hours=1)
+    tenant_id, account_id, primary_id, _, contact_id = await _setup_escalation_test(
+        db_session, sla_hours=1
+    )
 
     msg = Message(
-        tenant_id=tenant_id, contact_id=contact_id,
-        direction="inbound", channel="email",
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+        direction="inbound",
+        channel="email",
         received_at=datetime.now(timezone.utc) - timedelta(hours=3),
     )
     db_session.add(msg)
@@ -129,8 +155,10 @@ async def test_sla_breach_detection(db_session):
 
     # Assigned 3 hours ago, 1-hour SLA = breached
     esc = Escalation(
-        tenant_id=tenant_id, message_id=msg.id,
-        backup_contact_id=primary_id, tier=1,
+        tenant_id=tenant_id,
+        message_id=msg.id,
+        backup_contact_id=primary_id,
+        tier=1,
         status=EscalationStatus.pending,
         priority=EscalationPriority.high,
         assigned_at=datetime.now(timezone.utc) - timedelta(hours=3),
@@ -145,11 +173,15 @@ async def test_sla_breach_detection(db_session):
 @pytest.mark.asyncio
 async def test_second_tier_escalation(db_session):
     """When primary doesn't respond, escalation goes to secondary."""
-    tenant_id, account_id, primary_id, secondary_id, contact_id = await _setup_escalation_test(db_session)
+    tenant_id, account_id, primary_id, secondary_id, contact_id = await _setup_escalation_test(
+        db_session
+    )
 
     msg = Message(
-        tenant_id=tenant_id, contact_id=contact_id,
-        direction="inbound", channel="email",
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+        direction="inbound",
+        channel="email",
         body_text="Urgent matter requiring attention",
         received_at=datetime.now(timezone.utc) - timedelta(hours=5),
     )
@@ -158,8 +190,10 @@ async def test_second_tier_escalation(db_session):
 
     # Tier 1 escalation (primary)
     esc1 = Escalation(
-        tenant_id=tenant_id, message_id=msg.id,
-        backup_contact_id=primary_id, tier=1,
+        tenant_id=tenant_id,
+        message_id=msg.id,
+        backup_contact_id=primary_id,
+        tier=1,
         status=EscalationStatus.pending,
         priority=EscalationPriority.critical,
         assigned_at=datetime.now(timezone.utc) - timedelta(hours=5),
@@ -168,8 +202,10 @@ async def test_second_tier_escalation(db_session):
 
     # Tier 2 escalation (secondary) after SLA expired
     esc2 = Escalation(
-        tenant_id=tenant_id, message_id=msg.id,
-        backup_contact_id=secondary_id, tier=2,
+        tenant_id=tenant_id,
+        message_id=msg.id,
+        backup_contact_id=secondary_id,
+        tier=2,
         status=EscalationStatus.pending,
         priority=EscalationPriority.critical,
         assigned_at=datetime.now(timezone.utc) - timedelta(hours=1),
@@ -185,19 +221,25 @@ async def test_second_tier_escalation(db_session):
 @pytest.mark.asyncio
 async def test_breached_items_appear_in_digest(db_session):
     """Breached escalations are visible in the formatted digest."""
-    tenant_id, account_id, primary_id, _, contact_id = await _setup_escalation_test(db_session, sla_hours=1)
+    tenant_id, account_id, primary_id, _, contact_id = await _setup_escalation_test(
+        db_session, sla_hours=1
+    )
 
     msg = Message(
-        tenant_id=tenant_id, contact_id=contact_id,
-        direction="inbound", channel="email",
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+        direction="inbound",
+        channel="email",
         received_at=datetime.now(timezone.utc) - timedelta(hours=4),
     )
     db_session.add(msg)
     await db_session.flush()
 
     esc = Escalation(
-        tenant_id=tenant_id, message_id=msg.id,
-        backup_contact_id=primary_id, tier=1,
+        tenant_id=tenant_id,
+        message_id=msg.id,
+        backup_contact_id=primary_id,
+        tier=1,
         status=EscalationStatus.pending,
         priority=EscalationPriority.high,
         assigned_at=datetime.now(timezone.utc) - timedelta(hours=4),
@@ -206,6 +248,7 @@ async def test_breached_items_appear_in_digest(db_session):
     await db_session.commit()
 
     from sequor.digest.service import format_digest_email
+
     data = await gather_digest_data(db_session, tenant_id, account_id, hours=24)
     _, body = format_digest_email(data)
 

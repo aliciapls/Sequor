@@ -88,6 +88,13 @@ class InboundEmailProcessor:
         tenant_id = account["tenant_id"]
         account_id = account["id"]
 
+        # Bind this session to the resolved tenant BEFORE any encrypted-column
+        # write/read (Contact.name, Message.subject/body_text/body_raw,
+        # Escalation.resolution_summary, LearnedAnswer.*). The session is shared
+        # across the whole request, so one bind covers every downstream CRUD
+        # call in this flow. No-op without ENCRYPTION_MASTER_KEY (dev fail-open).
+        await self._db.bind_tenant(tenant_id)
+
         contact = await self._resolve_or_create_contact(
             tenant_id=tenant_id,
             email=inbound.from_email,

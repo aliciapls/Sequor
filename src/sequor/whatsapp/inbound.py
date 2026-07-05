@@ -78,6 +78,12 @@ class InboundWhatsAppProcessor:
         tenant_id = account["tenant_id"]
         account_id = account["id"]
 
+        # Bind this session to the resolved tenant BEFORE any encrypted-column
+        # write/read (Contact.name, Message.body_text). The session is shared
+        # across the whole request, so one bind covers every downstream CRUD
+        # call. No-op without ENCRYPTION_MASTER_KEY (dev fail-open).
+        await self._db.bind_tenant(tenant_id)
+
         # 2. Resolve or create Contact by phone number
         contact = await self._resolve_or_create_contact(
             tenant_id=tenant_id,
@@ -178,12 +184,15 @@ class InboundWhatsAppProcessor:
         if existing:
             return existing[0]
 
-        contact = await self._db.create("Contact", {
-            "id": str(uuid.uuid4()),
-            "tenant_id": tenant_id,
-            "phone": phone,
-            "name": name or phone,
-        })
+        contact = await self._db.create(
+            "Contact",
+            {
+                "id": str(uuid.uuid4()),
+                "tenant_id": tenant_id,
+                "phone": phone,
+                "name": name or phone,
+            },
+        )
         logger.info(
             "whatsapp.inbound.contact_created",
             contact_id=contact["id"],
@@ -240,22 +249,28 @@ class InboundWhatsAppProcessor:
     ) -> None:
         """Create a ChannelConsent record on first WhatsApp contact."""
         try:
-            existing = await self._db.list("ChannelConsent", {
-                "contact_id": contact_id,
-                "channel": ConsentChannel.whatsapp.value,
-            })
+            existing = await self._db.list(
+                "ChannelConsent",
+                {
+                    "contact_id": contact_id,
+                    "channel": ConsentChannel.whatsapp.value,
+                },
+            )
             if existing:
                 return
 
-            await self._db.create("ChannelConsent", {
-                "id": str(uuid.uuid4()),
-                "tenant_id": tenant_id,
-                "contact_id": contact_id,
-                "account_id": account_id,
-                "channel": ConsentChannel.whatsapp.value,
-                "opt_in_method": OptInMethod.first_contact_notice.value,
-                "opt_in_at": datetime.now(timezone.utc),
-            })
+            await self._db.create(
+                "ChannelConsent",
+                {
+                    "id": str(uuid.uuid4()),
+                    "tenant_id": tenant_id,
+                    "contact_id": contact_id,
+                    "account_id": account_id,
+                    "channel": ConsentChannel.whatsapp.value,
+                    "opt_in_method": OptInMethod.first_contact_notice.value,
+                    "opt_in_at": datetime.now(timezone.utc),
+                },
+            )
             logger.info(
                 "whatsapp.inbound.consent_created",
                 contact_id=contact_id,
