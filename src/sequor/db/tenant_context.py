@@ -91,3 +91,22 @@ async def set_tenant_context(
         {"tid": str(tenant_id)},
     )
     return key
+
+
+async def bind_tenant(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    provision: bool = False,
+) -> None:
+    """Set tenant context IFF encryption is configured; no-op otherwise.
+
+    The one-liner every write/read path calls. When ENCRYPTION_MASTER_KEY is set
+    (always, in production) this binds the session to the tenant so encrypted
+    columns work. When unset (local dev), it no-ops — matching EncryptedString's
+    dev fail-open; in production the master key is present so context is always
+    set, and if it were somehow missing EncryptedString still fails CLOSED
+    (app_env != "development" raises), never silent plaintext.
+    """
+    if settings.encryption_master_key:
+        await set_tenant_context(session, tenant_id, provision=provision)

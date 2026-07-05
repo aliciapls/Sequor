@@ -232,16 +232,22 @@ class AutoReplyService:
         badge = ConfidenceBadge(response_result.confidence_badge)
 
         async with AsyncSession(get_engine()) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
-            record = await crud.create("responses", {
-                "tenant_id": context.tenant_id,
-                "message_id": context.message_id,
-                "content": response_result.content,
-                "confidence_badge": badge.value,
-                "confidence_score": response_result.confidence_score,
-                "was_auto_sent": response_result.was_auto_sent,
-                "sent_at": now if response_result.was_auto_sent else None,
-            })
+            record = await crud.create(
+                "responses",
+                {
+                    "tenant_id": context.tenant_id,
+                    "message_id": context.message_id,
+                    "content": response_result.content,
+                    "confidence_badge": badge.value,
+                    "confidence_score": response_result.confidence_score,
+                    "was_auto_sent": response_result.was_auto_sent,
+                    "sent_at": now if response_result.was_auto_sent else None,
+                },
+            )
             await session.commit()
 
         resp_id = record.get("id")
@@ -275,6 +281,9 @@ class AutoReplyService:
 
         engine = get_engine()
         async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
             svc = EscalationService(db_express=crud, email_sender=self._email)
 

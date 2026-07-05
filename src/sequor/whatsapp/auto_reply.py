@@ -245,16 +245,22 @@ class WhatsAppAutoReplyService:
         badge = ConfidenceBadge(response_result.confidence_badge)
 
         async with AsyncSession(get_engine()) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
-            record = await crud.create("responses", {
-                "tenant_id": context.tenant_id,
-                "message_id": context.message_id,
-                "content": response_result.content,
-                "confidence_badge": badge.value,
-                "confidence_score": response_result.confidence_score,
-                "was_auto_sent": response_result.was_auto_sent,
-                "sent_at": now if response_result.was_auto_sent else None,
-            })
+            record = await crud.create(
+                "responses",
+                {
+                    "tenant_id": context.tenant_id,
+                    "message_id": context.message_id,
+                    "content": response_result.content,
+                    "confidence_badge": badge.value,
+                    "confidence_score": response_result.confidence_score,
+                    "was_auto_sent": response_result.was_auto_sent,
+                    "sent_at": now if response_result.was_auto_sent else None,
+                },
+            )
             await session.commit()
 
         resp_id = record.get("id")
@@ -284,6 +290,9 @@ class WhatsAppAutoReplyService:
 
         engine = get_engine()
         async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
             # Escalation service needs an email sender — pass a no-op one for WhatsApp
             email_sender: EmailSender = SendGridEmailSender()
@@ -372,4 +381,3 @@ class WhatsAppAutoReplyService:
         if len(phone) > 6:
             return phone[:4] + "***" + phone[-2:]
         return "****"
-
