@@ -111,6 +111,32 @@ def compute_email_blind_index(email: str) -> str:
 _NONCE_LENGTH = 12  # AES-GCM recommended nonce size
 
 
+def encrypt_field(tenant_key: bytes, field_name: Optional[str], value: str) -> str:
+    """Encrypt *value* to base64(``nonce || ciphertext``) under a per-field key.
+
+    This is the single crypto implementation shared by the ``EncryptedString``
+    TypeDecorator (ORM path) AND raw-SQL call sites (e.g. the pgvector learned-
+    answer store) so both surfaces produce byte-compatible ciphertext. The
+    ``field_name`` MUST match the value the ORM column declares, otherwise the
+    HKDF-derived per-field key differs and decryption fails.
+    """
+    field_key = derive_field_key(tenant_key, field_name or "default")
+    nonce = os.urandom(_NONCE_LENGTH)
+    aesgcm = AESGCM(field_key)
+    ciphertext = aesgcm.encrypt(nonce, value.encode("utf-8"), None)
+    return b64encode(nonce + ciphertext).decode("ascii")
+
+
+def decrypt_field(tenant_key: bytes, field_name: Optional[str], value: str) -> str:
+    """Inverse of :func:`encrypt_field`. Raises on tag mismatch / bad base64."""
+    field_key = derive_field_key(tenant_key, field_name or "default")
+    raw = b64decode(value)
+    nonce = raw[:_NONCE_LENGTH]
+    ciphertext = raw[_NONCE_LENGTH:]
+    aesgcm = AESGCM(field_key)
+    return aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
+
+
 class EncryptedString(TypeDecorator):
     """SQLAlchemy type that transparently encrypts/decrypts string values.
 
@@ -145,13 +171,7 @@ class EncryptedString(TypeDecorator):
                 )
             return value  # store plaintext ONLY in development
 
-        field_name = self._field_name or "default"
-        field_key = derive_field_key(tenant_key, field_name)
-
-        nonce = os.urandom(_NONCE_LENGTH)
-        aesgcm = AESGCM(field_key)
-        ciphertext = aesgcm.encrypt(nonce, value.encode("utf-8"), None)
-        return b64encode(nonce + ciphertext).decode("ascii")
+        return encrypt_field(tenant_key, self._field_name, value)
 
     def process_result_value(self, value: Any, dialect: Any) -> Optional[str]:
         """Decrypt *value* after it is read from the database."""
@@ -169,12 +189,4 @@ class EncryptedString(TypeDecorator):
                 )
             return value  # return plaintext as-is ONLY in development
 
-        field_name = self._field_name or "default"
-        field_key = derive_field_key(tenant_key, field_name)
-
-        raw = b64decode(value)
-        nonce = raw[:_NONCE_LENGTH]
-        ciphertext = raw[_NONCE_LENGTH:]
-        aesgcm = AESGCM(field_key)
-        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-        return plaintext.decode("utf-8")
+        return decrypt_field(tenant_key, self._field_name, value)
