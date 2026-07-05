@@ -30,7 +30,7 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from sequor.config import settings
 
@@ -66,13 +66,17 @@ def reset_key_manager() -> None:
     _key_manager = None
 
 
-async def _set_rls_guc(session: AsyncSession, tenant_id: UUID | str) -> None:
+async def _set_rls_guc(session: AsyncSession | AsyncConnection, tenant_id: UUID | str) -> None:
     """Set the transaction-local ``app.current_tenant`` GUC (the RLS policy input).
 
     ``is_local=true`` (SET LOCAL) scopes the GUC to the current transaction so it
     clears on commit/rollback and can never leak to the next checkout of a pooled
     connection — the pool-safety invariant the ``tenant_isolation`` RLS policy
     relies on. Parameterized so the uuid text can't inject.
+
+    Accepts either an ``AsyncSession`` or a raw ``AsyncConnection`` (both expose
+    ``execute``); the raw-connection form serves endpoints that run tenant-scoped
+    raw SQL without an ORM session (e.g. portal document delete).
 
     Split out of ``set_tenant_context`` so the GUC can be set on its own when the
     per-tenant encryption key is unavailable (dev without a master key): RLS
