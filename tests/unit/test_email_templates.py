@@ -107,6 +107,14 @@ class TestEscalationEmail:
         assert "Ref: " in subject
         assert ESCALATION_ID[:8] in subject
 
+    def test_subject_handles_uuid_escalation_id(self):
+        # Regression: production passes escalation_record["id"] (a uuid.UUID from
+        # _orm_to_dict), not a str. build_escalation_subject must str()-coerce
+        # before [:8] or it raises 'UUID object is not subscriptable'.
+        data = _escalation_data(escalation_id=uuid.UUID("12345678-1234-5678-1234-567812345678"))
+        subject = build_escalation_subject(data)
+        assert "Ref: 12345678" in subject
+
     def test_text_contains_client_info(self):
         html, text = build_escalation_email(_escalation_data())
         assert "Jane Smith" in text
@@ -241,9 +249,7 @@ class TestWeeklyRecapEmail:
         assert "refund" in text
 
     def test_top_topics_capped_at_five(self):
-        data = _weekly_data(
-            top_topics=["a", "b", "c", "d", "e", "f", "g"]
-        )
+        data = _weekly_data(top_topics=["a", "b", "c", "d", "e", "f", "g"])
         html, text = build_weekly_recap_email(data)
         assert text.count("\n - ") <= 5 or "f" not in text.split("Most common")[1][:100]
 
