@@ -21,6 +21,15 @@ decision that needs legal input).
 > RECONCILE contradictions → the recommended canonical values, now **applied to the spec files**
 > (see each row). PR #7 merge remains the owner's action (production deploy).
 
+> **R5 holistic redteam 2026-07-05** (post-ratification re-derivation, 4 parallel auditors,
+> re-derived from scratch): the R1–R4 defect fixes all HOLD (0 CRITICAL / 0 HIGH un-logged
+> defects). R5 closed the two RECONCILE residuals the banner above over-claimed as fully applied
+> — **CS-5** (message-routing named-template count reconciled 5→6 to match the shipped list) and
+> **CS-6** (Free-tier 7-day row added to `data-model.md`'s retention table) — added 3 behavioral
+> regression tests (keyphrase name-resolution, 500-no-traceback-leak, WhatsApp constant-time
+> verify), 1 code hardening (R5-02), and logged 6 further spec-vs-code divergences + 2 security
+> findings in the **§ R5 additions** section at the foot of this file.
+
 ## FIXED this round (code now matches spec)
 
 | ID    | Spec claim                                             | Fix                                                   |
@@ -117,3 +126,47 @@ multi-account tenants become a supported shape, add an account linkage to `Messa
 ## Architecture note (whole-codebase, out of redteam scope)
 
 Sequor's data layer is raw SQLAlchemy + FastAPI, not DataFlow. The framework-first hook fires on every `src/` edit; a DataFlow migration is a whole-codebase architectural decision, out of this redteam's scope. Logged so the recurring hook advisory is not mistaken for a per-edit defect.
+
+## R5 additions (2026-07-05 holistic redteam — newly-logged divergences)
+
+Evidence: `workspaces/future-of-work/04-validate/round5/`. None is a live CRITICAL/HIGH defect;
+each is a spec-vs-code under-delivery (now LOGGED, so it does not count as an open `/redteam`
+finding) or a security-hardening/flow decision. Builds sequence behind the F5 validation gate.
+
+### F1 — Upload malware scan (MED) — recommend BUILD
+
+- **Spec:** `rag-pipeline.md` upload flow "File is scanned for malware (ClamAV or equivalent) before processing" — now softened to a deviation pointer.
+- **Reality:** no malware/AV scan in `src/sequor/` (`grep -rni 'malware\|clamav\|virus' src/sequor/` → 0). Uploads are size-bounded (25MB) + extension/filename validated, but not AV-scanned.
+- **Disposition:** BUILD behind F5 (needs an AV service/daemon — a provisioning decision, class of N3). Size + extension + path-traversal guards ship today.
+
+### F2 — PDPA retention-purge job (HIGH — compliance) — recommend BUILD
+
+- **Spec:** `data-model.md` retention schedule "enforced via a nightly batch job that purges records older than the retention period" — now softened to "policy-defined but not machine-enforced (F2)".
+- **Reality:** no purge/retention job exists (`grep -rni 'purge\|nightly\|retention.*job' src/sequor/` → 0). Retention periods are documented policy but nothing deletes expired rows.
+- **Why it matters:** PDPA **over-retention** risk — customer PII is kept indefinitely past its stated retention period. This is the highest-priority logged item after A1; recommend a scheduled purge job (needs the scheduler infra + Tier-2 verification) sequenced with the A1/A2 data-layer wave.
+
+### F3 — Routing flywheel not built (MED) — recommend BUILD (A4-themed moat)
+
+- **Spec:** `message-routing.md` § Outcome Tracking Instrumentation previously claimed "not a future feature … architected from day 1" — now corrected.
+- **Reality:** `RoutingOutcome` model class exists (`db/models.py`) but **no code writes rows**; `RoutingThresholdConfig` / `RoutingOutcomeAggregate` have **no model class**; no nightly aggregation job. The learning loop is unbuilt.
+- **Disposition:** BUILD behind F5 as an A4-class moat feature (outcome write path → nightly aggregate → per-tenant threshold calibration). Needs Tier-2.
+
+### NEW-8 — WhatsApp auto-reply footer missing confidence + "Reply STOP" opt-out (HIGH) — recommend BUILD
+
+(Defines the id referenced by the A1/NEW-1 row above.) **Spec:** `response-accuracy.md` requires the WhatsApp auto-reply footer to carry "[Auto-generated; N% confidence. Reply STOP to opt out]". **Reality:** the WhatsApp footer omits both the confidence figure and the "Reply STOP" opt-out phrasing. Pairs with NEW-1 (confidence badge) — same badge/footer render build on the WhatsApp channel, behind F5.
+
+### rag-uncited-1 — ANY-uncited (1–50%) does not reduce confidence / route to backup (MED)
+
+- **Spec:** `rag-pipeline.md` § Hallucination Detection — "If un-cited claims are found: response is flagged, confidence reduced, and routed to backup review" (i.e. ANY un-cited claim, not only >50%).
+- **Reality:** the code acts only at the `>50%` **rejection** threshold; the 1–50% "reduce confidence + route to backup" sub-threshold path is not implemented. Predates this branch (the R3 per-claim fix corrected the >50% math only).
+- **Disposition:** RECONCILE — either build the 1–50% graded-confidence path (safety-improving) or amend the spec to the shipped binary rule. A product/safety call; pairs with the A3 auto-send-gate shard (needs Tier-2).
+
+### R5-01 — Onboarding document upload is unauthenticated / tenant-unproven (MED — security, flow decision)
+
+- **Reality:** `POST /api/v1/onboarding/upload` (`onboarding/app.py::upload_document`) takes `tenant_id`/`account_id` as attacker-supplied form fields, validates only UUID-parse, and ingests into that tenant's RAG store with **no auth / no ownership proof** → a RAG-poisoning vector. Mitigations that ship today: `tenant_id` is an unguessable 122-bit UUID, the row FK requires the tenant to pre-exist, and the endpoint is rate-limited (20/hr).
+- **Disposition:** the auth-gating half is a **flow decision** (same class as N2 — does the pre-login onboarding wizard call this endpoint before a session exists?). Recommend gating behind a short-lived onboarding token; requires the onboarding-flow decision. The memory-bound half (R3) is fixed and holds.
+
+### R5-03 — JWT_SECRET ≥32-byte floor is warned, not enforced (LOW — claim accuracy)
+
+- **Reality:** `auth.py::_signing_secret` deliberately logs `auth.jwt_secret_too_short` and returns a set-but-short secret ("do not hard-break a running deployment"); only the **unset** case fails closed. The R3 merge-gate note states "JWT_SECRET (≥32 bytes)" as if enforced.
+- **Disposition:** claim corrected — a short secret is **warned, not rejected** (128-bit HMAC is still infeasible to brute-force). Recommended hardening: enforce ≥32 bytes at **startup** (consistent with the unset-secret fail-closed boot posture) — an owner deploy-config decision, not changed unprompted here to avoid breaking a running deploy with a short secret.

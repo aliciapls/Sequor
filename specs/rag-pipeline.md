@@ -24,8 +24,8 @@ The RAG (Retrieval-Augmented Generation) pipeline answers routine queries from t
 
 - User uploads a file via the onboarding wizard
 - Supported formats: PDF, DOCX, XLSX, CSV, TXT, PNG (OCR), JPG (OCR)
-- Maximum file size: 25MB
-- File is scanned for malware (ClamAV or equivalent) before processing
+- Maximum file size: 25MB (enforced; oversized uploads are rejected before buffering)
+- Malware scanning (ClamAV or equivalent) before processing is a scoped build tracked in `DEVIATIONS.md` (F1 — upload malware scan) and is **not yet implemented**
 - Upload generates a `Document` record with status `pending`
 
 ### 2. Parsing

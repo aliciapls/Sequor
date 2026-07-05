@@ -48,7 +48,7 @@ class TestSignupPage:
         "tripwire — NOT rewritten to match the current form, which would mask the field-name "
         "mismatch. Disposition is a product decision (see round3/00-DECISION-PACKET-R3.md F8 "
         "+ specs/DEVIATIONS.md).",
-        strict=False,
+        strict=True,
     )
     def test_contains_form(self, client):
         res = client.get("/")

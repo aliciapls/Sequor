@@ -23,7 +23,7 @@ WhatsApp Business API enforces a 24-hour session window from the last contact me
 ### Template Message Strategy
 
 - A library of generic templates MUST be pre-approved at onboarding before the first OOO deployment
-- Required templates: these 5 named templates are the mandatory minimum set — acknowledgement, OOO notice, escalation notice, urgent routing, "I don't have this information" notice. Onboarding pre-approves **8 templates total** (these 5 + a 3-template buffer for account-specific needs), per the onboarding checklist below. (Resolves the 5-vs-6-vs-8 drift 2026-07-05 per `DEVIATIONS.md` CS-5: 5 named-required ⊆ 8 pre-approved.)
+- Required templates: these 6 named templates are the mandatory minimum set — acknowledgement, OOO notice, escalation notice, "I don't have this information" notice, human-override, urgent routing (matching the 6 template ids enumerated under "Minimum required templates" below). Onboarding pre-approves **8 templates total** (these 6 + a 2-template buffer for account-specific needs), per the onboarding checklist below. (Resolves the 5-vs-6-vs-8 drift 2026-07-05 per `DEVIATIONS.md` CS-5: 6 named-required ⊆ 8 pre-approved.)
 - Template approval takes 24-48 hours per new template; this is a one-time onboarding cost
 - Template pool is limited per business account; the system MUST track template usage and request new templates before the pool is exhausted
 
@@ -309,11 +309,10 @@ These aggregate patterns are used to set default routing confidence thresholds f
 
 ### Outcome Tracking Instrumentation
 
-This is not a future feature. It is architected from day 1:
+The `RoutingOutcome` record model is defined as the instrumentation substrate. The end-to-end learning loop is a scoped moat build tracked in `DEVIATIONS.md` (F3 — routing flywheel), sequenced behind the F5 validation gate; `RoutingThresholdConfig` / `RoutingOutcomeAggregate` are not yet modelled and no outcomes are written today. When built, the loop delivers:
 
-- Every routing decision logs a `RoutingOutcome` record at the time of routing
-- The `resolved_at` and `auto_response_accepted/rejected` fields are updated when the outcome is known (contact responds, escalation acknowledged, etc.)
-- A nightly aggregation job computes per-category acceptance rates and updates the routing model
-- New tenant onboarding pre-loads industry-specific default thresholds from the aggregate model
+- A `RoutingOutcome` record written at the time of every routing decision, with `resolved_at` and `auto_response_accepted/rejected` updated when the outcome is known (contact responds, escalation acknowledged, etc.)
+- A nightly aggregation job computing per-category acceptance rates and updating the routing model
+- New-tenant onboarding pre-loading industry-specific default thresholds from the aggregate model
 
 A competitor replicating the product in 3-6 months gets a working UI. They do not get 2 years of routing outcome data. They cannot replicate the thresholds that were calibrated from real routing decisions across hundreds of businesses.

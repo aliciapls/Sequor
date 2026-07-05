@@ -16,13 +16,16 @@ redteam round surfaces (the semantic twin of `tests/regression/`).
   defect keeps its probe forever so a future refactor re-surfaces the regression.
 - A failing probe = HIGH finding; "Tier-1/2/3 pass" is INSUFFICIENT.
 
-## Probe inventory (as of Round 3, 2026-07-05)
+## Probe inventory (as of Round 5, 2026-07-05)
 
 `test_security_regression_probes.py` — R1 auth-bypass, R2 fail-closed config / admin
 gate / onboarding upload bound / login timing, R3 N1 portal upload bound / N3 rate
 limiter fail-closed / N4 inbound unverifiable-reject / N6 DNS logged-not-silent.
 `test_spec_compliance_probes.py` — R3 NEW-3 answerability floor, NEW-5 hallucination
 per-claim denominator, D1 digest api (`gather_digest_data`/`format_digest_email`).
+`../unit/test_r5_regression_fixes.py` — R5-02 WhatsApp verify-token constant-time
+compare + reject-mismatch; G3 500-handler no-traceback-leak; G2 keyphrase/mappings
+`select`/`desc` name-resolution (R2 NameError-fix behavioral guard).
 
 ## Online probes (deferred — need infra)
 

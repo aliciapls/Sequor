@@ -412,15 +412,17 @@ Erasure of a Contact proceeds as:
 
 ### Data Retention Schedule
 
-| Data type          | Starter       | Professional  | Enterprise    |
-| ------------------ | ------------- | ------------- | ------------- |
-| Message content    | 90 days       | 12 months     | 24 months     |
-| Contact profiles   | Until deleted | Until deleted | Until deleted |
-| RAG documents      | Until deleted | Until deleted | Until deleted |
-| Audit entries      | 90 days       | 12 months     | 24 months     |
-| Escalation records | 90 days       | 12 months     | 24 months     |
+| Data type          | Free   | Starter       | Professional  | Enterprise    |
+| ------------------ | ------ | ------------- | ------------- | ------------- |
+| Message content    | 7 days | 90 days       | 12 months     | 24 months     |
+| Contact profiles   | 7 days | Until deleted | Until deleted | Until deleted |
+| RAG documents      | 7 days | Until deleted | Until deleted | Until deleted |
+| Audit entries      | 7 days | 90 days       | 12 months     | 24 months     |
+| Escalation records | 7 days | 90 days       | 12 months     | 24 months     |
 
-Auto-deletion is enforced via a nightly batch job that purges records older than the retention period. Deletion is permanent and irreversible — this is logged in the audit entry.
+(Free-tier 7-day retention per `business-model.md`, resolving `DEVIATIONS.md` CS-6.)
+
+The retention periods above are the PDPA policy. Their **enforcement** — a scheduled purge job that auto-deletes records older than the retention period, logging each deletion to the audit entry — is a scoped build tracked in `DEVIATIONS.md` (F2 — retention-purge job) and is **not yet implemented**; until it ships, retention is policy-defined but not machine-enforced.
 
 ---
 

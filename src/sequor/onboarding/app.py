@@ -5,6 +5,7 @@ Uses FastAPI (lightweight, async, Pydantic integration). Runs with:
 """
 
 import hashlib
+import hmac
 import json as _json
 import re
 import structlog
@@ -452,7 +453,10 @@ async def whatsapp_webhook_verify(request: Request):
             status_code=500, content={"detail": "WHATSAPP_VERIFY_TOKEN not configured"}
         )
 
-    if token != expected_token:
+    # Constant-time compare: a plain `!=` on a secret is a timing oracle
+    # (r5-security R5-02). `token` is guaranteed non-empty here (the all([...])
+    # guard above 404s on a missing token) and `expected_token` is non-empty.
+    if not hmac.compare_digest(token or "", expected_token):
         _logger.warning("whatsapp.verify.token_mismatch")
         return JSONResponse(status_code=403, content={"detail": "Token mismatch"})
 
