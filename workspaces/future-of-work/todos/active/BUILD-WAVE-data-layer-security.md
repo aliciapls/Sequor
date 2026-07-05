@@ -24,9 +24,21 @@ JWT_SECRET=<≥32B> APP_ENV=development .venv/bin/python -m pytest ...`
     PII columns in EncryptedString; wired `bind_tenant` at every site; reconciled
     `ai/learning.py` raw SQL (C2); erasure deterministic; Tier-2 round-trip green.
     Commits `ab7c751`…`8477cfe`. Unit 438 / Tier-2 46, both / 1 xfailed.
-  - **1c — A2 RLS.** Migration: `ENABLE ROW LEVEL SECURITY` + `tenant_isolation` policy on
-    every tenant-scoped table; drop unused per-tenant schemas + `get_tenant_session`; Tier-2
-    cross-tenant leak test. Needs 1a.
+  - **1c — A2 RLS.** ✅ DONE + redteam-CONVERGED (3 rounds: R1 `auth_login` HIGH →
+    R2 portal `bind_tenant` sweep → R3 both CLEAN). Closes DEVIATIONS §A2 + the spec
+    action (`data-model.md` amended). Receipts: journal/0016 (build) + journal/0017
+    (deferred GAP); commits `d8bab0a` + `a34525f` + `64fc842`. RLS + `tenant_isolation`
+    policy (`USING`+`WITH CHECK`, `missing_ok` fail-closed) on all 15 tenant-scoped
+    tables; `tenant_encryption_keys` exempt (chicken-and-egg); `bind_tenant` now always
+    sets the GUC (dev too); 3 `SECURITY DEFINER` lookup functions for the cross-tenant
+    discovery paths (inbound resolvers + login); `SLAScheduler` per-tenant commit
+    boundary; dead schema-per-tenant machinery removed; ~10 portal endpoints + startup
+    - admin backfill bound via `bind_tenant` (Multi-Site sweep); `delete_document`
+      raw-conn GUC + a pre-existing table-name typo fix. **Deploy note: RLS is no-FORCE
+      → app must connect as a non-owner role** for the policy to constrain it. Tier-2:
+      4 new RLS tests (filter-less isolation, fail-closed, WITH CHECK write-block,
+      SECURITY DEFINER bypass + auth_login regression) under a non-superuser role.
+      Unit 421/1-xfailed; Tier-2 55/1-xfailed. 6 LOW/MED deferrals → follow-up "1c-tail".
   - **1d — F2 PDPA retention-purge job.** Scheduled purge of rows past their per-tier
     retention; Tier-2 test. Value-anchor: `data-model.md` retention schedule (PDPA
     over-retention). Shares scheduler plumbing.

@@ -406,7 +406,7 @@ Erasure of a Contact proceeds as:
 - Role-based access: only the covered user + designated backup contacts can see message content
 - API access: authenticated via short-lived JWT tokens, not long-lived API keys
 - No raw PII in application logs — contact IDs and message hashes used instead
-- Tenant isolation enforced at the database schema level (separate schema per tenant, not just `tenant_id` column)
+- Tenant isolation enforced at the **database** level via PostgreSQL Row-Level Security: every tenant-scoped table carries a `tenant_isolation` policy (`USING (tenant_id = current_setting('app.current_tenant', true)::uuid)` with a matching `WITH CHECK`) so the DB refuses another tenant's rows even when the application forgets the `WHERE tenant_id` filter. The `app.current_tenant` GUC is set transaction-local (`set_config(..., true)`) at every connection checkout by the tenant-context boundary (`bind_tenant`), so it can never leak across pooled checkouts. Three cross-tenant _discovery_ lookups (inbound account resolution by email blind index / WhatsApp phone, and backup-contact login) bypass RLS via `SECURITY DEFINER` functions owned by the table owner — they are the intentional tenant-discovery path, not forgotten-filter leaks. (`tenant_encryption_keys` is exempt: the key row is read before the GUC is set.) Deploy requirement: the application connects as a non-owner, non-`BYPASSRLS` role so the policy constrains it; the owner/migrator role bypasses RLS by design, which is what lets the discovery functions operate.
 
 ---
 
