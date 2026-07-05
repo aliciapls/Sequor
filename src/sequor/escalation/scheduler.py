@@ -68,8 +68,14 @@ class SLAScheduler:
             total_processed = 0
             for tenant in tenants:
                 try:
+                    # Bind the service's session to this tenant BEFORE any
+                    # encrypted-column read/write (BackupContact.email,
+                    # Account.owner_email, Message.*, Escalation.resolution_summary
+                    # are all EncryptedString). Without this the master-key-set
+                    # (production) tick fail-closes per tenant.
+                    await self._service.bind_tenant(uuid.UUID(str(tenant["id"])))
                     breached = await self._service.find_breached_escalations(
-                        tenant_id=uuid.UUID(tenant["id"])
+                        tenant_id=uuid.UUID(str(tenant["id"]))
                     )
                     for esc in breached:
                         await self._service.process_breached_escalation(esc)

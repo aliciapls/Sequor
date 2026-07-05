@@ -20,6 +20,19 @@ The application test loop uses ``init_db()`` → ``Base.metadata.create_all``
 (model-driven), which emits TEXT for these columns on a fresh create; this
 migration is the durable artifact for production deploys that track schema via
 Alembic.
+
+CAVEAT — no data backfill. This migration is schema-only (DDL widen). It is
+correct for a greenfield deploy where these columns hold no pre-existing
+plaintext (this repo's state: PR #7 is unmerged, the app is undeployed, no
+production data exists). If this migration is ever applied against a database
+that already holds PLAINTEXT rows in any of the nine wrapped columns, every
+post-deploy ORM read of those rows will fail (EncryptedString will try to
+``b64decode`` + AES-GCM decrypt the plaintext and raise ``InvalidTag``). Any
+such environment MUST run a backfill that loads each tenant key via KeyManager
+and re-encrypts the plaintext in place BEFORE the new code serves reads. The
+backfill is intentionally not embedded here: it requires the master key at
+migrate time and a per-tenant iteration that belongs in a dedicated data
+migration, not a schema migration.
 """
 
 from collections.abc import Sequence

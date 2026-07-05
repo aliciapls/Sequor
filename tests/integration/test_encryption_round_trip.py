@@ -14,7 +14,9 @@ real per-tenant key:
 """
 
 import uuid
+from datetime import datetime, timezone
 
+import cryptography.exceptions
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -259,11 +261,25 @@ async def test_second_tenant_cannot_decrypt_first_tenant_ciphertext(db_session):
 
     from sqlalchemy import select
 
-    # Reading tenant A's message under tenant B's key must raise (GCM tag mismatch).
-    with pytest.raises(Exception):
+    # Reading tenant A's message under tenant B's key must raise — the GCM tag
+    # check fails (cryptography.exceptions.InvalidTag, possibly SQLAlchemy-wrapped).
+    # Walk the cause/context chain so an UNRELATED query error fails the test.
+    with pytest.raises(Exception) as exc_info:
         (
             await db_session.execute(select(Message).where(Message.id == msg_id))
         ).scalar_one().body_text
+    seen: list = []
+    _e = exc_info.value
+    while _e is not None and len(seen) < 6:
+        seen.append(_e)
+        _nxt = _e.__cause__ or _e.__context__
+        if _nxt is None or _nxt is _e:
+            break
+        _e = _nxt
+    assert any(isinstance(_e, cryptography.exceptions.InvalidTag) for _e in seen), (
+        f"expected InvalidTag (GCM tag mismatch) in the exception chain, "
+        f"got {[type(e).__name__ for e in seen]}"
+    )
 
 
 async def _seed_contact(session: AsyncSession, tenant_id, email: str) -> uuid.UUID:
@@ -417,3 +433,86 @@ async def test_erase_contact_pii_encrypts_erasure_markers(db_session):
     assert c2.name == "[erased]"
     assert m2.subject == "[erased]"
     assert m2.body_text == "[erased]"
+
+
+class _FakeEscalationSender:
+    """EmailSender stand-in for the scheduler/escalation flow (no real sends)."""
+
+    async def send_email(self, **kwargs):
+        return "fake-msg-id"
+
+    async def send_escalation_email(self, **kwargs):
+        return "fake-esc-id"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_binds_tenant_before_processing_breach(db_session):
+    """Regression for redteam C2: SLAScheduler._tick MUST bind each tenant before
+    reading/writing encrypted columns. Without the bind, the master-key-set
+    (production) tick fail-closes per tenant inside the `except Exception` and the
+    SLA system silently stops processing breaches."""
+    from datetime import timedelta
+    from sqlalchemy import select
+
+    from sequor.db.crud import SessionCrud
+    from sequor.db.models import EscalationPriority, EscalationStatus
+    from sequor.escalation.scheduler import SLAScheduler
+    from sequor.escalation.service import EscalationService
+
+    tenant_id, account_id, backup_id = await _provision_tenant(db_session, "sched.test")
+    await set_tenant_context(db_session, tenant_id)
+
+    contact = Contact(tenant_id=tenant_id, email="c@sched.test", name="Client")
+    db_session.add(contact)
+    await db_session.flush()
+    msg = Message(
+        tenant_id=tenant_id,
+        contact_id=contact.id,
+        direction=MessageDirection.inbound,
+        channel=MessageChannel.email,
+        body_text="urgent",
+    )
+    db_session.add(msg)
+    await db_session.flush()
+    # Pending escalation assigned 6h ago; account SLA is 4h → breached.
+    esc = Escalation(
+        tenant_id=tenant_id,
+        message_id=msg.id,
+        backup_contact_id=backup_id,
+        tier=1,
+        status=EscalationStatus.pending,
+        priority=EscalationPriority.high,
+        assigned_at=datetime.now(timezone.utc) - timedelta(hours=6),
+    )
+    db_session.add(esc)
+    await db_session.commit()
+    esc_id = esc.id
+
+    # Build the scheduler stack on the SAME session as the seed. bind_tenant on
+    # the service binds this session, so its encrypted reads/writes decrypt/encrypt.
+    crud = SessionCrud(db_session)
+    service = EscalationService(db_express=crud, email_sender=_FakeEscalationSender())  # type: ignore[arg-type]
+    scheduler = SLAScheduler(service, crud, interval_seconds=999)
+    # Clear the key to prove _tick re-binds (it must not rely on the seed's bind).
+    set_tenant_key(None)
+    await scheduler._tick()
+    await db_session.commit()
+
+    # The breach was processed: status moved to expired and resolution_summary
+    # was written through EncryptedString (raw column = ciphertext, not plaintext).
+    raw_summary = (
+        await db_session.execute(
+            text("SELECT status, resolution_summary FROM escalations WHERE id = :id"),
+            {"id": esc_id},
+        )
+    ).one()
+    assert raw_summary.status == EscalationStatus.expired.value
+    assert raw_summary.resolution_summary is not None
+    assert "SLA breached" not in raw_summary.resolution_summary  # it's ciphertext
+
+    # And an ORM read with the key bound decrypts it.
+    await set_tenant_context(db_session, tenant_id)
+    orm_esc = (
+        await db_session.execute(select(Escalation).where(Escalation.id == esc_id))
+    ).scalar_one()
+    assert "SLA breached" in (orm_esc.resolution_summary or "")

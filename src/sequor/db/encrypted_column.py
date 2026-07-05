@@ -17,7 +17,10 @@ import os
 from base64 import b64decode, b64encode
 from typing import Any, Optional
 
+import structlog
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+logger = structlog.get_logger()
 
 from sequor.config import settings
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -150,7 +153,10 @@ class EncryptedString(TypeDecorator):
     """
 
     impl = Text
-    cache_ok = True  # safe to cache because encryption is deterministic per key
+    # cache_ok=True: the type's SQL shape (TEXT impl) is constant, so SQLAlchemy
+    # may cache the compiled type expression. Value-level caching is not involved
+    # (AES-GCM uses a random nonce, so ciphertext is non-deterministic per write).
+    cache_ok = True
 
     def __init__(self, field_name: Optional[str] = None, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -169,6 +175,12 @@ class EncryptedString(TypeDecorator):
             # precedence) — NOT a second raw os.environ read that can diverge
             # and default to "development" on a misconfigured deploy.
             if settings.app_env != "development":
+                logger.warning(
+                    "encrypted.fail_closed",
+                    op="bind",
+                    field_name=self._field_name,
+                    app_env=settings.app_env,
+                )
                 raise RuntimeError(
                     "EncryptedString requires a tenant key. "
                     "Call set_tenant_key() before writing encrypted columns."
@@ -187,6 +199,12 @@ class EncryptedString(TypeDecorator):
             # Fail-CLOSED outside development (see process_bind_param). Source
             # from settings.app_env, not a raw os.environ read.
             if settings.app_env != "development":
+                logger.warning(
+                    "encrypted.fail_closed",
+                    op="result",
+                    field_name=self._field_name,
+                    app_env=settings.app_env,
+                )
                 raise RuntimeError(
                     "EncryptedString requires a tenant key. "
                     "Call set_tenant_key() before reading encrypted columns."

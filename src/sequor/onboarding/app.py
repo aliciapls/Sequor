@@ -1718,6 +1718,11 @@ async def portal_api_subscription(request: Request):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        # Account.owner_email/email_address are EncryptedString — bind before the
+        # select(Account) below so the ORM read decrypts instead of fail-closing.
+        await bind_tenant(session, tenant_id)
         # Get tenant and account info
         tenant_result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
         tenant = tenant_result.scalars().first()
