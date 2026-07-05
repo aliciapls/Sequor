@@ -39,10 +39,25 @@ decision that needs legal input).
 
 ## BUILD-PENDING (code under-delivers vs an affirmative spec claim; recommend a scoped build)
 
-### A1 — PII-at-rest encryption (CRITICAL) — recommend BUILD
+### A1 — PII-at-rest encryption — BUILT (2026-07-05, shard 1b; redteam R7 converged)
 
 - **Spec:** `data-model.md` "All PII fields encrypted at rest (AES-256)"; message content = "PII — high sensitivity".
-- **Reality:** `Message.body_text/body_raw/subject`, `Response.content`, `LearnedAnswer.*_text`, `Classification.reasoning`, `Escalation.resolution_summary`, `Contact.name`, `Account.whatsapp_phone` stored plaintext. `EncryptedString` (AES-256-GCM + per-tenant HKDF) exists but is applied only to email/phone identifiers.
+- **Status:** DELIVERED. All PII columns are now `EncryptedString` (AES-256-GCM + per-tenant
+  HKDF): the email/phone identifiers (Account/BackupContact/Contact — pre-existing) plus the
+  nine wrapped in shard 1b (Message.subject/body_text/body_raw, Response.content,
+  LearnedAnswer.question_text/answer_text, Classification.reasoning, Escalation.resolution_summary,
+  Contact.name). Every read/write path binds the per-tenant key via `set_tenant_context`/
+  `bind_tenant` before access; `EncryptedString` fail-closes outside development. Verified by
+  the Tier-2 round-trip suite (ciphertext-at-rest, plaintext-on-read, per-tenant isolation,
+  fail-closed, learning raw-SQL round-trip, erasure) + unit 438 / 1 xfailed.
+- **Migration:** `a1f4c82d6e90_encrypt_pii_columns` widens the two bounded VARCHAR columns
+  (contacts.name, messages.subject) to TEXT so ciphertext can't overflow; the other seven were
+  already TEXT. Schema-only (no backfill) — greenfield-safe; see the migration docstring for
+  the existing-data caveat.
+- **Note (lookup gap, separate concern — tracked in `todos/active/BUILD-WAVE-data-layer-security.md`
+  §1f + journal/0013, NOT an encryption gap):** inbound routing resolves the Account BY its
+  encrypted email column, which cannot match (random nonce). The data is encrypted at rest as
+  specced; the resolution path needs a blind index.
 - **Why this is a scoped multi-shard build, NOT a same-session wrap** (R3 code-quality C1/C2/C3):
   - **C1** — every ORM write path (`email/auto_reply._record_response`, `whatsapp/auto_reply._record_response`, `email/inbound`) creates rows with NO `set_tenant_key` call → wrapping the columns fires the fail-closed `RuntimeError` and breaks the whole auto-reply pipeline. Encryption requires wiring `set_tenant_key` at every write path first.
   - **C2** — `ai/learning.py` reads/writes `learned_answers` via RAW `text()` SQL that bypasses the TypeDecorator → would store plaintext that the ORM digest read then cannot decrypt (`InvalidTag`). LearnedAnswer encryption requires reconciling that raw-SQL layer.

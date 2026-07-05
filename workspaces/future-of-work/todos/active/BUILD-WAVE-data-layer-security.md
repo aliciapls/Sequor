@@ -20,8 +20,10 @@ JWT_SECRET=<≥32B> APP_ENV=development .venv/bin/python -m pytest ...`
     per-tenant encryption key (`set_tenant_key`) AND the RLS GUC (`SET app.current_tenant`)
     at session checkout, wired at every write/read path. A1 + A2 both depend on it.
     Value-anchor: `data-model.md` "All PII encrypted at rest" + PDPA tenant segregation.
-  - **1b — A1 column encryption.** Wrap PII columns; reconcile `ai/learning.py` raw-SQL (C2);
-    fix the erasure path + its master-key-coupled unit tests; Tier-2 round-trip. Needs 1a.
+  - **1b — A1 column encryption.** ✅ DONE + redteam-CONVERGED (R7, 3 rounds). Wrapped 9
+    PII columns in EncryptedString; wired `bind_tenant` at every site; reconciled
+    `ai/learning.py` raw SQL (C2); erasure deterministic; Tier-2 round-trip green.
+    Commits `ab7c751`…`8477cfe`. Unit 438 / Tier-2 46, both / 1 xfailed.
   - **1c — A2 RLS.** Migration: `ENABLE ROW LEVEL SECURITY` + `tenant_isolation` policy on
     every tenant-scoped table; drop unused per-tenant schemas + `get_tenant_session`; Tier-2
     cross-tenant leak test. Needs 1a.
@@ -30,6 +32,14 @@ JWT_SECRET=<≥32B> APP_ENV=development .venv/bin/python -m pytest ...`
     over-retention). Shares scheduler plumbing.
   - **1e — R7-01 login/backup separation.** Separate owner-login identity from the escalation
     backup contact; re-point login + escalation; clears the xfail tripwire. Touches auth.
+  - **1f — Account inbound-lookup blind index (NEW, CRITICAL — blocks first prod deploy).**
+    Surfaced by R7 redteam (journal/0013, pre-existing). `email/whatsapp inbound._resolve_account`
+    resolve the tenant by reading Account.owner_email/email_address (EncryptedString since the
+    initial schema) → equality-on-encrypted-column can never match + fail-closes with no tenant
+    known → every inbound webhook 500s in prod. Fix = Account.owner_email_blind_index +
+    email_address_blind_index (mirror BackupContact.email_blind_index), populate in signup,
+    rewrite both resolvers to look up by blind index via raw-`text()` non-encrypted projection
+    (ref: `onboarding/app.py::auth_login`). Tier-2 inbound-resolves-account test.
 
 ### Shard 1b implementation map (derived this session — verify against the live code)
 
