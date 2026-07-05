@@ -332,7 +332,7 @@ class Contact(Base):
     phone: Mapped[Optional[str]] = mapped_column(
         EncryptedString(field_name="contact_phone"), nullable=True
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(EncryptedString(field_name="contact_name"), nullable=False)
     company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     tags: Mapped[Optional[list]] = mapped_column(ARRAY(String(100)), nullable=True)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -411,9 +411,15 @@ class Message(Base):
     in_reply_to_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
-    subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    body_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    body_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subject: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="message_subject"), nullable=True
+    )
+    body_text: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="message_body_text"), nullable=True
+    )
+    body_raw: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="message_body_raw"), nullable=True
+    )
     attachments: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     whatsapp_session_expired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     received_at: Mapped[datetime] = mapped_column(
@@ -454,7 +460,9 @@ class Classification(Base):
         nullable=False,
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reasoning: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="classification_reasoning"), nullable=True
+    )
     classified_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
     )
@@ -577,8 +585,12 @@ class LearnedAnswer(Base):
     account_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
     )
-    question_text: Mapped[str] = mapped_column(Text, nullable=False)
-    answer_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_text: Mapped[str] = mapped_column(
+        EncryptedString(field_name="learned_question"), nullable=False
+    )
+    answer_text: Mapped[str] = mapped_column(
+        EncryptedString(field_name="learned_answer"), nullable=False
+    )
     source_type: Mapped[SourceType] = mapped_column(
         Enum(SourceType, name="source_type", create_constraint=True), nullable=False
     )
@@ -610,7 +622,9 @@ class Response(Base):
     rag_retrieval_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("rag_retrievals.id", ondelete="SET NULL"), nullable=True
     )
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(
+        EncryptedString(field_name="response_content"), nullable=False
+    )
     confidence_badge: Mapped[ConfidenceBadge] = mapped_column(
         Enum(ConfidenceBadge, name="confidence_badge", create_constraint=True), nullable=False
     )
@@ -666,7 +680,9 @@ class Escalation(Base):
         DateTime(timezone=True), nullable=True
     )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    resolution_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolution_summary: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="escalation_resolution_summary"), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_escalations_tenant_id", "tenant_id"),

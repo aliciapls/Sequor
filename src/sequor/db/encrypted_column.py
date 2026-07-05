@@ -33,8 +33,12 @@ _current_tenant_key: contextvars.ContextVar[Optional[bytes]] = contextvars.Conte
 )
 
 
-def set_tenant_key(key: bytes) -> None:
-    """Set the tenant encryption key for the current async/task context."""
+def set_tenant_key(key: Optional[bytes]) -> None:
+    """Set the tenant encryption key for the current async/task context.
+
+    Pass ``None`` to clear the key (e.g. between tests); ``EncryptedString``
+    then fail-closes outside development rather than reading/writing plaintext.
+    """
     _current_tenant_key.set(key)
 
 
