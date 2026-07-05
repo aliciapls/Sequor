@@ -627,6 +627,15 @@
         .demo-banner-actions .btn-secondary { background: rgba(255,255,255,0.14); color: white; border-color: rgba(255,255,255,0.45); }
         .demo-banner-actions .btn-secondary:hover { background: rgba(255,255,255,0.24); border-color: rgba(255,255,255,0.7); }
 
+        /* ── Showcase (static, non-interactive) ── */
+        .showcase-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: transparent;
+            cursor: default;
+        }
+
         {% block page_style %}{% endblock %}
     </style>
     <style>
@@ -689,6 +698,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body>
+{% if showcase %}<div class="showcase-overlay" aria-hidden="true"></div>{% endif %}
 <div class="portal-layout">
     <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
     <!-- Sidebar -->
@@ -773,7 +783,7 @@
 
     <!-- Main -->
     <div class="main-content">
-        {% if demo %}
+        {% if demo and not showcase %}
         <div class="demo-banner">
             <div class="demo-banner-inner">
                 <div class="demo-banner-text">
