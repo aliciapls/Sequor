@@ -295,3 +295,62 @@ async def test_fail_closed_under_production_without_tenant_key(db_session, monke
     finally:
         # settings monkeypatch auto-restores; rollback the partial write.
         await db_session.rollback()
+
+
+class _FakeLLM:
+    """Stand-in for OllamaClient — returns a fixed 768-dim embedding for any text."""
+
+    async def generate_embeddings(self, texts):
+        return [[0.01] * 768 for _ in texts]
+
+
+@pytest.mark.asyncio
+async def test_learning_raw_sql_encrypts_and_decrypts(db_session):
+    """The learning loop's raw INSERT/SELECT bypass the TypeDecorator, so it must
+    encrypt/decrypt with the SAME field_names the ORM declares. This is the C2
+    gap from journal/0012: a plaintext raw INSERT would make the ORM digest read
+    raise InvalidTag. Exercises _store_learned_answer (encrypt) AND
+    search_learned_answers (decrypt) end-to-end against real PG + a real key."""
+    tenant_id, account_id, _ = await _provision_tenant(db_session, "learning.test")
+
+    from sequor.ai.learning import LearningLoop
+    from sequor.db.database import get_engine
+    from typing import Any, cast
+
+    # _FakeLLM satisfies the OllamaClient embedding surface at runtime; cast for
+    # the type checker (Protocol-satisfying deterministic adapter, not a mock).
+    loop = LearningLoop(llm_client=cast(Any, _FakeLLM()), engine=get_engine())
+    await loop.capture_human_answer(
+        tenant_id=tenant_id,
+        account_id=account_id,
+        escalation_id=uuid.uuid4(),
+        original_query="What is your return policy?",
+        human_reply="Items can be returned within 30 days of purchase.",
+    )
+
+    # Raw column is ciphertext (the INSERT encrypted it).
+    raw_q = (
+        await db_session.execute(
+            text("SELECT question_text FROM learned_answers WHERE tenant_id = :t"),
+            {"t": tenant_id},
+        )
+    ).scalar()
+    assert raw_q != "What is your return policy?"
+
+    # search_learned_answers decrypts (same field_name → same HKDF key).
+    results = await loop.search_learned_answers(
+        tenant_id=tenant_id, query="return policy", account_id=account_id
+    )
+    assert results, "expected at least one learned answer matched"
+    assert any("return" in r["question_text"].lower() for r in results)
+    assert any("30 days" in r["answer_text"] for r in results)
+
+    # And an ORM read (digest path) decrypts the same row consistently.
+    from sqlalchemy import select
+
+    await set_tenant_context(db_session, tenant_id)
+    orm_la = (
+        await db_session.execute(select(LearnedAnswer).where(LearnedAnswer.tenant_id == tenant_id))
+    ).scalar_one()
+    assert orm_la.question_text == "What is your return policy?"
+    assert orm_la.answer_text == "Items can be returned within 30 days of purchase."
