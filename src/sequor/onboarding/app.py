@@ -1698,13 +1698,19 @@ async def portal_api_upgrade(request: Request):
 async def portal_subscription(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("subscription.html", request)
 
 
 @app.get("/portal/login", response_class=HTMLResponse)
-async def portal_login():
-    """Operator login page."""
+async def portal_login(request: Request):
+    """Demo portal: visitors see a populated sample dashboard instead of a login wall."""
+    return _render("dashboard.html", request, demo=True)
+
+
+@app.get("/portal/signin", response_class=HTMLResponse)
+async def portal_signin():
+    """Real operator sign-in form (linked from the demo banner)."""
     html = (TEMPLATES_DIR / "login.html").read_text()
     return HTMLResponse(content=html)
 
@@ -1749,7 +1755,7 @@ async def portal_dashboard(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
         try:
-            return _render("login.html", request)
+            return _render("dashboard.html", request, demo=True)
         except Exception:
             import traceback
             _logger.exception("template.render_failed", template="login.html")
@@ -1766,7 +1772,7 @@ async def portal_dashboard(request: Request):
 async def portal_messages(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("messages.html", request)
 
 
@@ -1774,7 +1780,7 @@ async def portal_messages(request: Request):
 async def portal_escalations(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("escalations.html", request)
 
 
@@ -1782,7 +1788,7 @@ async def portal_escalations(request: Request):
 async def portal_escalation_detail(request: Request, esc_id: str):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("escalation.html", request)
 
 
@@ -1790,7 +1796,7 @@ async def portal_escalation_detail(request: Request, esc_id: str):
 async def portal_auto_replies(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("auto-replies.html", request)
 
 
@@ -1798,7 +1804,7 @@ async def portal_auto_replies(request: Request):
 async def portal_contacts(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("contacts.html", request)
 
 
@@ -1806,7 +1812,7 @@ async def portal_contacts(request: Request):
 async def portal_documents(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("documents.html", request)
 
 
@@ -1814,7 +1820,7 @@ async def portal_documents(request: Request):
 async def portal_keyphrases(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("keyphrases.html", request)
 
 
@@ -1822,7 +1828,7 @@ async def portal_keyphrases(request: Request):
 async def portal_channels(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("channels.html", request)
 
 
@@ -1830,7 +1836,7 @@ async def portal_channels(request: Request):
 async def portal_faq(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("faq.html", request)
 
 
@@ -1838,5 +1844,5 @@ async def portal_faq(request: Request):
 async def portal_settings(request: Request):
     token = request.cookies.get("sequor_session")
     if not token:
-        return _render("login.html", request)
+        return _render("dashboard.html", request, demo=True)
     return _render("settings.html", request)

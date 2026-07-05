@@ -606,6 +606,27 @@
             white-space: nowrap;
         }
 
+        /* ── Demo banner ── */
+        .demo-banner {
+            background: linear-gradient(135deg, var(--duck-500), var(--duck-700));
+            color: white;
+            padding: 11px 32px;
+        }
+        .demo-banner-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .demo-banner-text { display: flex; align-items: baseline; gap: 10px; font-size: 13.5px; }
+        .demo-banner-text strong { font-size: 14px; letter-spacing: 0.01em; }
+        .demo-banner-actions { display: flex; gap: 8px; }
+        .demo-banner-actions .btn-primary { background: white; color: var(--duck-700); box-shadow: none; }
+        .demo-banner-actions .btn-primary:hover { background: var(--duck-50); transform: none; }
+        .demo-banner-actions .btn-secondary { background: rgba(255,255,255,0.14); color: white; border-color: rgba(255,255,255,0.45); }
+        .demo-banner-actions .btn-secondary:hover { background: rgba(255,255,255,0.24); border-color: rgba(255,255,255,0.7); }
+
         {% block page_style %}{% endblock %}
     </style>
     <style>
@@ -752,6 +773,20 @@
 
     <!-- Main -->
     <div class="main-content">
+        {% if demo %}
+        <div class="demo-banner">
+            <div class="demo-banner-inner">
+                <div class="demo-banner-text">
+                    <strong>Demo Mode</strong>
+                    <span>You're viewing sample data — explore the operator portal freely.</span>
+                </div>
+                <div class="demo-banner-actions">
+                    <a href="/portal/signin" class="btn btn-secondary btn-sm">Sign in</a>
+                    <a href="/portal/signup" class="btn btn-primary btn-sm">Get started free</a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
         <div class="topbar">
             <div class="topbar-left">
                 <button class="hamburger-btn" id="hamburger-btn" onclick="toggleSidebar()" style="display:none;">
@@ -800,6 +835,15 @@
         }
     });
 
+{% if demo %}
+    // DEMO: static operator info, no /me call
+    document.getElementById('user-name').textContent = 'Demo Operator';
+    document.getElementById('user-avatar').textContent = 'D';
+    document.getElementById('user-email').textContent = 'demo@sequor.app';
+    var demoBadge = document.getElementById('escalation-count');
+    demoBadge.textContent = '3';
+    demoBadge.classList.add('visible');
+{% else %}
     // Populate user info from API (portal/me returns decrypted email)
     (async function() {
         try {
@@ -825,6 +869,7 @@
             }
         } catch (_) {}
     })();
+{% endif %}
 
     {% block page_script %}{% endblock %}
 </script>

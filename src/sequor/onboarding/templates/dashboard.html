@@ -54,6 +54,7 @@
     </div>
 </div>
 
+{% if not demo %}
 <!-- Charts row — show empty state when no real data available -->
 <div class="grid-2 mb-6">
     <div class="card">
@@ -137,6 +138,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <!-- Two columns: Recent Messages + Open Escalations -->
 <div class="grid-2">
@@ -224,6 +226,32 @@
         }).join('');
     }
 
+{% if demo %}
+    // DEMO MODE — sample data, no backend calls
+    var demoStats = { messages_this_week: 142, auto_replied_this_week: 119, open_escalations: 3 };
+    document.getElementById('stat-received').textContent = demoStats.messages_this_week;
+    document.getElementById('stat-auto-replied').textContent = demoStats.auto_replied_this_week;
+    document.getElementById('stat-escalated').textContent = demoStats.open_escalations;
+    document.getElementById('stat-response').textContent = '1.4m';
+    document.getElementById('stat-received-delta').textContent = '↑ 12% vs last week';
+    document.getElementById('stat-auto-replied-delta').textContent = '↑ 84% auto-reply rate';
+    document.getElementById('stat-response-delta').textContent = '↓ 38% faster';
+    document.getElementById('escalation-count').textContent = demoStats.open_escalations;
+
+    renderMessages([
+        { channel: 'whatsapp', direction: 'inbound', routing_target: 'auto_reply', contact: { name: 'Sarah Chen' }, body_text: 'Hi! Do you offer same-day onboarding for teams under 10 people?', received_at: '2026-07-05T08:42:00Z' },
+        { channel: 'email', direction: 'inbound', routing_target: 'auto_reply', contact: { name: 'Marcus Tan' }, body_text: 'What are your pricing tiers for a 25-seat team?', received_at: '2026-07-05T07:15:00Z' },
+        { channel: 'whatsapp', direction: 'inbound', routing_target: 'escalation', contact: { name: 'Priya Nair' }, body_text: 'Invoice #4421 looks wrong — I was charged twice for July.', received_at: '2026-07-05T06:03:00Z' },
+        { channel: 'email', direction: 'inbound', routing_target: 'auto_reply', contact: { name: 'David Lim' }, body_text: 'Can Sequor route messages from a shared Slack inbox?', received_at: '2026-07-04T22:30:00Z' },
+        { channel: 'whatsapp', direction: 'inbound', routing_target: 'escalation', contact: { name: 'Aisha Rahman' }, body_text: 'I need to speak with someone about a refund, please.', received_at: '2026-07-04T18:50:00Z' }
+    ]);
+
+    renderEscalations([
+        { priority: 'high', contact: { name: 'Priya Nair' }, assigned_at: '2026-07-05T06:03:00Z' },
+        { priority: 'medium', contact: { name: 'Aisha Rahman' }, assigned_at: '2026-07-04T18:50:00Z' },
+        { priority: 'medium', contact: { name: 'Enterprise Prospect' }, assigned_at: '2026-07-04T15:20:00Z' }
+    ]);
+{% else %}
     // Fetch and render dashboard stats
     try {
         var statsRes = await fetch('/api/v1/portal/dashboard', { credentials: 'same-origin' });
@@ -275,5 +303,6 @@
         console.warn('Escalations fetch failed:', err);
         document.getElementById('escalations-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--slate-400);">Failed to load escalations</div>';
     }
+{% endif %}
 })();
 {% endblock %}
