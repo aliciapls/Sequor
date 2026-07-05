@@ -117,12 +117,19 @@ class SessionCrud:
         webhook account resolution; mirrors ``onboarding.app.auth_login``).
         Read-only by contract. ``sql`` is a literal in the calling service,
         never user input; values are bound via ``params``. The read-only
-        contract is enforced (not just documented): a statement that isn't a
-        SELECT/WITH is rejected so a future caller can't route DDL/DML through it.
+        contract is enforced (not just documented): only a statement starting
+        with SELECT is accepted. WITH is rejected because PostgreSQL
+        data-modifying CTEs (``WITH x AS (DELETE ...) SELECT * FROM x``) start
+        with WITH and would otherwise mutate rows through this read-only helper.
+        If a read-only CTE is ever genuinely needed, add a parsing-based guard
+        (e.g. sqlparse) that rejects DML/DDL anywhere in the tree.
         """
         head = sql.lstrip().upper()
-        if not head.startswith(("SELECT", "WITH")):
-            raise ValueError("raw_execute is read-only; statement must start with SELECT or WITH")
+        if not head.startswith("SELECT"):
+            raise ValueError(
+                "raw_execute is read-only; statement must start with SELECT "
+                "(WITH is rejected — data-modifying CTEs bypass a SELECT/WITH guard)"
+            )
         result = await self._session.execute(text(sql), params or {})
         return [dict(row) for row in result.mappings().all()]
 
