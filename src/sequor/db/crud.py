@@ -149,10 +149,20 @@ class SessionCrud:
         return [dict(row) for row in result.mappings().all()]
 
 
+# Columns never surfaced in the generic ``_orm_to_dict`` projection. Credentials
+# (password_hash) must stay scoped to the single boundary that needs them — the
+# login resolver reads ``Account.password_hash`` via raw SQL; it must NOT bleed
+# into every ``crud.read/list("Account")`` dict (escalation/digest/inbound all
+# read Account via crud and have no need for the hash).
+_SENSITIVE_COLUMNS = frozenset({"password_hash"})
+
+
 def _orm_to_dict(obj: Any) -> dict[str, Any]:
     """Convert an ORM object to a plain dict."""
     result: dict[str, Any] = {}
     for col in obj.__table__.columns:
+        if col.name in _SENSITIVE_COLUMNS:
+            continue
         val = getattr(obj, col.name, None)
         # Enum members expose ``.value``; extract so the dict carries the scalar
         # enum value, not the member. ``getattr``-with-default returns ``val``

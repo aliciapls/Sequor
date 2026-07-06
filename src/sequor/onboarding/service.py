@@ -136,6 +136,15 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     # R7-01: dedup keys on the OWNER's email via the Account blind index (the
     # owner-login identity lives on Account now, not BackupContact). Checking
     # BackupContact.email_blind_index compared owner-vs-owner on the wrong table.
+    #
+    # NOTE: this friendly pre-check runs BEFORE the new Tenant exists, so no
+    # tenant GUC is bound — under the production non-owner app role (RLS no-FORCE,
+    # shard 1c) the policy fail-closes this query to zero rows regardless of
+    # duplicates, so DuplicateEmailError never fires in prod. The STRUCTURAL
+    # backstop is the UNIQUE index ix_accounts_owner_email_blind_index (1f): a
+    # duplicate signup raises IntegrityError at commit, which the API layer
+    # should map to a 409-class response. The data-layer invariant (one account
+    # per owner_email) holds either way; only the UX status code differs.
     existing = await session.execute(
         select(Account).where(Account.owner_email_blind_index == email_index)
     )

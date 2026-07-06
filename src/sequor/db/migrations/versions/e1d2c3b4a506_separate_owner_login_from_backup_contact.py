@@ -98,9 +98,13 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Restore the legacy owner-login-on-BackupContact layout."""
     op.execute("DROP FUNCTION IF EXISTS resolve_account_login_by_email_blind_index(varchar)")
-    op.execute(_LEGACY_LOGIN_FN)
+    # Restore backup_contacts.password_hash BEFORE recreating the legacy fn: the
+    # fn body references that column, and PG 14+ parses LANGUAGE sql bodies at
+    # CREATE FUNCTION time (a dangling column reference can be rejected). The
+    # column must exist when the fn is created.
     op.add_column(
         "backup_contacts",
         sa.Column("password_hash", sa.String(length=255), nullable=True),
     )
+    op.execute(_LEGACY_LOGIN_FN)
     op.drop_column("accounts", "password_hash")

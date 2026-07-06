@@ -92,18 +92,20 @@ async def erase_contact_pii(
         Message,
     )
 
-    # 1. Load tenant encryption key BEFORE any encrypted-column read. The contact
-    # lookup below selects Contact.name/email/phone (all EncryptedString); without
-    # the key the ORM result construction fail-closes in production.
+    # 1. Bind the tenant BEFORE any encrypted-column read. Contact.name/email/phone
+    # are all EncryptedString; without the key the ORM result construction
+    # fail-closes in production. ``bind_tenant`` is the shard-1a boundary that sets
+    # BOTH the per-tenant key (production) AND the RLS GUC (production AND dev). The
+    # dev GUC fallback matters here: the explicit ``WHERE Contact.tenant_id``
+    # clauses below hold isolation regardless, but RLS is the defense-in-depth layer
+    # a future refactor (dropped WHERE) would rely on — it must be set in dev too.
     try:
-        from sequor.config import settings
-        from sequor.db.tenant_context import set_tenant_context
+        from sequor.db.tenant_context import bind_tenant
 
-        if settings.encryption_master_key:
-            await set_tenant_context(session, tenant_id)
+        await bind_tenant(session, tenant_id)
     except Exception:
-        logger.exception("compliance.erasure_key_failed", tenant_id=str(tenant_id))
-        raise RuntimeError("Cannot load tenant encryption key for erasure")
+        logger.exception("compliance.erasure_bind_failed", tenant_id=str(tenant_id))
+        raise RuntimeError("Cannot bind tenant context for erasure")
 
     # 2. Verify contact exists and belongs to tenant
     result = await session.execute(
