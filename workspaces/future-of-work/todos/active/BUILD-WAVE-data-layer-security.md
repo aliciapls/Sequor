@@ -39,18 +39,26 @@ JWT_SECRET=<≥32B> APP_ENV=development .venv/bin/python -m pytest ...`
       4 new RLS tests (filter-less isolation, fail-closed, WITH CHECK write-block,
       SECURITY DEFINER bypass + auth_login regression) under a non-superuser role.
       Unit 421/1-xfailed; Tier-2 55/1-xfailed. 6 LOW/MED deferrals → follow-up "1c-tail".
-  - **1d — F2 PDPA retention-purge job.** ✅ BUILT (redteam in flight). Added
-    `src/sequor/db/retention.py`: `run_retention_purge_once` — a per-tenant sweep that
-    bulk-deletes `Message`/`AuditEntry`/`Escalation` older than the plan's retention
-    (7d/90d/365d/730d), one summary `AuditEntry(action="retention.purge")` per purged
-    tenant; fresh `AsyncSession` + `bind_tenant` per tenant (RLS GUC + key isolation).
-    `RetentionPurgeScheduler` + `create_retention_scheduler` factory mirror `SLAScheduler`;
-    wired into `_app_lifespan`, opt-in (`retention_purge_enabled`, default OFF — unit tests
-    boot the app via TestClient, and the destructive loop shouldn't auto-run until the
-    deploy role/env is set; RLS is no-FORCE). Tier-2: 3 tests (per-plan cutoffs, all-three-
-    tables + audit entry, cross-tenant isolation) — 58/1-xfailed. Unit 421/1-xfailed.
-    Value-anchor: `data-model.md` retention schedule (PDPA over-retention). **Deferred to
-    1d-tail:** Free-tier `Contact` (7d, no `created_at`) + `Document` (7d, RAG cascade).
+  - **1d — F2 PDPA retention-purge job.** ✅ DONE + redteam-CONVERGED (3 rounds: R1
+    2-HIGH+2-MED → R2 CLEAN+1-MINOR → final sign-off CONVERGED). Closes `DEVIATIONS §F2`
+    (core) + journal 0018 (build) + 0019 (deferred GAP). Commits `8d87244` (build) +
+    `949479d` (round-1) + `e96bf45` (round-2). Added `src/sequor/db/retention.py`:
+    `run_retention_purge_once` — a per-tenant sweep that bulk-deletes `Message`/
+    `AuditEntry`/`Escalation` older than the plan's retention (7d/90d/365d/730d), one
+    summary `AuditEntry(action="retention.purge")` per purged tenant; fresh `AsyncSession`
+    - `bind_tenant` per tenant (RLS GUC + key isolation); leaf-first `_PURGE_TABLES`
+      (escalations→audit→messages, so the `ondelete=CASCADE` on `Escalation.message_id`
+      doesn't undercount the audit metadata). `RetentionPurgeScheduler` +
+      `create_retention_scheduler` factory mirror `SLAScheduler`; wired into `_app_lifespan`,
+      **opt-in** (`retention_purge_enabled`, default OFF — unit tests boot the app via
+      TestClient, and the destructive loop must not auto-run until the deploy role/env is set;
+      RLS is no-FORCE). Same-class fix: `SLAScheduler._run_loop` now resilient to transient
+      tick errors. Tier-2: 8 tests (per-plan cutoffs, all-three-tables + audit entry,
+      cross-tenant isolation, cascade-ordering regression, unknown-plan fail-safe, 3
+      scheduler-wiring) — combined 484/2-xfailed (unit 421/1 + Tier-2 63/1). Value-anchor:
+      `data-model.md` retention schedule (PDPA over-retention). **Deferred to 1d-tail**
+      (journal 0019): Free-tier `Contact` (7d, no `created_at`) + `Document` (7d, RAG cascade)
+    - 2 LOW (unbounded enumeration, stop() timeout).
   - **1e — R7-01 login/backup separation.** Separate owner-login identity from the escalation
     backup contact; re-point login + escalation; clears the xfail tripwire. Touches auth.
   - **1f — Account inbound-lookup blind index (CRITICAL — blocked first prod deploy).**
