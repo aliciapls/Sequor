@@ -225,3 +225,38 @@ async def test_login_resolver_unknown_email_finds_nothing(db_session):
         .first()
     )
     assert row is None, "unknown email must not resolve"
+
+
+@pytest.mark.asyncio
+async def test_portal_me_returns_owner_email_after_login(db_session):
+    """R7-01 regression (user-flow walk): signup → /auth/login → /portal/me must
+    return the OWNER's email. Post-1e ``operator_id`` is ``Account.id``; reading
+    ``BackupContact`` by that id returns None, so /me used to come back blank.
+    The fix reads the owner identity from Account. Walks the actual user-facing
+    surface (the resolver-level tests cannot see this sibling call-site)."""
+    import httpx
+
+    from sequor.onboarding.app import app
+
+    req = _valid_request()
+    await signup(db_session, req)
+    await db_session.commit()
+
+    # ASGITransport runs the app in-process in the same event loop (no nested
+    # loop); the AsyncClient persists the login cookie across the two requests.
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        login = await client.post(
+            "/api/v1/auth/login",
+            json={"email": req.owner_email, "password": req.owner_password},
+        )
+        assert login.status_code == 200, login.text
+
+        me = await client.get("/api/v1/portal/me")
+        assert me.status_code == 200, me.text
+        body = me.json()
+        assert body["email"] == req.owner_email, (
+            "/portal/me must read the owner email from Account (was blank when it "
+            "read BackupContact by the Account.id operator_id)"
+        )
+        assert body["role"] == "admin"

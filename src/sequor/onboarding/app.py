@@ -676,7 +676,9 @@ async def auth_login(request: Request):
             op_account_id = op_id
             op_tenant_id = str(acct["tenant_id"])
             op_name = acct["name"]
-            op_tier = "primary"  # account owner → admin role (see role mapping below)
+            # R7-01: login is owner-only — the account owner is always the admin
+            # operator. A non-owner "operator" role is reserved for a future
+            # multi-operator model; today every login resolves the Account owner.
 
             # Bind the operator's tenant — installs the encryption key AND sets
             # the RLS GUC — so the ORM reload below (owner_email) decrypts and is
@@ -702,7 +704,7 @@ async def auth_login(request: Request):
             account_id=op_account_id,
             name=op_name,
             email=op_email,
-            role="admin" if op_tier == "primary" else "operator",
+            role="admin",
         )
 
         response = JSONResponse(
@@ -715,7 +717,7 @@ async def auth_login(request: Request):
                     "tenant_id": op_tenant_id,
                     "account_id": op_account_id,
                     "account_name": account_name,
-                    "role": "admin" if op_tier == "primary" else "operator",
+                    "role": "admin",
                 },
             }
         )
@@ -1862,7 +1864,7 @@ async def portal_api_me(request: Request):
     from sequor.db.database import get_engine
     from sqlalchemy import select, func
     from sqlalchemy.ext.asyncio import AsyncSession
-    from sequor.db.models import BackupContact, Account, Escalation
+    from sequor.db.models import Account, Escalation
 
     name = operator.get("name", "")
     email = ""
@@ -1874,17 +1876,17 @@ async def portal_api_me(request: Request):
         engine = get_engine()
         async with AsyncSession(engine) as session:
             # Bind the tenant — installs the encryption key AND sets the RLS GUC
-            # — so the BackupContact/Account reads below are scoped to this
-            # tenant under RLS (and EncryptedString columns decrypt).
+            # — so the Account read below is scoped to this tenant under RLS
+            # (and the EncryptedString owner_email decrypts).
             from sequor.db.tenant_context import bind_tenant
 
             await bind_tenant(session, tenant_id)
 
-            result = await session.execute(
-                select(BackupContact).where(BackupContact.id == operator["operator_id"])
-            )
-            contact = result.scalars().first()
-
+            # R7-01: the operator IS the account owner, so /me reads the owner
+            # identity from Account (owner_email, name) — NOT BackupContact. The
+            # backup contact is a DIFFERENT person; operator_id is the Account.id
+            # post-1e, so a BackupContact.id lookup would return None and email
+            # would come back blank (the regression round-1 found).
             acct_result = await session.execute(select(Account).where(Account.id == account_id))
             account = acct_result.scalars().first()
 
@@ -1897,9 +1899,10 @@ async def portal_api_me(request: Request):
             )
             escalation_count = count_result.scalar() or 0
 
-            # Capture fields while session is open (encrypted strings need tenant key context)
-            name = contact.name if contact else operator.get("name", "")
-            email = contact.email if contact else ""
+            # Capture fields while session is open (owner_email is EncryptedString —
+            # needs the bound tenant key to decrypt).
+            name = account.name if account else operator.get("name", "")
+            email = account.owner_email if account else operator.get("email", "")
             role = operator.get("role", "")
             account_name = account.name if account else ""
     except Exception as e:
