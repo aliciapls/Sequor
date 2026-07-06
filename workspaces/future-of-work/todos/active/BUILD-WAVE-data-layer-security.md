@@ -138,6 +138,18 @@ on a non-reproducible suite (stale `KeyManager` singleton) → fixed in `43d7c4b
 489/1-xfailed. **Wave 1 is CONVERGED.** G2–G4 (learning capture = journal 0022; spec/todos
 updated; value-rank unchanged) done; G5 (launch Wave 2) awaits operator authorization.
 
+**Fresh-session re-validation (2026-07-07, journal 0023):** a `/clear` made the 0022 receipt
+a context-boundary reconstruction, so `/redteam` was re-run with independent reviewer +
+security-reviewer. They converged on Wave-1's own diff AND caught a cross-cutting gap the
+union-diff-scoped 0022 gate could not: shard 1c's bind_tenant sweep (`64fc842`) was scoped to
+`onboarding/app.py` only — 4 pre-existing tenant-scoped writers (`vector_store.store_chunks`/
+`search`, `ingestion._create`/`_update`, `learning.delete_learned_answer`) were unswept, and
+Wave-1's own RLS-enablement breaks them under the prod non-owner role (RAG ingestion/retrieval
+silently dies). **Fixed in-session** per autonomous-execution Rule 4 (same-class, in-budget):
+bind_tenant on all 4 + `tenant_id` plumbed into `_update_document_status` (5 callers) + 3
+Tier-2 regression tests (teeth-verified). Suite 563/0-failed ×2; confirming reviewer CLEAN.
+**Wave-1 redteam CONVERGED (fresh-session).** Tail advisories deferred (journal 0023).
+
 ## Out of wave scope (unchanged)
 
 - Platform target-state (M0–M10 todos) — vision, not gaps (`specs/_index.md`).
