@@ -70,6 +70,13 @@ class VectorStore:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(self._engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            # Bind the RLS GUC (app.current_tenant). document_chunks is
+            # tenant-scoped under the no-FORCE RLS policy; without the GUC the
+            # WITH CHECK fails the INSERT under the production non-owner role.
+            await bind_tenant(session, tenant_id)
+
             for chunk_index, chunk_text, embedding in chunks:
                 await session.execute(
                     text(
@@ -124,6 +131,13 @@ class VectorStore:
         from sqlalchemy import text
 
         async with AsyncSession(self._engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            # Bind the RLS GUC (app.current_tenant). document_chunks is
+            # tenant-scoped; without the GUC the SELECT returns 0 rows under
+            # the production non-owner role (silent RAG retrieval failure).
+            await bind_tenant(session, tenant_id)
+
             result = await session.execute(
                 text(
                     """

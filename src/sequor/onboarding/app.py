@@ -1379,6 +1379,7 @@ async def portal_api_upload_document(
             llm_client=get_ollama_client(),
         )
         await ingester._update_document_status(
+            tenant_id=UUID(tenant_id),
             document_id=document_id,
             status=DocumentStatus.indexing,
         )
@@ -1413,6 +1414,7 @@ async def portal_api_upload_document(
             )
 
             await ingester._update_document_status(
+                tenant_id=UUID(tenant_id),
                 document_id=document_id,
                 status=DocumentStatus.ready,
             )
@@ -1429,6 +1431,7 @@ async def portal_api_upload_document(
                     chunks=chunk_data,
                 )
             await ingester._update_document_status(
+                tenant_id=UUID(tenant_id),
                 document_id=document_id,
                 status=DocumentStatus.ready,
             )

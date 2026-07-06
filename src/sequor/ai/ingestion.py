@@ -214,6 +214,7 @@ class DocumentIngester:
             )
 
         await self._update_document_status(
+            tenant_id=tenant_id,
             document_id=document_id,
             status=DocumentStatus.indexing,
         )
@@ -261,6 +262,7 @@ class DocumentIngester:
 
         if self._db_model:
             await self._update_document_status(
+                tenant_id=tenant_id,
                 document_id=document_id,
                 status=DocumentStatus.ready,
             )
@@ -314,14 +316,23 @@ class DocumentIngester:
         from sequor.db.database import get_engine
 
         async with AsyncSession(get_engine()) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            # Bind the RLS GUC (app.current_tenant). documents is tenant-scoped
+            # under the no-FORCE RLS policy; without the GUC the WITH CHECK fails
+            # the INSERT under the production non-owner role.
+            await bind_tenant(session, tenant_id)
+
             result = await session.execute(
-                text("""
+                text(
+                    """
                 INSERT INTO documents
                 (id, tenant_id, name, type, file_hash, chunk_count, indexed_at, last_indexed_at, status)
                 VALUES (gen_random_uuid(), :tenant_id, :name, :type, :file_hash,
                  :chunk_count, :indexed_at, :last_indexed_at, :status)
                 RETURNING id
-                """),
+                """
+                ),
                 {
                     "tenant_id": tenant_id,
                     "name": filename,
@@ -347,12 +358,14 @@ class DocumentIngester:
 
     async def _update_document_status(
         self,
+        tenant_id: UUID,
         document_id: UUID,
         status: Any,
     ) -> None:
         """Update document status in database.
 
         Args:
+            tenant_id: Tenant ID (sets the RLS GUC before the UPDATE)
             document_id: Document UUID
             status: New DocumentStatus
         """
@@ -365,12 +378,21 @@ class DocumentIngester:
         status_value = status.value if hasattr(status, "value") else status
 
         async with AsyncSession(get_engine()) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            # Bind the RLS GUC (app.current_tenant). documents is tenant-scoped;
+            # without the GUC the USING clause hides the row and the UPDATE
+            # silently affects 0 rows under the production non-owner role.
+            await bind_tenant(session, tenant_id)
+
             await session.execute(
-                text("""
+                text(
+                    """
                 UPDATE documents
                 SET status = :status, last_indexed_at = :last_indexed_at
                 WHERE id = :id
-                """),
+                """
+                ),
                 {
                     "status": status_value,
                     "last_indexed_at": now,

@@ -264,6 +264,14 @@ class LearningLoop:
         async with AsyncSession(self._engine) as session:
             from sqlalchemy import text
 
+            from sequor.db.tenant_context import bind_tenant
+
+            # Bind the RLS GUC (app.current_tenant). learned_answers is
+            # tenant-scoped under the no-FORCE RLS policy: without the GUC the
+            # row is invisible to DELETE → rowcount=0 → silent no-op (False).
+            # Mirrors _store_learned_answer / search_learned_answers.
+            await bind_tenant(session, tenant_id)
+
             result = await session.execute(
                 text(
                     """
