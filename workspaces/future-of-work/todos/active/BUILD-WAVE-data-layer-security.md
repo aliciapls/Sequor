@@ -131,6 +131,13 @@ misses). (1b.3) reconcile `learning.py` raw SQL. (1b.4) erasure fix. Commit as c
 Inter-wave gate (G1–G5 per wave-loop MUST-2) fires after Waves 1 and 2. Holistic redteam to
 convergence after the final wave.
 
+**Wave-1 inter-wave gate: PASSED** (journal 0022). G1 holistic redteam = 3 reviewers on the
+union diff (`c771c45..HEAD`); reviewer + security-reviewer CONVERGED, closure-parity BLOCKED
+on a non-reproducible suite (stale `KeyManager` singleton) → fixed in `43d7c4b` (autouse
+`reset_key_manager` + 4 hardening fixes) → reproducible receipt: 3 consecutive full-suite runs
+489/1-xfailed. **Wave 1 is CONVERGED.** G2–G4 (learning capture = journal 0022; spec/todos
+updated; value-rank unchanged) done; G5 (launch Wave 2) awaits operator authorization.
+
 ## Out of wave scope (unchanged)
 
 - Platform target-state (M0–M10 todos) — vision, not gaps (`specs/_index.md`).
