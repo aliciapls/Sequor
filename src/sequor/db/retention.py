@@ -113,6 +113,7 @@ async def purge_expired_records(
     plan: TenantPlan | str,
     *,
     now: datetime | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Delete this tenant's expired rows per the plan's retention schedule.
 
@@ -134,6 +135,12 @@ async def purge_expired_records(
     now = now or datetime.now(timezone.utc)
     retention = _retention_for(plan)
     plan_value = plan.value if isinstance(plan, TenantPlan) else str(plan)
+
+    # Bind the sweep's run_id onto the per-tenant log line so an operator can
+    # reconstruct one sweep from its start/per-tenant/complete entries. A direct
+    # caller (no sweep context) gets its own per-call id — still correlated
+    # within the call, never absent.
+    run_logger = logger.bind(run_id=run_id or uuid.uuid4().hex[:8])
 
     purged: dict[str, int] = {}
     cutoffs: dict[str, str] = {}
@@ -165,7 +172,7 @@ async def purge_expired_records(
             metadata={"plan": plan_value, "purged": purged, "cutoffs": cutoffs},
         )
     await session.flush()
-    logger.info(
+    run_logger.info(
         "retention.purge.tenant",
         tenant_id=str(tenant_id),
         plan=plan_value,
@@ -202,7 +209,9 @@ async def run_retention_purge_once(
 
     # A short run_id ties one sweep's start/per-tenant/complete log lines together
     # in the aggregator (a background scheduler has no HTTP request_id to borrow).
-    run_logger = logger.bind(run_id=uuid.uuid4().hex[:8])
+    # Threaded into purge_expired_records so the per-tenant success line shares it.
+    run_id = uuid.uuid4().hex[:8]
+    run_logger = logger.bind(run_id=run_id)
 
     # Enumerate tenants in a throwaway session. ``Tenant`` is the root entity
     # (not RLS-scoped — it IS the tenant), so an unbound read returns every
@@ -215,7 +224,9 @@ async def run_retention_purge_once(
         try:
             async with AsyncSession(engine) as session:
                 await bind_tenant(session, tenant_id)
-                summary = await purge_expired_records(session, tenant_id, plan, now=now)
+                summary = await purge_expired_records(
+                    session, tenant_id, plan, now=now, run_id=run_id
+                )
                 await session.commit()
                 summaries.append(summary)
         except Exception:
