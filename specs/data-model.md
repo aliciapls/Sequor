@@ -422,7 +422,13 @@ Erasure of a Contact proceeds as:
 
 (Free-tier 7-day retention per `business-model.md`, resolving `DEVIATIONS.md` CS-6.)
 
-The retention periods above are the PDPA policy. Their **enforcement** — a scheduled purge job that auto-deletes records older than the retention period, logging each deletion to the audit entry — is a scoped build tracked in `DEVIATIONS.md` (F2 — retention-purge job) and is **not yet implemented**; until it ships, retention is policy-defined but not machine-enforced.
+The retention periods above are the PDPA policy. Their **enforcement** (shard 1d):
+`Message`, `AuditEntry`, and `Escalation` rows older than the bound plan's retention are
+auto-deleted by the scheduled purge job (`src/sequor/db/retention.py::run_retention_purge_once`),
+which writes one summary `AuditEntry(action="retention.purge")` per purged tenant. Free-tier
+`Contact` (7d) and `Document` (7d) enforcement is deferred to the 1d-tail follow-up — `Contact`
+has no `created_at` column (needs a schema decision), and `Document` purge requires the RAG
+chunk/embedding cascade; both remain PDPA policy here and are tracked in `DEVIATIONS.md` §F2.
 
 ---
 

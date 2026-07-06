@@ -154,11 +154,12 @@ finding) or a security-hardening/flow decision. Builds sequence behind the F5 va
 - **Reality:** no malware/AV scan in `src/sequor/` (`grep -rni 'malware\|clamav\|virus' src/sequor/` → 0). Uploads are size-bounded (25MB) + extension/filename validated, but not AV-scanned.
 - **Disposition:** BUILD behind F5 (needs an AV service/daemon — a provisioning decision, class of N3). Size + extension + path-traversal guards ship today.
 
-### F2 — PDPA retention-purge job (HIGH — compliance) — recommend BUILD
+### F2 — PDPA retention-purge job (HIGH — compliance) — PARTIAL (core shipped, shard 1d)
 
-- **Spec:** `data-model.md` retention schedule "enforced via a nightly batch job that purges records older than the retention period" — now softened to "policy-defined but not machine-enforced (F2)".
-- **Reality:** no purge/retention job exists (`grep -rni 'purge\|nightly\|retention.*job' src/sequor/` → 0). Retention periods are documented policy but nothing deletes expired rows.
-- **Why it matters:** PDPA **over-retention** risk — customer PII is kept indefinitely past its stated retention period. This is the highest-priority logged item after A1; recommend a scheduled purge job (needs the scheduler infra + Tier-2 verification) sequenced with the A1/A2 data-layer wave.
+- **Spec:** `data-model.md` § "Data Retention Schedule" — retention is PDPA policy, enforced via a scheduled purge job.
+- **Shipped (shard 1d):** `src/sequor/db/retention.py::run_retention_purge_once` — a per-tenant sweep that bulk-deletes `Message` / `AuditEntry` / `Escalation` rows older than the plan's retention (7d free / 90d starter / 365d professional / 730d enterprise), writing one summary `AuditEntry(action="retention.purge")` per purged tenant. Each tenant is bound in a fresh `AsyncSession` (`bind_tenant` sets the RLS GUC + encryption key; an explicit `WHERE tenant_id` is defense-in-depth). Wired into the app lifespan via `create_retention_scheduler` — opt-in (`retention_purge_enabled`, default OFF until the deploy role/env is configured, since RLS is no-FORCE). Tier-2: `tests/integration/test_retention_purge.py` (per-plan cutoffs, all-three-tables + audit entry, cross-tenant isolation).
+- **Deferred (1d-tail):** Free-tier `Contact` (7d) and `Document` (7d) purge. `Contact` has no `created_at` column — needs a schema decision (`last_seen` is last activity, not creation, so it is the wrong key). `Document` purge requires the RAG chunk/embedding cascade. Both remain PDPA policy in `data-model.md` but are not yet machine-enforced.
+- **Why it matters:** PDPA **over-retention** risk — customer PII kept indefinitely past the stated retention floor. The shipped job closes it for the highest-sensitivity PII (message content) and the accountability records (audit, escalation).
 
 ### F3 — Routing flywheel not built (MED) — recommend BUILD (A4-themed moat)
 

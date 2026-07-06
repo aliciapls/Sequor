@@ -39,9 +39,18 @@ JWT_SECRET=<≥32B> APP_ENV=development .venv/bin/python -m pytest ...`
       4 new RLS tests (filter-less isolation, fail-closed, WITH CHECK write-block,
       SECURITY DEFINER bypass + auth_login regression) under a non-superuser role.
       Unit 421/1-xfailed; Tier-2 55/1-xfailed. 6 LOW/MED deferrals → follow-up "1c-tail".
-  - **1d — F2 PDPA retention-purge job.** Scheduled purge of rows past their per-tier
-    retention; Tier-2 test. Value-anchor: `data-model.md` retention schedule (PDPA
-    over-retention). Shares scheduler plumbing.
+  - **1d — F2 PDPA retention-purge job.** ✅ BUILT (redteam in flight). Added
+    `src/sequor/db/retention.py`: `run_retention_purge_once` — a per-tenant sweep that
+    bulk-deletes `Message`/`AuditEntry`/`Escalation` older than the plan's retention
+    (7d/90d/365d/730d), one summary `AuditEntry(action="retention.purge")` per purged
+    tenant; fresh `AsyncSession` + `bind_tenant` per tenant (RLS GUC + key isolation).
+    `RetentionPurgeScheduler` + `create_retention_scheduler` factory mirror `SLAScheduler`;
+    wired into `_app_lifespan`, opt-in (`retention_purge_enabled`, default OFF — unit tests
+    boot the app via TestClient, and the destructive loop shouldn't auto-run until the
+    deploy role/env is set; RLS is no-FORCE). Tier-2: 3 tests (per-plan cutoffs, all-three-
+    tables + audit entry, cross-tenant isolation) — 58/1-xfailed. Unit 421/1-xfailed.
+    Value-anchor: `data-model.md` retention schedule (PDPA over-retention). **Deferred to
+    1d-tail:** Free-tier `Contact` (7d, no `created_at`) + `Document` (7d, RAG cascade).
   - **1e — R7-01 login/backup separation.** Separate owner-login identity from the escalation
     backup contact; re-point login + escalation; clears the xfail tripwire. Touches auth.
   - **1f — Account inbound-lookup blind index (CRITICAL — blocked first prod deploy).**

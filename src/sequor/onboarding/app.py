@@ -129,15 +129,22 @@ async def _reprocess_stuck_documents() -> None:
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
-    """Startup: create tables if needed, then reprocess stuck documents."""
+    """Startup: create tables if needed, reprocess stuck documents, and start
+    the PDPA retention-purge scheduler (opt-in via retention_purge_enabled)."""
+    retention_scheduler = None
     try:
         from sequor.db.database import init_db
 
         await init_db()
         await _reprocess_stuck_documents()
+        from sequor.db.retention import create_retention_scheduler
+
+        retention_scheduler = await create_retention_scheduler()
     except Exception:
         _logger.exception("lifespan.startup.failed")
     yield
+    if retention_scheduler is not None:
+        await retention_scheduler.stop()
 
 
 app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=_app_lifespan)
