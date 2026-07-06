@@ -198,27 +198,33 @@ per-test DB isolation), which masked the finding below. Wave-0 (green the loop) 
 the entry tier), and `tests/integration/conftest.py` autouse per-test truncate + per-tenant
 schema drop. Unit suite unaffected (437 pass in the normal env).
 
-### R7-01 — `backup_contacts` conflates owner-login identity with escalation backup contact (HIGH — correctness/routing) — recommend BUILD (own shard)
+### R7-01 — `backup_contacts` conflates owner-login identity with escalation backup contact (HIGH — correctness/routing) — RESOLVED (shard 1e)
 
-- **Reality:** `onboarding/service.py` signup creates ONE `BackupContact` row mixing the
+- **Was:** `onboarding/service.py` signup created ONE `BackupContact` row mixing the
   backup person's `name`/`tier` with the OWNER's `email` + `password_hash` +
-  `email_blind_index`. `backup_contacts` is simultaneously the operator-login table
-  (`onboarding/app.py` login: `WHERE email_blind_index = blind_index(owner_email)` +
-  `verify_password`) AND the escalation recipient table
-  (`escalation/service.py`: tier-1/tier-2 send `to=backup["email"]`).
-- **Impact:** the designated backup person's `backup_email` is **discarded** (only their
-  name is stored); every escalation emails the **account owner**, not the backup person —
-  the backup-contact feature is silently non-functional. The blind-index dedup also keys on
-  the owner's email, so the "duplicate email" check compares owner-vs-owner.
-- **Why it's a design change, not a one-liner:** one row cannot hold both the owner's
-  blind index (login lookup needs `blind_index(owner_email)`) and the backup's email (an
-  `EncryptedString` whose blind index must be consistent with its own value). The two are
-  different people/emails. Correct fix = separate the owner-login identity (own row/table
-  keyed on owner_email + password) from the escalation backup contact (backup person's
-  email), and re-point login + escalation accordingly. Touches auth (security-critical),
-  schema (migration), signup, and escalation routing.
-- **Tripwire:** `tests/integration/test_onboarding_integration.py::test_signup_creates_backup_contact`
-  is `xfail(strict=True)` referencing this row — it auto-fails (XPASS) the moment the fix
-  lands, forcing removal of the marker in the same shard (per `testing.md` xfail-strict).
-- **Disposition:** BUILD as its own value-ranked shard in the build wave (pairs with the
-  A1 data-layer wave — both touch the tenant-key/connection boundary and the same models).
+  `email_blind_index`. `backup_contacts` was simultaneously the operator-login table
+  AND the escalation recipient table — so the backup person's `backup_email` was
+  **discarded** and every escalation emailed the **account owner** (the backup-contact
+  feature was silently non-functional).
+- **Resolved by shard 1e** (build `9333b8f` + round-1 `342ceb7`): the owner-login
+  identity and the escalation backup contact are now separate —
+  - **Account** owns the owner-login identity: `owner_email` + `password_hash` +
+    `owner_email_blind_index`. Login resolves the Account via
+    `resolve_account_login_by_email_blind_index` (SECURITY DEFINER; least-privilege:
+    only login gets `password_hash`).
+  - **BackupContact** owns the backup person: their `email`/`name`/`tier`.
+    `escalation/service.py` `to=backup["email"]` now routes to the designated backup
+    person. Dedup keys on `Account.owner_email_blind_index` (the real owner identity).
+  - Schema migration `e1d2c3b4a506` (ADD `accounts.password_hash`, DROP
+    `backup_contacts.password_hash`, swap the login resolver fn); the legacy
+    `resolve_backup_contact_by_email_blind_index` RLS-bypassing fn is dropped.
+- **Tripwire (cleared):** `test_signup_creates_backup_contact` was `xfail(strict=True)`
+  referencing this row; the marker was removed same-shard when the fix landed (it now
+  passes — `backup.email == backup_email`). Round-1 also added the missing
+  signup → login → `/portal/me` user-flow walk.
+- **Tier-2:** 4 new tests (resolver finds account by owner_email; backup person's email
+  is not a login identity; wrong password rejected; `/portal/me` returns owner email).
+  Full suite 489/1-xfailed.
+- **Deferred (1e-tail):** `operator_count` dashboard metric label drift (pre-existing;
+  now counts `BackupContact` rows labelled "operators" — rename to `backup_contact_count`
+  - update frontend consumer).

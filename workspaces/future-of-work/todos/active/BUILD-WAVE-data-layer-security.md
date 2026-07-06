@@ -59,8 +59,20 @@ JWT_SECRET=<≥32B> APP_ENV=development .venv/bin/python -m pytest ...`
       `data-model.md` retention schedule (PDPA over-retention). **Deferred to 1d-tail**
       (journal 0019): Free-tier `Contact` (7d, no `created_at`) + `Document` (7d, RAG cascade)
     - 2 LOW (unbounded enumeration, stop() timeout).
-  - **1e — R7-01 login/backup separation.** Separate owner-login identity from the escalation
-    backup contact; re-point login + escalation; clears the xfail tripwire. Touches auth.
+  - **1e — R7-01 login/backup separation.** ✅ DONE + redteam-CONVERGED (2 rounds: R1
+    1-HIGH+2-LOW → R2 both CONVERGED). Closes `DEVIATIONS §R7-01` + journal 0020 (build) +
+    0021 (deferred GAP); clears the xfail tripwire. Commits `9333b8f` (build) + `342ceb7`
+    (round-1). Separated: **Account** owns the owner-login identity (+ `password_hash`;
+    login resolves via new `resolve_account_login_by_email_blind_index` SECURITY DEFINER
+    fn, least-privilege); **BackupContact** owns the backup person (`email`/`name`/`tier`
+    are the backup person's, so escalations route to them, not the owner). Re-pointed
+    signup + auth_login + portal_api_me + backfill. Dead code removed: legacy
+    `resolve_backup_contact_by_email_blind_index` (RLS-bypassing) + `backup_contacts.
+password_hash`. Migration `e1d2c3b4a506`; init_db self-heals the new column. Tier-2:
+    xfail cleared + 4 tests incl. a signup→login→/portal/me user-flow walk — full suite
+    489/1-xfailed. **Deferred to 1e-tail** (journal 0021): `operator_count` label drift,
+    `verify_password` dup, populated-deploy backfill caveat. **Wave 1 is now COMPLETE
+    (1a+1b+1c+1d+1e+1f) → inter-wave gate (G1–G5) below before Wave 2.**
   - **1f — Account inbound-lookup blind index (CRITICAL — blocked first prod deploy).**
     ✅ DONE + redteam-CONVERGED (4 rounds: R1 security+reviewer → R2 adversarial → R3 inline →
     R4 final-gate CONFIRMED). Closes journal/0013 (AMENDMENT 0014). Commits `aca5672` +
