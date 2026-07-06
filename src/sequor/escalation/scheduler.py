@@ -56,7 +56,16 @@ class SLAScheduler:
     async def _run_loop(self) -> None:
         try:
             while True:
-                await self._tick()
+                try:
+                    await self._tick()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # A transient failure (e.g. the tenant-enumeration read fails
+                    # on a DB blip) MUST NOT kill the loop — silently-stopped
+                    # background work is the worst failure mode for a scheduler.
+                    # Log + keep ticking.
+                    logger.exception("scheduler.tick_failed")
                 await asyncio.sleep(self._interval)
         except asyncio.CancelledError:
             raise

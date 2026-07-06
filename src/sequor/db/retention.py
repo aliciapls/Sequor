@@ -84,10 +84,20 @@ RETENTION_DAYS: dict[str, dict[str, int]] = {
 # ``(table key, ORM model, creation-timestamp column)`` for each purged table.
 # The timestamp column is the row's creation time used to compute its age. Keys
 # match ``RETENTION_DAYS`` so a single lookup drives the cutoff per table.
+#
+# Order is LEAF-FIRST. ``Escalation.message_id`` is ``ondelete=CASCADE``: if
+# Messages were purged first, Postgres would cascade-delete the old Escalations
+# BEFORE the explicit ``delete(Escalation)`` ran, so that statement's rowcount
+# would be 0 and the audit metadata would undercount escalations removed. Purging
+# escalations first captures the true count; the later Message purge then cascades
+# only the already-counted rows (plus uncounted children like Classification /
+# Response, which are transient derived data, not retention-tracked).
+# (``AuditEntry.message_id`` is ``ondelete=SET NULL``, so audit rows survive a
+# Message purge uncounted-but-intact — order is irrelevant for them.)
 _PURGE_TABLES: list[tuple[str, type, Any]] = [
-    ("messages", Message, Message.received_at),
-    ("audit_entries", AuditEntry, AuditEntry.occurred_at),
     ("escalations", Escalation, Escalation.assigned_at),
+    ("audit_entries", AuditEntry, AuditEntry.occurred_at),
+    ("messages", Message, Message.received_at),
 ]
 
 
@@ -114,7 +124,10 @@ async def purge_expired_records(
     ``bind_tenant`` (encryption key + RLS GUC).
 
     ``now`` defaults to the real current time; tests pass an explicit value so
-    seeded "old" rows are deterministic relative to the cutoff.
+    seeded "old" rows are deterministic relative to the cutoff. **Trust boundary:**
+    *now* is the caller's reference time — a far-future value over-purges, so only
+    trusted code (the scheduler tick / a test harness) supplies it; the production
+    default is ``datetime.now(timezone.utc)``.
 
     Returns ``{"tenant_id", "plan", "purged": {table: count}, "cutoffs": {table: iso}}``.
     """
@@ -187,13 +200,17 @@ async def run_retention_purge_once(
     now = now or datetime.now(timezone.utc)
     summaries: list[dict[str, Any]] = []
 
+    # A short run_id ties one sweep's start/per-tenant/complete log lines together
+    # in the aggregator (a background scheduler has no HTTP request_id to borrow).
+    run_logger = logger.bind(run_id=uuid.uuid4().hex[:8])
+
     # Enumerate tenants in a throwaway session. ``Tenant`` is the root entity
     # (not RLS-scoped — it IS the tenant), so an unbound read returns every
     # tenant, matching the SLA scheduler + admin-backfill enumeration.
     async with AsyncSession(engine) as enum_session:
         tenant_rows = (await enum_session.execute(select(Tenant.id, Tenant.plan))).all()
 
-    logger.info("retention.purge.sweep.start", tenant_count=len(tenant_rows))
+    run_logger.info("retention.purge.sweep.start", tenant_count=len(tenant_rows))
     for tenant_id, plan in tenant_rows:
         try:
             async with AsyncSession(engine) as session:
@@ -204,14 +221,26 @@ async def run_retention_purge_once(
         except Exception:
             # Per-tenant isolation: a failure here rolls back only this tenant
             # (the AsyncSession context manager discards the uncommitted txn).
-            logger.exception("retention.purge.tenant_failed", tenant_id=str(tenant_id))
+            run_logger.exception("retention.purge.tenant_failed", tenant_id=str(tenant_id))
     totals = {
         t: sum(s["purged"].get(t, 0) for s in summaries)
         for t in ("messages", "audit_entries", "escalations")
     }
-    logger.info(
+    failed = len(tenant_rows) - len(summaries)
+    if failed > 0:
+        # Bulk-op partial-failure summary (observability Rule 7): without this a
+        # per-tenant failure is visible only in the exception lines, not in the
+        # sweep-complete tally an operator scans for.
+        run_logger.warning(
+            "retention.purge.sweep.partial_failure",
+            attempted=len(tenant_rows),
+            failed=failed,
+            tenants_processed=len(summaries),
+        )
+    run_logger.info(
         "retention.purge.sweep.complete",
         tenants_processed=len(summaries),
+        tenants_failed=failed,
         total_purged=totals,
     )
     return summaries
@@ -261,7 +290,17 @@ class RetentionPurgeScheduler:
     async def _run_loop(self) -> None:
         try:
             while True:
-                await self._tick()
+                try:
+                    await self._tick()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # A transient failure here (e.g. the tenant-enumeration read
+                    # fails on a DB blip, or get_engine() raises) MUST NOT kill
+                    # the loop — for a destructive PDPA job, silent cessation is
+                    # the worst failure mode: compliance believes the purge runs
+                    # while expired PII accumulates. Log + keep ticking.
+                    logger.exception("retention.scheduler.tick_failed")
                 await asyncio.sleep(self._interval)
         except asyncio.CancelledError:
             raise
