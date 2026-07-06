@@ -22,9 +22,11 @@ Two deliberate exemptions / escape hatches:
   provisioning. The table is reached only by the trusted ``KeyManager``.
 - Three cross-tenant lookup functions are ``SECURITY DEFINER`` (owned by the
   table owner) so they bypass RLS: inbound account resolution (email blind
-  index, WhatsApp phone) and backup-contact login. These are intentional tenant
-  *discovery* lookups (the 1f blind-index design), not forgotten-WHERE bugs —
-  they must cross tenants to find which tenant owns an address.
+  index, WhatsApp phone) and account login (owner_email blind index, R7-01).
+  These are intentional tenant *discovery* lookups (the 1f blind-index design),
+  not forgotten-WHERE bugs — they must cross tenants to find which tenant owns
+  an address. (R7-01: login resolves the Account, not the backup contact — the
+  legacy ``resolve_backup_contact_by_email_blind_index`` is dropped.)
 
 This module is applied by ``database.init_db()`` (the create_all test loop) and
 mirrored by the ``enable_rls_tenant_isolation`` Alembic migration (production
@@ -151,17 +153,21 @@ async def _create_lookup_functions(conn: AsyncConnection) -> None:
     await conn.execute(
         text(
             """
-            CREATE OR REPLACE FUNCTION resolve_backup_contact_by_email_blind_index(p_idx varchar)
-            RETURNS TABLE (
-                id uuid, tenant_id uuid, account_id uuid,
-                name varchar, password_hash varchar, tier text
-            )
+            CREATE OR REPLACE FUNCTION resolve_account_login_by_email_blind_index(p_idx varchar)
+            RETURNS TABLE (id uuid, tenant_id uuid, password_hash varchar, name varchar)
             LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-                SELECT id, tenant_id, account_id, name, password_hash, tier::text
-                FROM backup_contacts
-                WHERE email_blind_index = p_idx AND active = true
+                SELECT id, tenant_id, password_hash, name
+                FROM accounts
+                WHERE owner_email_blind_index = p_idx AND status = 'active'
                 LIMIT 1;
             $$;
             """
         )
+    )
+    # R7-01 (shard 1e): login now resolves the ACCOUNT by owner_email_blind_index,
+    # not the backup contact. Drop the dead backup-contact login resolver so a
+    # dev DB that created it under an earlier init_db does not keep a lingering
+    # SECURITY DEFINER function that bypasses RLS on backup_contacts. Idempotent.
+    await conn.execute(
+        text("DROP FUNCTION IF EXISTS resolve_backup_contact_by_email_blind_index(varchar)")
     )

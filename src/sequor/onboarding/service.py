@@ -133,8 +133,11 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
 
     owner_domain = request.owner_email.split("@")[1]
     email_index = compute_email_blind_index(request.owner_email)
+    # R7-01: dedup keys on the OWNER's email via the Account blind index (the
+    # owner-login identity lives on Account now, not BackupContact). Checking
+    # BackupContact.email_blind_index compared owner-vs-owner on the wrong table.
     existing = await session.execute(
-        select(BackupContact).where(BackupContact.email_blind_index == email_index)
+        select(Account).where(Account.owner_email_blind_index == email_index)
     )
     if existing.scalars().first() is not None:
         raise DuplicateEmailError(
@@ -187,22 +190,28 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         routing_rules=routing_rules,
         confidence_threshold=0.90,
         escalation_sla_hours=request.escalation_sla_hours,
+        # R7-01: the owner-login credential lives on the Account (the owner-login
+        # identity), NOT on the BackupContact (the escalation recipient). The
+        # backup contact is a different person with their own email.
+        password_hash=hash_password(request.owner_password),
     )
     session.add(account)
     await session.flush()
 
-    # 4. Create BackupContact (encrypted columns require tenant key set above)
-    from sequor.db.encrypted_column import compute_email_blind_index
-
+    # 4. Create BackupContact — the escalation recipient (the BACKUP PERSON, not
+    # the owner). R7-01: email/email_blind_index are the backup person's, so
+    # escalations (escalation/service.py: to=backup['email']) route to the
+    # designated backup person. (Pre-1e this row stored the OWNER's email +
+    # password — the conflation R7-01 fixes.) compute_email_blind_index is the
+    # global-lookup-key HMAC imported at the top of this function.
     backup = BackupContact(
         tenant_id=tenant.id,
         account_id=account.id,
         name=request.backup_name,
-        email=request.owner_email,
-        email_blind_index=compute_email_blind_index(request.owner_email),
+        email=request.backup_email,
+        email_blind_index=compute_email_blind_index(request.backup_email),
         tier="primary",
         active=True,
-        password_hash=hash_password(request.owner_password),
     )
     session.add(backup)
     await session.flush()

@@ -263,6 +263,12 @@ class Account(Base):
     # a tenant key — mirrors BackupContact.email_blind_index.
     owner_email_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     email_address_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Owner-login credential (R7-01): the account owner logs in with owner_email +
+    # this password hash. Previously the operator credential lived on BackupContact
+    # (which conflated the owner-login identity with the escalation backup person);
+    # shard 1e separates them — Account owns the login identity, BackupContact owns
+    # the backup person's contact details. verify via onboarding.service.verify_password.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     whatsapp_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     backup_contact_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid), nullable=True)
     routing_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -311,7 +317,10 @@ class BackupContact(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(EncryptedString(field_name="backup_email"), nullable=False)
-    # Blind index for login lookups — HMAC of email with global lookup key
+    # Blind index of the BACKUP PERSON's email (HMAC under the global lookup key).
+    # R7-01: login no longer resolves BackupContact — it resolves the Account by
+    # owner_email_blind_index. This index is the backup person's own email index
+    # (kept for future backup-contact lookups / dedup), not the operator login key.
     email_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(
         EncryptedString(field_name="backup_phone"), nullable=True
@@ -320,7 +329,6 @@ class BackupContact(Base):
         Enum(ContactTier, name="contact_tier", create_constraint=True), nullable=False
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="backup_contacts")

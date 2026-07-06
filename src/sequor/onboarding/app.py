@@ -626,7 +626,7 @@ async def auth_login(request: Request):
     from sequor.auth import verify_password, create_access_token_for_operator
     from sequor.config import settings
     from sqlalchemy import select
-    from sequor.db.models import BackupContact, Account
+    from sequor.db.models import Account
     from sqlalchemy.ext.asyncio import AsyncSession
 
     try:
@@ -642,14 +642,14 @@ async def auth_login(request: Request):
 
             row = await session.execute(
                 text(
-                    "SELECT id, tenant_id, account_id, name, password_hash, tier "
-                    "FROM resolve_backup_contact_by_email_blind_index(:idx)"
+                    "SELECT id, tenant_id, password_hash, name "
+                    "FROM resolve_account_login_by_email_blind_index(:idx)"
                 ),
                 {"idx": blind_index},
             )
-            contact = row.mappings().first()
+            acct = row.mappings().first()
 
-            if not contact:
+            if not acct:
                 # Burn equivalent bcrypt cycles so an absent email is not
                 # measurably faster than a present one (r2-security L2).
                 verify_password(password, _DUMMY_PASSWORD_HASH)
@@ -657,7 +657,7 @@ async def auth_login(request: Request):
                     status_code=401, content={"detail": "Invalid email or password"}
                 )
 
-            password_hash = contact["password_hash"]
+            password_hash = acct["password_hash"]
             if not password_hash:
                 verify_password(password, _DUMMY_PASSWORD_HASH)
                 return JSONResponse(
@@ -669,42 +669,30 @@ async def auth_login(request: Request):
                     status_code=401, content={"detail": "Invalid email or password"}
                 )
 
-            op_id = str(contact["id"])
-            op_name = contact["name"]
-            op_tenant_id = str(contact["tenant_id"])
-            op_account_id = str(contact["account_id"])
-            op_tier = (
-                contact["tier"].value if hasattr(contact["tier"], "value") else str(contact["tier"])
-            )
+            # R7-01: login resolves the ACCOUNT (the owner-login identity), not
+            # the backup contact. The resolved entity IS the account, so
+            # op_account_id == op_id; the account owner is the admin operator.
+            op_id = str(acct["id"])
+            op_account_id = op_id
+            op_tenant_id = str(acct["tenant_id"])
+            op_name = acct["name"]
+            op_tier = "primary"  # account owner → admin role (see role mapping below)
 
             # Bind the operator's tenant — installs the encryption key AND sets
-            # the RLS GUC — so the ORM re-selects below (canonical email,
-            # account name) are scoped to this tenant under RLS. The lookup
-            # function above bypassed RLS to FIND the row; this re-bind scopes
-            # the reload. bind_tenant uses the shared KeyManager singleton (LRU
-            # key cache) rather than the ad-hoc KeyManager() it replaces.
+            # the RLS GUC — so the ORM reload below (owner_email) decrypts and is
+            # scoped to this tenant under RLS. The lookup function bypassed RLS
+            # to FIND the account; this re-bind scopes the reload.
             from sequor.db.tenant_context import bind_tenant
 
             await bind_tenant(session, UUID(op_tenant_id))
 
-            # Load the full ORM object now that tenant key + RLS GUC are set
-            result = await session.execute(
-                select(BackupContact).where(BackupContact.id == contact["id"])
-            )
-            operator = result.scalars().first()
-            op_email = operator.email if operator else email
-
-            # `operator` can be None if the contact was removed between the
-            # blind-index lookup and this re-select; the op_email line above
-            # already anticipates it, so the account lookup MUST guard too
-            # rather than dereference operator.account_id on None (r2 Pyright).
-            account_name = ""
-            if operator is not None:
-                acct_result = await session.execute(
-                    select(Account).where(Account.id == operator.account_id)
-                )
-                account = acct_result.scalars().first()
-                account_name = account.name if account else ""
+            # Load the full Account ORM (owner_email is EncryptedString — decrypts
+            # under the bound tenant key; RLS GUC scopes the read). Falls back to
+            # the supplied email if the row vanished between lookup and reload.
+            result = await session.execute(select(Account).where(Account.id == acct["id"]))
+            account = result.scalars().first()
+            op_email = account.owner_email if account else email
+            account_name = account.name if account else op_name
 
             await session.commit()
 
@@ -751,9 +739,12 @@ async def auth_login(request: Request):
 
 @app.post("/api/v1/admin/backfill-blind-indexes")
 async def backfill_blind_indexes(request: Request):
-    """Backfill email_blind_index for all existing BackupContact records.
+    """Backfill the Account blind indexes (owner_email + email_address) for login + inbound.
 
-    This is a one-time migration to support the new encrypted email login.
+    R7-01: login resolves the Account by ``owner_email_blind_index``; inbound resolves
+    by ``owner_email``/``email_address_blind_index`` (1f). Signup populates both; this
+    is a one-time admin migration for any Account rows predating those (a fresh-
+    substrate deploy has none, but the endpoint stays correct for a populated one).
     """
     operator = _require_auth(request)
     # Cross-tenant migration op — restrict to admin operators. Without this any
@@ -766,7 +757,7 @@ async def backfill_blind_indexes(request: Request):
 
     from sequor.db.database import get_engine
     from sequor.db.encrypted_column import compute_email_blind_index
-    from sequor.db.models import BackupContact, Tenant
+    from sequor.db.models import Account, Tenant
     from sqlalchemy import select, update
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -774,11 +765,11 @@ async def backfill_blind_indexes(request: Request):
     updated = 0
     errors = []
 
-    # RLS: BackupContact is tenant-scoped, so this cross-tenant admin scan must
+    # RLS: Account is tenant-scoped, so this cross-tenant admin scan must
     # enumerate tenants and bind each (matching the startup-task / scheduler
     # per-tenant pattern). bind_tenant sets the tenant key AND the RLS GUC, so
-    # each contact's email decrypts and the query/update are scoped to the bound
-    # tenant. Under a non-owner app role a single unbound session sees 0 rows.
+    # owner_email decrypts and the query/update are scoped to the bound tenant.
+    # Under a non-owner app role a single unbound session sees 0 rows.
     async with AsyncSession(engine) as session:
         tenant_rows = (await session.execute(select(Tenant.id))).all()
     for (tenant_id,) in tenant_rows:
@@ -786,30 +777,34 @@ async def backfill_blind_indexes(request: Request):
             from sequor.db.tenant_context import bind_tenant
 
             await bind_tenant(session, tenant_id)
-            contacts = (
+            accounts = (
                 (
                     await session.execute(
-                        select(BackupContact).where(BackupContact.email_blind_index == None)
+                        select(Account).where(Account.owner_email_blind_index == None)
                     )
                 )
                 .scalars()
                 .all()
             )
-            for contact in contacts:
+            for account in accounts:
                 try:
-                    # email decrypts under the bound tenant key (set by bind_tenant)
-                    blind_index = compute_email_blind_index(contact.email)
+                    # owner_email decrypts under the bound tenant key. Both blind
+                    # indexes derive from owner_email at signup (login + inbound).
+                    blind_index = compute_email_blind_index(account.owner_email)
                     await session.execute(
-                        update(BackupContact)
-                        .where(BackupContact.id == contact.id)
-                        .values(email_blind_index=blind_index)
+                        update(Account)
+                        .where(Account.id == account.id)
+                        .values(
+                            owner_email_blind_index=blind_index,
+                            email_address_blind_index=blind_index,
+                        )
                     )
                     updated += 1
                 except Exception:
                     # Log server-side; do NOT echo raw exception text back in the
                     # API response (r2-security M4).
-                    _logger.exception("admin.backfill.contact_failed", contact_id=str(contact.id))
-                    errors.append(str(contact.id))
+                    _logger.exception("admin.backfill.account_failed", account_id=str(account.id))
+                    errors.append(str(account.id))
             await session.commit()
 
     return JSONResponse(

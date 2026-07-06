@@ -63,6 +63,24 @@ async def init_db() -> None:
                 text("ALTER TABLE backup_contacts ADD COLUMN email_blind_index VARCHAR(64)")
             )
 
+        # R7-01 (shard 1e): add accounts.password_hash if missing. create_all is
+        # CREATE TABLE IF NOT EXISTS, so it never ALTERs an existing table — a dev
+        # test DB created before this column landed would otherwise lack it and every
+        # signup INSERT would fail. The Alembic migration
+        # (e1d2c3b4a506_separate_owner_login_from_backup_contact) is the prod artifact;
+        # this self-heal keeps the create_all test loop green. Mirrors the
+        # email_blind_index self-heal above.
+        result = await conn.execute(
+            text(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'accounts' AND column_name = 'password_hash'
+            """
+            )
+        )
+        if result.fetchone() is None:
+            await conn.execute(text("ALTER TABLE accounts ADD COLUMN password_hash VARCHAR(255)"))
+
         # A2 tenant isolation: enable RLS + the tenant_isolation policy on every
         # tenant-scoped table and create the cross-tenant lookup functions
         # (db.rls). Idempotent — safe on every bootstrap. Mirrored by the
