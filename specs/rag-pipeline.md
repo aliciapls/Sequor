@@ -24,8 +24,8 @@ The RAG (Retrieval-Augmented Generation) pipeline answers routine queries from t
 
 - User uploads a file via the onboarding wizard
 - Supported formats: PDF, DOCX, XLSX, CSV, TXT, PNG (OCR), JPG (OCR)
-- Maximum file size: 25MB
-- File is scanned for malware (ClamAV or equivalent) before processing
+- Maximum file size: 25MB (enforced; oversized uploads are rejected before buffering)
+- Malware scanning (ClamAV or equivalent) before processing is a scoped build tracked in `DEVIATIONS.md` (F1 — upload malware scan) and is **not yet implemented**
 - Upload generates a `Document` record with status `pending`
 
 ### 2. Parsing
@@ -47,8 +47,8 @@ Three chunking strategies, selected by document type:
 
 ### 4. Embedding Generation
 
-- Embedding model: `text-embedding-3-small` (OpenAI) or equivalent (Cohere, Anthropic)
-- Per-chunk: one embedding vector (1536 dimensions for ada-003 equivalent)
+- Embedding model (shipped): `nomic-embed-text` (local, via Ollama; `config.py::embedding_model`). `text-embedding-3-small` (OpenAI) is an OPTIONAL fallback (`config.py::openai_embedding_model`).
+- Per-chunk: one embedding vector — **768 dimensions** (`models.py` `Vector(768)`; nomic-embed-text output width). NOTE: the OpenAI fallback emits 1536-dim vectors, which do NOT fit the `Vector(768)` column — the fallback path MUST project/guard to 768 (or be disabled) before use. (Resolved 2026-07-05 per `DEVIATIONS.md` NEW-2; the fallback dim-mismatch is tracked there as a guard-needed item.)
 - Embeddings stored in pgvector (PostgreSQL extension) — vector storage alongside relational data
 
 ### 5. Indexing

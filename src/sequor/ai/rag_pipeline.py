@@ -15,6 +15,10 @@ from sequor.ai.vector_store import VectorStore
 
 logger = structlog.get_logger()
 
+# Spec rag-pipeline.md: passages scoring below this answerability floor are
+# excluded from synthesis entirely, regardless of vector similarity.
+_ANSWERABILITY_FLOOR = 0.3
+
 
 @dataclass
 class RetrievalResult:
@@ -108,6 +112,13 @@ class RAGPipeline:
             answerability = await self._score_answerability(query, result.chunk_text)
             answerability_scores.append(answerability)
 
+            # Spec rag-pipeline.md: a passage below the answerability floor is
+            # EXCLUDED entirely — even when its vector similarity is high.
+            # Down-weighting via final_score is not sufficient (hallucination
+            # control keeps low-relevance-but-similar passages out of synthesis).
+            if answerability < _ANSWERABILITY_FLOOR:
+                continue
+
             final_score = result.combined_score * answerability
             passages.append(
                 {
@@ -179,10 +190,11 @@ Respond with only a number between 0.0 and 1.0:
 
 Score:"""
 
+        response = ""
         try:
             response = await self._llm.generate(prompt, temperature=0.0)
-            response = response.strip().split()[0]
-            score = float(response)
+            token = response.strip().split()[0]
+            score = float(token)
             return max(0.0, min(1.0, score))
         except (ValueError, IndexError):
             logger.warning("rag.answerability.parse_failed", response=response)
@@ -335,7 +347,7 @@ Check each factual claim in the answer. For each claim:
 - If it's a clear addition not supported by any passage, mark it un-cited
 
 Respond with a JSON object:
-{{"passed": true/false, "uncited_claims": number, "notes": "brief explanation"}}
+{{"passed": true/false, "total_claims": number, "uncited_claims": number, "notes": "brief explanation"}}
 
 Focus on factual claims, not the answer's framing or structure."""
 
@@ -352,11 +364,24 @@ Focus on factual claims, not the answer's framing or structure."""
             result = json.loads(response.strip())
             passed = result.get("passed", True)
             uncited = result.get("uncited_claims", 0)
+            total_claims = result.get("total_claims", 0)
 
-            if uncited > len(passages) * 0.5:
+            # Spec rag-pipeline.md: reject when >50% of CLAIMS are un-cited.
+            # The denominator is the claim count the judge reports, NOT the
+            # passage count (a short answer over many passages was never a
+            # hallucination signal — the ratio must be per-claim).
+            if total_claims > 0 and uncited / total_claims > 0.5:
+                passed = False
+            elif total_claims == 0 and uncited > 0:
+                # Malformed judge output: it reports un-cited claims but zero
+                # total. Fail CLOSED rather than defer to its passed flag.
                 passed = False
 
-            return {"passed": passed, "uncited_claims": uncited}
+            return {
+                "passed": passed,
+                "uncited_claims": uncited,
+                "total_claims": total_claims,
+            }
 
         except (json.JSONDecodeError, Exception) as e:
             logger.warning("rag.hallucination.check_failed", error=str(e))

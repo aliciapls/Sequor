@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+from sqlalchemy import select
 
-from sequor.db.models import EscalationStatus
+from sequor.db.models import (
+    Account,
+    Escalation,
+    EscalationStatus,
+    LearnedAnswer,
+    Response,
+)
 from sequor.email.templates import DigestEmailData, build_digest_email, build_digest_subject
 from sequor.protocols import EmailSender
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger()
 
@@ -112,9 +122,7 @@ class DigestService:
         results = []
         for tenant in tenants:
             try:
-                tenant_results = await self.send_all_accounts(
-                    uuid.UUID(tenant["id"])
-                )
+                tenant_results = await self.send_all_accounts(uuid.UUID(tenant["id"]))
                 results.extend(tenant_results)
             except Exception:
                 logger.exception(
@@ -148,40 +156,26 @@ class DigestService:
             {"tenant_id": tenant_id, "account_id": account_id},
         )
 
-        recent_learned = [
-            la for la in learned
-            if _after_cutoff(la.get("created_at"), cutoff)
-        ]
+        recent_learned = [la for la in learned if _after_cutoff(la.get("created_at"), cutoff)]
         recent_learned_topics = [
-            la["question_text"][:80]
-            for la in recent_learned
-            if la.get("question_text")
+            la["question_text"][:80] for la in recent_learned if la.get("question_text")
         ][:10]
 
         auto_responses = [
-            r for r in responses
+            r
+            for r in responses
             if r.get("was_auto_sent") and _after_cutoff(r.get("sent_at"), cutoff)
         ]
 
-        rag_responses = [
-            r for r in auto_responses
-            if r.get("rag_retrieval_id") is not None
-        ]
+        rag_responses = [r for r in auto_responses if r.get("rag_retrieval_id") is not None]
 
-        learned_response_ids = {la["source_escalation_id"] for la in recent_learned if la.get("source_escalation_id")}
+        recent_esc = [e for e in escalations if _after_cutoff(e.get("assigned_at"), cutoff)]
 
-        recent_esc = [
-            e for e in escalations
-            if _after_cutoff(e.get("assigned_at"), cutoff)
-        ]
-
-        pending_esc = [
-            e for e in escalations
-            if e.get("status") == EscalationStatus.pending.value
-        ]
+        pending_esc = [e for e in escalations if e.get("status") == EscalationStatus.pending.value]
 
         breached_esc = [
-            e for e in escalations
+            e
+            for e in escalations
             if e.get("status") == EscalationStatus.expired.value
             and _after_cutoff(e.get("resolved_at"), cutoff)
         ]
@@ -213,6 +207,7 @@ class DigestService:
 
     async def _get_primary_backup(self, account_id: uuid.UUID) -> dict | None:
         from sequor.db.models import ContactTier
+
         backups = await self._db.list(
             "BackupContact",
             {
@@ -236,3 +231,181 @@ def _ensure_aware(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+async def gather_digest_data(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    account_id: uuid.UUID,
+    hours: int = 24,
+) -> dict[str, Any]:
+    """Assemble coverage-digest stats for one account over the past ``hours``.
+
+    Session-based API (real ``AsyncSession``) used by the digest email path and
+    the integration suite. Escalations and Responses are tenant-scoped (a
+    Message carries no account FK); LearnedAnswers are tenant+account scoped.
+    The SLA breach threshold is the account's ``escalation_sla_hours``.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=hours)
+
+    # Select ONLY the non-encrypted columns we need. Loading the full Account
+    # row would decrypt owner_email/email_address (EncryptedString) during
+    # result processing, which fail-closes with RuntimeError in production when
+    # no per-tenant key is set for this session (see encrypted_column.py).
+    account_row = (
+        await session.execute(
+            select(Account.name, Account.escalation_sla_hours).where(Account.id == account_id)
+        )
+    ).first()
+    account_name = account_row.name if account_row is not None else "your account"
+    sla_hours = account_row.escalation_sla_hours if account_row is not None else 4
+
+    escalations = (
+        (await session.execute(select(Escalation).where(Escalation.tenant_id == tenant_id)))
+        .scalars()
+        .all()
+    )
+
+    pending = [e for e in escalations if e.status == EscalationStatus.pending]
+    recent_esc = [e for e in escalations if _after_cutoff(e.assigned_at, cutoff)]
+    sla_delta = timedelta(hours=sla_hours)
+    breached = [
+        e
+        for e in pending
+        if e.assigned_at is not None and (now - _ensure_aware(e.assigned_at)) > sla_delta
+    ]
+
+    oldest_unresolved_hours: float | None = None
+    if pending:
+        ages = [
+            (now - _ensure_aware(e.assigned_at)).total_seconds() / 3600
+            for e in pending
+            if e.assigned_at is not None
+        ]
+        if ages:
+            oldest_unresolved_hours = max(ages)
+
+    responses = (
+        (await session.execute(select(Response).where(Response.tenant_id == tenant_id)))
+        .scalars()
+        .all()
+    )
+    auto = [r for r in responses if r.was_auto_sent and _after_cutoff(r.sent_at, cutoff)]
+    resolved_by_rag = [r for r in auto if r.rag_retrieval_id is not None]
+    resolved_by_learned = [r for r in auto if r.rag_retrieval_id is None]
+
+    learned = (
+        (
+            await session.execute(
+                select(LearnedAnswer).where(
+                    LearnedAnswer.tenant_id == tenant_id,
+                    LearnedAnswer.account_id == account_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    recent_learned = [la for la in learned if _after_cutoff(la.created_at, cutoff)]
+    learned_topics = [la.question_text[:80] for la in recent_learned if la.question_text][:10]
+
+    return {
+        "account_name": account_name,
+        "pending": len(pending),
+        "escalated": len(recent_esc),
+        "breached_sla": len(breached),
+        "oldest_unresolved_hours": oldest_unresolved_hours,
+        "auto_resolved": len(auto),
+        "resolved_by_rag": len(resolved_by_rag),
+        "resolved_by_learned": len(resolved_by_learned),
+        "learned_count": len(recent_learned),
+        "learned_topics": learned_topics,
+    }
+
+
+async def send_digest(
+    session: AsyncSession,
+    email_sender: EmailSender,
+    tenant_id: uuid.UUID,
+    account_id: uuid.UUID,
+    hours: int = 24,
+) -> dict[str, Any] | None:
+    """Gather digest stats for an account, render the email, send it to the
+    account's active primary backup. Returns a summary dict, or ``None`` when
+    the account has no primary backup to receive the digest.
+    """
+    from sequor.db.models import BackupContact, ContactTier
+
+    data = await gather_digest_data(session, tenant_id, account_id, hours=hours)
+    subject, body = format_digest_email(data)
+
+    backups = (
+        (
+            await session.execute(
+                select(BackupContact).where(
+                    BackupContact.account_id == account_id,
+                    BackupContact.tier == ContactTier.primary,
+                    BackupContact.active.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not backups:
+        logger.warning("digest.no_backup", account_id=str(account_id))
+        return None
+
+    recipient = backups[0]
+    await email_sender.send_email(
+        to=recipient.email,
+        subject=subject,
+        body_html=body,
+        body_text=body,
+    )
+    logger.info(
+        "digest.sent",
+        tenant_id=str(tenant_id),
+        account_id=str(account_id),
+        to=recipient.email,
+    )
+    return {"account_id": str(account_id), "sent_to": recipient.email}
+
+
+def format_digest_email(data: dict[str, Any]) -> tuple[str, str]:
+    """Render ``gather_digest_data`` output into a ``(subject, body)`` pair.
+
+    Subject uses the account name (not the org name). When any escalation has
+    breached its SLA the body carries a ``Breached SLA:`` call-to-action line.
+    """
+    account_name = data.get("account_name", "your account")
+    subject = f"[COVERAGE DIGEST] {account_name}"
+
+    lines = [
+        f"Coverage digest for {account_name}",
+        "",
+        (
+            f"AI auto-resolved: {data['auto_resolved']} "
+            f"({data['resolved_by_rag']} via knowledge base, "
+            f"{data['resolved_by_learned']} via learned answers)"
+        ),
+        f"New knowledge learned: {data['learned_count']}",
+        f"Pending escalations: {data['pending']}",
+        f"Escalated in period: {data['escalated']}",
+    ]
+
+    if data.get("breached_sla", 0) > 0:
+        lines.append(f"Breached SLA: {data['breached_sla']} item(s) need attention")
+
+    oldest = data.get("oldest_unresolved_hours")
+    if oldest:
+        lines.append(f"Oldest unresolved: {oldest:.1f}h")
+
+    topics = data.get("learned_topics") or []
+    if topics:
+        lines.append("")
+        lines.append("New topics learned:")
+        lines.extend(f"  - {t}" for t in topics)
+
+    return subject, "\n".join(lines)

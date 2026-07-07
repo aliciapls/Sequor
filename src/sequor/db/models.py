@@ -137,6 +137,10 @@ class ConfidenceBadge(str, enum.Enum):
     high = "high"
     moderate = "moderate"
     low = "low"
+    # Matches the DB enum (migration 5ab03308b1f3) and the value produced by the
+    # RAG/response path (ai/response.py, ai/rag_pipeline.py). Omitting it raised
+    # ValueError when persisting an uncertain / low-answerability response.
+    uncertain = "uncertain"
 
 
 class KeyPhraseMappingType(str, enum.Enum):
@@ -206,7 +210,9 @@ class Tenant(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email_domain: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
     plan: Mapped[TenantPlan] = mapped_column(
         Enum(TenantPlan, name="tenant_plan", create_constraint=True),
         nullable=False,
@@ -240,11 +246,15 @@ class Account(Base):
     ownership_type: Mapped[OwnershipType] = mapped_column(
         Enum(OwnershipType, name="ownership_type", create_constraint=True), nullable=False
     )
-    owner_email: Mapped[str] = mapped_column(EncryptedString(field_name="owner_email"), nullable=False)
+    owner_email: Mapped[str] = mapped_column(
+        EncryptedString(field_name="owner_email"), nullable=False
+    )
     channels: Mapped[list] = mapped_column(
         ARRAY(String(20)), nullable=False, default=lambda: [AccountChannel.email.value]
     )
-    email_address: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="email_address"), nullable=True)
+    email_address: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="email_address"), nullable=True
+    )
     whatsapp_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     backup_contact_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid), nullable=True)
     routing_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -255,7 +265,9 @@ class Account(Base):
         nullable=False,
         default=AccountStatus.active,
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
 
     # Relationships
     tenant = relationship("Tenant", back_populates="accounts")
@@ -284,7 +296,9 @@ class BackupContact(Base):
     email: Mapped[str] = mapped_column(EncryptedString(field_name="backup_email"), nullable=False)
     # Blind index for login lookups — HMAC of email with global lookup key
     email_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    phone: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="backup_phone"), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="backup_phone"), nullable=True
+    )
     tier: Mapped[ContactTier] = mapped_column(
         Enum(ContactTier, name="contact_tier", create_constraint=True), nullable=False
     )
@@ -312,8 +326,12 @@ class Contact(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    email: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="contact_email"), nullable=True)
-    phone: Mapped[Optional[str]] = mapped_column(EncryptedString(field_name="contact_phone"), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="contact_email"), nullable=True
+    )
+    phone: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="contact_phone"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     tags: Mapped[Optional[list]] = mapped_column(ARRAY(String(100)), nullable=True)
@@ -351,7 +369,9 @@ class ChannelConsent(Base):
     channel: Mapped[ConsentChannel] = mapped_column(
         Enum(ConsentChannel, name="consent_channel", create_constraint=True), nullable=False
     )
-    opt_in_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    opt_in_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
     opt_in_method: Mapped[OptInMethod] = mapped_column(
         Enum(OptInMethod, name="opt_in_method", create_constraint=True), nullable=False
     )
@@ -396,7 +416,9 @@ class Message(Base):
     body_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     attachments: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     whatsapp_session_expired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
@@ -407,7 +429,9 @@ class Message(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Message id={self.id} direction={self.direction.value} channel={self.channel.value}>"
+        return (
+            f"<Message id={self.id} direction={self.direction.value} channel={self.channel.value}>"
+        )
 
 
 class Classification(Base):
@@ -431,7 +455,9 @@ class Classification(Base):
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    classified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    classified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
 
     __table_args__ = (
         Index("ix_classifications_tenant_id", "tenant_id"),
@@ -459,7 +485,9 @@ class RAGRetrieval(Base):
     passages: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     retrieval_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     synthesis_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    retrieved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
 
     __table_args__ = (
         Index("ix_rag_retrievals_tenant_id", "tenant_id"),
@@ -485,7 +513,9 @@ class Document(Base):
     file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_indexed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, name="document_status", create_constraint=True),
         nullable=False,
@@ -518,7 +548,9 @@ class DocumentChunk(Base):
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding = mapped_column(Vector(768), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
 
     # Relationships
     document = relationship("Document", back_populates="chunks")
@@ -526,7 +558,9 @@ class DocumentChunk(Base):
     __table_args__ = (
         Index("ix_document_chunks_tenant_id", "tenant_id"),
         Index("ix_document_chunks_document_id", "document_id"),
-        UniqueConstraint("tenant_id", "document_id", "chunk_index", name="uq_document_chunks_tenant_doc_idx"),
+        UniqueConstraint(
+            "tenant_id", "document_id", "chunk_index", name="uq_document_chunks_tenant_doc_idx"
+        ),
     )
 
     def __repr__(self) -> str:
@@ -550,7 +584,9 @@ class LearnedAnswer(Base):
     )
     source_escalation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     embedding = mapped_column(Vector(768), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
 
     __table_args__ = (
         Index("ix_learned_answers_tenant_id", "tenant_id"),
@@ -623,8 +659,12 @@ class Escalation(Base):
         Enum(EscalationPriority, name="escalation_priority", create_constraint=True),
         nullable=False,
     )
-    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
-    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -637,7 +677,9 @@ class Escalation(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Escalation id={self.id} status={self.status.value} priority={self.priority.value}>"
+        return (
+            f"<Escalation id={self.id} status={self.status.value} priority={self.priority.value}>"
+        )
 
 
 class AuditEntry(Base):
@@ -660,7 +702,9 @@ class AuditEntry(Base):
         Uuid, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
 
     __table_args__ = (
         Index("ix_audit_entries_tenant_id", "tenant_id"),
@@ -696,7 +740,9 @@ class RoutingOutcome(Base):
     resolution_time_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     auto_response_accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     auto_response_rejected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
@@ -729,14 +775,18 @@ class KeyPhraseMapping(Base):
     confidence_boost: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_key_phrase_mappings_tenant_id", "tenant_id"),
         Index("ix_key_phrase_mappings_document_id", "document_id"),
         Index("ix_key_phrase_mappings_phrase", "phrase"),
-        UniqueConstraint("tenant_id", "phrase", "document_id", name="uq_key_phrase_mapping_tenant_phrase_doc"),
+        UniqueConstraint(
+            "tenant_id", "phrase", "document_id", name="uq_key_phrase_mapping_tenant_phrase_doc"
+        ),
     )
 
     def __repr__(self) -> str:

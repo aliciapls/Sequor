@@ -221,7 +221,7 @@ When an escalation is created:
 
 1. **Primary backup** receives notification via preferred channel (email/SMS/WhatsApp)
 2. If **primary backup does not acknowledge within 4 hours**: second-tier backup is notified
-3. If **both backups are OOO** (detected via OOO configuration in the system): escalation is marked `pending_ooo_return`; primary receives notification on return with full summary
+3. If **both backups are OOO** (detected via OOO configuration in the system): escalation is marked `notification_pending` (the shipped `EscalationStatus` member; the earlier `pending_ooo_return` name exists in neither the enum nor the code — resolved 2026-07-05 per `DEVIATIONS.md` NEW-7); primary receives notification on return with full summary
 4. If **urgent** (urgency = critical): notification is sent immediately to primary AND second-tier simultaneously
 
 ### Notification Content

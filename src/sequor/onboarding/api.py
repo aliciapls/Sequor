@@ -29,14 +29,17 @@ async def handle_signup(request_data: dict) -> dict:
     """
     logger.info("onboarding.signup.start", org_name=request_data.get("org_name"))
 
-    # Ensure all tables exist before proceeding
-    from sequor.db.database import init_db
-    await init_db()
-
-    # 1. Validate input
+    # 1. Validate input BEFORE any database access. Invalid requests must fail
+    #    fast with a ValueError (mapped to 422 by the route) rather than opening
+    #    a DB connection first — otherwise a validation error is masked by a
+    #    500 when the database is unavailable (F-C4-05 tier violation).
     req = OnboardingRequest(**request_data)
 
-    # 2. Create records
+    # 2. Ensure all tables exist, then create records
+    from sequor.db.database import init_db
+
+    await init_db()
+
     from sqlalchemy.ext.asyncio import AsyncSession as AS
 
     engine = get_engine()

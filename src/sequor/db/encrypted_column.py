@@ -18,6 +18,8 @@ from base64 import b64decode, b64encode
 from typing import Any, Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from sequor.config import settings
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from sqlalchemy import String, Text, TypeDecorator
@@ -87,6 +89,7 @@ def compute_email_blind_index(email: str) -> str:
     import hashlib
     import hmac
     from base64 import b64decode
+
     master_key = b64decode(settings.encryption_master_key)
     # Derive a fixed global lookup key from the master key
     info = b"sequor-global-email-lookup"
@@ -130,15 +133,17 @@ class EncryptedString(TypeDecorator):
 
         tenant_key = _current_tenant_key.get()
         if tenant_key is None:
-            # Development mode: store plaintext (seed data, no encryption setup)
-            # Production: require tenant key for encryption
-            import os as _os
-            if _os.environ.get("APP_ENV", "development") != "development":
+            # Fail-CLOSED outside development: a missing tenant key must NEVER
+            # silently write plaintext PII in production. Source from
+            # settings.app_env (single config source, .env/env with proper
+            # precedence) — NOT a second raw os.environ read that can diverge
+            # and default to "development" on a misconfigured deploy.
+            if settings.app_env != "development":
                 raise RuntimeError(
                     "EncryptedString requires a tenant key. "
                     "Call set_tenant_key() before writing encrypted columns."
                 )
-            return value  # store plaintext in development
+            return value  # store plaintext ONLY in development
 
         field_name = self._field_name or "default"
         field_key = derive_field_key(tenant_key, field_name)
@@ -155,15 +160,14 @@ class EncryptedString(TypeDecorator):
 
         tenant_key = _current_tenant_key.get()
         if tenant_key is None:
-            # Development mode: allow plaintext columns (seed data not yet encrypted)
-            # Production: require tenant key to decrypt
-            import os as _os
-            if _os.environ.get("APP_ENV", "development") != "development":
+            # Fail-CLOSED outside development (see process_bind_param). Source
+            # from settings.app_env, not a raw os.environ read.
+            if settings.app_env != "development":
                 raise RuntimeError(
                     "EncryptedString requires a tenant key. "
                     "Call set_tenant_key() before reading encrypted columns."
                 )
-            return value  # return plaintext as-is in development
+            return value  # return plaintext as-is ONLY in development
 
         field_name = self._field_name or "default"
         field_key = derive_field_key(tenant_key, field_name)

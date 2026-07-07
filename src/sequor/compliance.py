@@ -88,7 +88,6 @@ async def erase_contact_pii(
     """
     from sequor.db.models import (
         Contact,
-        DocumentChunk,
         LearnedAnswer,
         Message,
     )
@@ -122,13 +121,13 @@ async def erase_contact_pii(
 
     # 3. Overwrite contact PII fields
     await session.execute(
-        update(Contact)
-        .where(Contact.id == contact_id)
-        .values(**ERASURE_NULL_FIELDS)
+        update(Contact).where(Contact.id == contact_id).values(**ERASURE_NULL_FIELDS)
     )
     erased["tables_affected"].append("contacts")
 
-    # 4. Delete vector embeddings from document chunks for this contact's messages
+    # 4. Scrub message content for this contact. The messages ARE the contact's
+    #    PII (data-model.md: "Message records: Hard delete"); prior code never
+    #    touched body/subject at all.
     from sequor.db.models import Message
 
     msg_result = await session.execute(
@@ -139,61 +138,60 @@ async def erase_contact_pii(
     )
     message_ids = [row[0] for row in msg_result.all()]
 
-    chunk_result = await session.execute(
-        select(DocumentChunk.id).where(
-            DocumentChunk.tenant_id == tenant_id,
-            DocumentChunk.message_id.in_(message_ids) if message_ids else False,
-        )
-    ) if message_ids else await session.execute(
-        select(DocumentChunk.id).where(DocumentChunk.tenant_id == tenant_id)
-    )
-    chunk_ids = [row[0] for row in chunk_result.all()]
-    if chunk_ids:
+    if message_ids:
         await session.execute(
-            update(DocumentChunk)
-            .where(DocumentChunk.id.in_(chunk_ids))
-            .values(embedding=None)
+            update(Message)
+            .where(Message.id.in_(message_ids))
+            .values(subject="[erased]", body_text="[erased]", body_raw="[erased]")
         )
-        erased["tables_affected"].append("document_chunks")
-        erased["embeddings_removed"] = len(chunk_ids)
+        erased["tables_affected"].append("messages")
+        erased["messages_scrubbed"] = len(message_ids)
 
-    # 5. Delete vector embeddings from learned answers for this contact's escalations
+    # NOTE: DocumentChunk has NO contact/message linkage (chunks belong to the
+    # account's uploaded knowledge base via document_id, not to a contact's
+    # messages). The previous code referenced DocumentChunk.message_id — a column
+    # that does not exist (AttributeError on the has-messages path) — and, when a
+    # contact had no messages, fell through to nulling embeddings for the ENTIRE
+    # tenant's document store. Contact erasure MUST NOT touch the account KB, so
+    # the chunk-erasure step is removed rather than "fixed".
+
+    # 5. Scrub learned answers derived from THIS contact's escalations. Empty
+    #    escalation/learned sets MUST affect zero rows — never fall through to an
+    #    all-tenant wipe (the prior `if x else <all-tenant>` destroyed the whole
+    #    tenant knowledge base when a contact had no escalations).
     from sequor.db.models import Escalation
 
-    esc_result = await session.execute(
-        select(Escalation.id).where(
-            Escalation.tenant_id == tenant_id,
-            Escalation.message_id.in_(message_ids) if message_ids else False,
+    escalation_ids: list = []
+    if message_ids:
+        esc_result = await session.execute(
+            select(Escalation.id).where(
+                Escalation.tenant_id == tenant_id,
+                Escalation.message_id.in_(message_ids),
+            )
         )
-    ) if message_ids else await session.execute(
-        select(Escalation.id).where(Escalation.tenant_id == tenant_id)
-    )
-    escalation_ids = [row[0] for row in esc_result.all()]
+        escalation_ids = [row[0] for row in esc_result.all()]
 
-    learned_result = await session.execute(
-        select(LearnedAnswer.id).where(
-            LearnedAnswer.tenant_id == tenant_id,
-            LearnedAnswer.source_escalation_id.in_(escalation_ids) if escalation_ids else False,
+    learned_ids: list = []
+    if escalation_ids:
+        learned_result = await session.execute(
+            select(LearnedAnswer.id).where(
+                LearnedAnswer.tenant_id == tenant_id,
+                LearnedAnswer.source_escalation_id.in_(escalation_ids),
+            )
         )
-    ) if escalation_ids else await session.execute(
-        select(LearnedAnswer.id).where(LearnedAnswer.tenant_id == tenant_id)
-    )
-    learned_ids = [row[0] for row in learned_result.all()]
+        learned_ids = [row[0] for row in learned_result.all()]
+
     if learned_ids:
         await session.execute(
             update(LearnedAnswer)
             .where(LearnedAnswer.id.in_(learned_ids))
-            .values(embedding=None)
+            .values(
+                embedding=None,
+                question_text="[erased]",
+                answer_text="[erased]",
+            )
         )
         erased["tables_affected"].append("learned_answers")
-
-    # 6. Erase learned answer text that may contain PII
-    if learned_ids:
-        await session.execute(
-            update(LearnedAnswer)
-            .where(LearnedAnswer.id.in_(learned_ids))
-            .values(question_text="[erased]", answer_text="[erased]")
-        )
         erased["learned_answers_text_erased"] = len(learned_ids)
 
     # 7. Write audit entry

@@ -6,6 +6,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from sequor.email.sender import SendGridEmailSender, SendGridAPIError
 
 
+@pytest.fixture(autouse=True)
+def _no_wall_clock_sleep():
+    """Retry backoff delays are read from settings at SEND time (outside the
+    per-test settings patch in `_make_sender`), so the exhaustion path would
+    sleep on the REAL default backoff (0,300,1800s → tens of minutes) and hang
+    the suite. These tests assert retry LOGIC (call counts / raise), not timing,
+    so the wall-clock sleep is patched out here (testing.md: no time-dependent
+    assertions in Tier-1)."""
+    with patch("sequor.email.sender.asyncio.sleep", new_callable=AsyncMock):
+        yield
+
+
 def _make_sender():
     with patch("sequor.email.sender.SendGridAPIClient"):
         with patch("sequor.email.sender.settings") as mock_settings:
@@ -30,8 +42,10 @@ class TestEmailRetryBackoff:
         sender._post = MagicMock(return_value=mock_response)
 
         result = await sender._send(
-            to="test@example.com", subject="Test",
-            body_html="<p>hi</p>", body_text="hi",
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>hi</p>",
+            body_text="hi",
         )
         assert result == "msg-123"
         assert sender._post.call_count == 1
@@ -42,13 +56,13 @@ class TestEmailRetryBackoff:
         mock_response = MagicMock()
         mock_response.status_code = 202
         mock_response.headers = {"X-Message-Id": "msg-456"}
-        sender._post = MagicMock(
-            side_effect=[Exception("network error"), mock_response]
-        )
+        sender._post = MagicMock(side_effect=[Exception("network error"), mock_response])
 
         result = await sender._send(
-            to="test@example.com", subject="Test",
-            body_html="<p>hi</p>", body_text="hi",
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>hi</p>",
+            body_text="hi",
         )
         assert result == "msg-456"
         assert sender._post.call_count == 2
@@ -60,8 +74,10 @@ class TestEmailRetryBackoff:
 
         with pytest.raises(Exception, match="persistent error"):
             await sender._send(
-                to="test@example.com", subject="Test",
-                body_html="<p>hi</p>", body_text="hi",
+                to="test@example.com",
+                subject="Test",
+                body_html="<p>hi</p>",
+                body_text="hi",
             )
         assert sender._post.call_count == 3
 
@@ -79,8 +95,10 @@ class TestEmailRetryBackoff:
         sender._post = MagicMock(side_effect=[mock_err, mock_ok])
 
         result = await sender._send(
-            to="test@example.com", subject="Test",
-            body_html="<p>hi</p>", body_text="hi",
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>hi</p>",
+            body_text="hi",
         )
         assert result == "msg-789"
         assert sender._post.call_count == 2
@@ -96,6 +114,7 @@ class TestBackoffParsing:
                 mock_settings.email_retry_backoff_seconds = "0,60,300"
                 sender = SendGridEmailSender()
         from sequor.email.sender import _get_backoff_delays
+
         with patch("sequor.email.sender.settings") as mock_settings:
             mock_settings.email_retry_backoff_seconds = "0,60,300"
             delays = _get_backoff_delays()
@@ -103,6 +122,7 @@ class TestBackoffParsing:
 
     def test_fallback_on_invalid_string(self):
         from sequor.email.sender import _get_backoff_delays
+
         with patch("sequor.email.sender.settings") as mock_settings:
             mock_settings.email_retry_backoff_seconds = "not,valid"
             delays = _get_backoff_delays()

@@ -78,25 +78,33 @@ class TestEncryptedString:
         assert col.process_result_value(None, dialect=None) is None
 
     def test_no_tenant_key_raises(self):
-        import os
-        orig_env = os.environ.get("APP_ENV")
-        os.environ["APP_ENV"] = "production"
+        # Regression (redteam R1): fail-closed is sourced from settings.app_env
+        # (the single config source), NOT a raw os.environ["APP_ENV"] read that
+        # defaulted to "development" and silently wrote plaintext in prod.
+        from sequor.config import settings
+
+        orig_env = settings.app_env
+        settings.app_env = "production"
         try:
             set_tenant_key(None)
             col = EncryptedString(field_name="email")
             with pytest.raises(RuntimeError, match="tenant key"):
                 col.process_bind_param("test@test.com", dialect=None)
+            # decrypt path must fail-closed too
+            with pytest.raises(RuntimeError, match="tenant key"):
+                col.process_result_value("ciphertext", dialect=None)
         finally:
-            if orig_env is None:
-                os.environ.pop("APP_ENV", None)
-            else:
-                os.environ["APP_ENV"] = orig_env
+            settings.app_env = orig_env
 
     def test_dev_mode_allows_no_key(self):
         """In development mode, EncryptedString stores plaintext when no tenant key is set."""
-        import os
-        orig_env = os.environ.get("APP_ENV")
-        os.environ["APP_ENV"] = "development"
+        # Drive settings.app_env (the source the code reads) — mutating
+        # os.environ["APP_ENV"] is a no-op now that the fail-closed check reads
+        # settings.app_env.
+        from sequor.config import settings
+
+        orig_env = settings.app_env
+        settings.app_env = "development"
         try:
             set_tenant_key(None)
             col = EncryptedString(field_name="email")
@@ -104,10 +112,7 @@ class TestEncryptedString:
             result = col.process_bind_param("test@test.com", dialect=None)
             assert result == "test@test.com"
         finally:
-            if orig_env is None:
-                os.environ.pop("APP_ENV", None)
-            else:
-                os.environ["APP_ENV"] = orig_env
+            settings.app_env = orig_env
 
     def test_wrong_key_fails_to_decrypt(self, tenant_key):
         col = EncryptedString(field_name="email")

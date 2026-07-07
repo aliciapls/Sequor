@@ -5,7 +5,9 @@ Uses FastAPI (lightweight, async, Pydantic integration). Runs with:
 """
 
 import hashlib
+import hmac
 import json as _json
+import re
 import structlog
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,11 +24,42 @@ from sequor.billing.service import handle_webhook as handle_stripe_webhook
 from sequor.dns.service import generate_dns_records, verify_dns_records
 from sequor.schemas import DocumentUploadRequest, OnboardingRequest, StripeWebhookEvent
 
+# Precomputed bcrypt hash used to equalize login timing on the no-contact and
+# no-password paths, defeating the email-enumeration timing oracle (r2-security
+# L2). NOT a secret — a fixed throwaway digest whose only purpose is to burn the
+# same bcrypt CPU cycles whether or not the email exists.
+_DUMMY_PASSWORD_HASH = "$2b$12$NC7MHZUuMc66eBiPfaeemO3phOr6VH5OfxnD.NHaP0Z3g5mu0PC1i"
+
 _logger = structlog.get_logger()
 
 # In-memory rate limiters (per-process; sufficient for single-instance uvicorn)
 _signup_limiter = IPRateLimiter(max_requests=5, window_seconds=3600)
 _upload_limiter = IPRateLimiter(max_requests=20, window_seconds=3600)
+# The DNS endpoints are unauthenticated (they run during pre-login onboarding),
+# so they carry their own throttle + a strict hostname validator to stop an
+# anonymous caller driving unbounded server-side resolutions (N2).
+_dns_limiter = IPRateLimiter(max_requests=30, window_seconds=3600)
+_DNS_DOMAIN_RE = re.compile(
+    # \Z (not $) so a trailing newline cannot slip through validation into the
+    # resolver / JSON echo. Labels 1-63 chars, no leading/trailing hyphen, <=253 total.
+    r"^(?=.{1,253}\Z)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(?:\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+\Z"
+)
+
+# Webhook bodies are read whole into memory (`await request.body()`). Reject an
+# oversized body by its declared Content-Length BEFORE buffering it — the same
+# DoS class as the upload bound (N1). This is the in-handler first line; the
+# proxy/ASGI layer is the authoritative enforcement for a spoofed/absent header.
+_MAX_WEBHOOK_BYTES = 5 * 1024 * 1024
+
+
+def _oversized_body(request: Request) -> JSONResponse | None:
+    raw_len = request.headers.get("content-length")
+    try:
+        if raw_len is not None and int(raw_len) > _MAX_WEBHOOK_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length"})
+    return None
 
 
 async def _reprocess_stuck_documents() -> None:
@@ -40,12 +73,14 @@ async def _reprocess_stuck_documents() -> None:
     async with AsyncSession(engine) as session:
         # Find documents stuck at 'indexing' with no vector embeddings
         result = await session.execute(
-            text("""
+            text(
+                """
                 SELECT d.id, d.tenant_id, d.name
                 FROM documents d
                 LEFT JOIN document_chunks dc ON dc.document_id = d.id AND dc.embedding IS NOT NULL
                 WHERE d.status = 'indexing' AND dc.id IS NULL
-            """)
+            """
+            )
         )
         stuck = result.fetchall()
         if not stuck:
@@ -56,11 +91,13 @@ async def _reprocess_stuck_documents() -> None:
         for row in stuck:
             doc_id, tenant_id, name = row[0], row[1], row[2]
             await session.execute(
-                text("""
+                text(
+                    """
                     UPDATE documents
                     SET status = 'ready', last_indexed_at = :now
                     WHERE id = :doc_id
-                """),
+                """
+                ),
                 {"doc_id": doc_id, "now": now},
             )
             _logger.info(
@@ -77,6 +114,7 @@ async def _app_lifespan(app: FastAPI):
     """Startup: create tables if needed, then reprocess stuck documents."""
     try:
         from sequor.db.database import init_db
+
         await init_db()
         await _reprocess_stuck_documents()
     except Exception:
@@ -120,9 +158,7 @@ async def create_account(request: Request):
         return JSONResponse(
             status_code=429,
             content={
-                "detail": (
-                    "Too many signup attempts. Please try again later."
-                ),
+                "detail": ("Too many signup attempts. Please try again later."),
             },
         )
 
@@ -133,9 +169,13 @@ async def create_account(request: Request):
         return JSONResponse(status_code=201, content=result)
     except ValueError as e:
         return JSONResponse(status_code=422, content={"detail": str(e)})
-    except Exception as e:
+    except Exception:
+        # Do not leak internal exception detail to the caller; log server-side.
         _logger.exception("onboarding.signup.error")
-        return JSONResponse(status_code=500, content={"detail": str(e)})
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Signup failed. Please try again."},
+        )
 
 
 @app.post("/api/v1/onboarding/upload")
@@ -156,9 +196,7 @@ async def upload_document(
         return JSONResponse(
             status_code=429,
             content={
-                "detail": (
-                    "Too many upload attempts. Please try again later."
-                ),
+                "detail": ("Too many upload attempts. Please try again later."),
             },
         )
 
@@ -179,11 +217,18 @@ async def upload_document(
             content={"detail": "Invalid tenant_id or account_id (must be UUID)"},
         )
 
+    # Cap the read at 25MB (mirrors the portal upload limit) so a large upload
+    # cannot exhaust process memory before any size check (r2-security M6). Read
+    # one byte past the limit to distinguish "exactly at limit" from "over".
+    _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
     try:
-        content = await file.read()
+        content = await file.read(_MAX_UPLOAD_BYTES + 1)
     except Exception:
         _logger.exception("onboarding.upload.read_failed")
         return JSONResponse(status_code=400, content={"detail": "Failed to read file"})
+
+    if len(content) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"detail": "File too large (max 25MB)"})
 
     try:
         from sequor.ai.ingestion import DocumentIngester
@@ -221,19 +266,27 @@ async def upload_document(
 
 
 @app.get("/api/v1/dns/records")
-async def dns_records(domain: str):
-    """Return DNS records needed for the given domain."""
-    if not domain or "." not in domain:
+async def dns_records(domain: str, request: Request):
+    """Return DNS records needed for the given domain (pure — no resolution)."""
+    if not _DNS_DOMAIN_RE.match(domain or ""):
         return JSONResponse(status_code=422, content={"detail": "Valid domain required"})
+    if not _dns_limiter.is_allowed(get_client_ip(request)):
+        return JSONResponse(
+            status_code=429, content={"detail": "Too many requests. Please try again later."}
+        )
     records = generate_dns_records(domain)
     return JSONResponse(content={"domain": domain, "records": records})
 
 
 @app.get("/api/v1/dns/verify")
-async def dns_verify(domain: str):
-    """Check whether DNS records are in place for the given domain."""
-    if not domain or "." not in domain:
+async def dns_verify(domain: str, request: Request):
+    """Check whether DNS records are in place (drives server-side resolution)."""
+    if not _DNS_DOMAIN_RE.match(domain or ""):
         return JSONResponse(status_code=422, content={"detail": "Valid domain required"})
+    if not _dns_limiter.is_allowed(get_client_ip(request)):
+        return JSONResponse(
+            status_code=429, content={"detail": "Too many requests. Please try again later."}
+        )
     result = verify_dns_records(domain)
     return JSONResponse(content=result)
 
@@ -241,11 +294,15 @@ async def dns_verify(domain: str):
 @app.post("/api/v1/billing/webhook")
 async def stripe_webhook(request: Request):
     """Process Stripe webhook events with signature verification."""
+    oversized = _oversized_body(request)
+    if oversized is not None:
+        return oversized
     body = await request.body()
     signature = request.headers.get("stripe-signature", "")
 
     try:
         from sequor.billing.service import verify_webhook_signature
+
         verify_webhook_signature(body, signature)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"detail": str(e)})
@@ -271,11 +328,15 @@ async def stripe_webhook(request: Request):
 @app.post("/api/v1/email/inbound")
 async def email_inbound(request: Request):
     """Receive SendGrid Inbound Parse webhook for incoming emails."""
+    oversized = _oversized_body(request)
+    if oversized is not None:
+        return oversized
     raw_body = await request.body()
     signature = request.headers.get("x-twilio-email-event-webhook-signature")
 
     # Signature check: skipped in development mode for local testing without SendGrid credentials.
     from sequor.config import settings
+
     if settings.app_env != "development":
         if not signature:
             _logger.warning("email.inbound.no_signature")
@@ -320,6 +381,7 @@ async def email_inbound(request: Request):
 
                     from sequor.email.sender import SendGridEmailSender
                     from sequor.ai.learning import LearningLoop
+
                     email_sender = SendGridEmailSender()
                     learning = LearningLoop(engine=engine)
 
@@ -390,9 +452,14 @@ async def whatsapp_webhook_verify(request: Request):
     expected_token = settings.whatsapp_verify_token
     if not expected_token:
         _logger.warning("whatsapp.verify.no_token_configured")
-        return JSONResponse(status_code=500, content={"detail": "WHATSAPP_VERIFY_TOKEN not configured"})
+        return JSONResponse(
+            status_code=500, content={"detail": "WHATSAPP_VERIFY_TOKEN not configured"}
+        )
 
-    if token != expected_token:
+    # Constant-time compare: a plain `!=` on a secret is a timing oracle
+    # (r5-security R5-02). `token` is guaranteed non-empty here (the all([...])
+    # guard above 404s on a missing token) and `expected_token` is non-empty.
+    if not hmac.compare_digest(token or "", expected_token):
         _logger.warning("whatsapp.verify.token_mismatch")
         return JSONResponse(status_code=403, content={"detail": "Token mismatch"})
 
@@ -403,15 +470,21 @@ async def whatsapp_webhook_verify(request: Request):
 @app.post("/api/v1/whatsapp/inbound")
 async def whatsapp_inbound(request: Request):
     """Receive Meta Cloud API webhook for incoming WhatsApp messages."""
+    oversized = _oversized_body(request)
+    if oversized is not None:
+        return oversized
     raw_body = await request.body()
     signature_header = request.headers.get("x-hub-signature-256", "")
 
     # Verify Meta signature (skipped in development mode)
     from sequor.config import settings
+
     if settings.app_env != "development":
         if not signature_header:
             _logger.warning("whatsapp.inbound.no_signature")
-            return JSONResponse(status_code=403, content={"detail": "Missing X-Hub-Signature-256 header"})
+            return JSONResponse(
+                status_code=403, content={"detail": "Missing X-Hub-Signature-256 header"}
+            )
 
         from sequor.whatsapp import verify_meta_signature
 
@@ -505,7 +578,9 @@ async def whatsapp_inbound(request: Request):
                     serializable_r[k] = v
             serializable_results.append(serializable_r)
 
-        return JSONResponse(status_code=200, content={"status": "ok", "results": serializable_results})
+        return JSONResponse(
+            status_code=200, content={"status": "ok", "results": serializable_results}
+        )
     except Exception:
         _logger.exception("whatsapp.inbound.error")
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
@@ -540,28 +615,43 @@ async def auth_login(request: Request):
             # Use raw SQL to avoid triggering EncryptedString decryption
             # before we have the tenant key set
             from sqlalchemy import text
+
             row = await session.execute(
-                text("SELECT id, tenant_id, account_id, name, password_hash, tier "
-                     "FROM backup_contacts WHERE email_blind_index = :idx AND active = true"),
+                text(
+                    "SELECT id, tenant_id, account_id, name, password_hash, tier "
+                    "FROM backup_contacts WHERE email_blind_index = :idx AND active = true"
+                ),
                 {"idx": blind_index},
             )
             contact = row.mappings().first()
 
             if not contact:
-                return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+                # Burn equivalent bcrypt cycles so an absent email is not
+                # measurably faster than a present one (r2-security L2).
+                verify_password(password, _DUMMY_PASSWORD_HASH)
+                return JSONResponse(
+                    status_code=401, content={"detail": "Invalid email or password"}
+                )
 
             password_hash = contact["password_hash"]
             if not password_hash:
-                return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+                verify_password(password, _DUMMY_PASSWORD_HASH)
+                return JSONResponse(
+                    status_code=401, content={"detail": "Invalid email or password"}
+                )
 
             if not verify_password(password, password_hash):
-                return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
+                return JSONResponse(
+                    status_code=401, content={"detail": "Invalid email or password"}
+                )
 
             op_id = str(contact["id"])
             op_name = contact["name"]
             op_tenant_id = str(contact["tenant_id"])
             op_account_id = str(contact["account_id"])
-            op_tier = contact["tier"].value if hasattr(contact["tier"], "value") else str(contact["tier"])
+            op_tier = (
+                contact["tier"].value if hasattr(contact["tier"], "value") else str(contact["tier"])
+            )
 
             # Now set tenant key so we can read encrypted columns
             km = KeyManager(settings.encryption_master_key)
@@ -575,11 +665,17 @@ async def auth_login(request: Request):
             operator = result.scalars().first()
             op_email = operator.email if operator else email
 
-            acct_result = await session.execute(
-                select(Account).where(Account.id == operator.account_id)
-            )
-            account = acct_result.scalars().first()
-            account_name = account.name if account else ""
+            # `operator` can be None if the contact was removed between the
+            # blind-index lookup and this re-select; the op_email line above
+            # already anticipates it, so the account lookup MUST guard too
+            # rather than dereference operator.account_id on None (r2 Pyright).
+            account_name = ""
+            if operator is not None:
+                acct_result = await session.execute(
+                    select(Account).where(Account.id == operator.account_id)
+                )
+                account = acct_result.scalars().first()
+                account_name = account.name if account else ""
 
             await session.commit()
 
@@ -592,18 +688,20 @@ async def auth_login(request: Request):
             role="admin" if op_tier == "primary" else "operator",
         )
 
-        response = JSONResponse(content={
-            "status": "ok",
-            "operator": {
-                "id": op_id,
-                "name": op_name,
-                "email": op_email,
-                "tenant_id": op_tenant_id,
-                "account_id": op_account_id,
-                "account_name": account_name,
-                "role": "admin" if op_tier == "primary" else "operator",
+        response = JSONResponse(
+            content={
+                "status": "ok",
+                "operator": {
+                    "id": op_id,
+                    "name": op_name,
+                    "email": op_email,
+                    "tenant_id": op_tenant_id,
+                    "account_id": op_account_id,
+                    "account_name": account_name,
+                    "role": "admin" if op_tier == "primary" else "operator",
+                },
             }
-        })
+        )
         response.set_cookie(
             key="sequor_session",
             value=token,
@@ -615,9 +713,11 @@ async def auth_login(request: Request):
         )
         return response
     except Exception:
-        import traceback
+        # Never return the traceback/exception detail to an unauthenticated
+        # caller — it leaks internal paths, stack frames, and possibly config
+        # fragments. Log server-side; return a generic message.
         _logger.exception("login.error")
-        return JSONResponse(status_code=500, content={"detail": f"Login error: {traceback.format_exc()}"})
+        return JSONResponse(status_code=500, content={"detail": "Login failed. Please try again."})
 
 
 @app.post("/api/v1/admin/backfill-blind-indexes")
@@ -626,8 +726,16 @@ async def backfill_blind_indexes(request: Request):
 
     This is a one-time migration to support the new encrypted email login.
     """
-    _require_auth(request)  # require authentication
+    operator = _require_auth(request)
+    # Cross-tenant migration op — restrict to admin operators. Without this any
+    # authenticated operator could trigger a global iteration over every tenant's
+    # BackupContact records (r2-security M4).
+    if operator.get("role") != "admin":
+        from fastapi import HTTPException
 
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+    from sequor.config import settings
     from sequor.db.database import get_engine
     from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
     from sequor.db.encryption_keys import KeyManager
@@ -664,22 +772,28 @@ async def backfill_blind_indexes(request: Request):
                     .values(email_blind_index=blind_index)
                 )
                 updated += 1
-            except Exception as e:
-                errors.append(f"{contact.id}: {e}")
+            except Exception:
+                # Log the detail server-side; do NOT echo raw exception text back
+                # in the API response (r2-security M4).
+                _logger.exception("admin.backfill.contact_failed", contact_id=str(contact.id))
+                errors.append(str(contact.id))
 
         await session.commit()
 
-    return JSONResponse(content={
-        "status": "ok",
-        "backfilled": updated,
-        "errors": errors,
-    })
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "backfilled": updated,
+            "errors": errors,
+        }
+    )
 
 
 @app.post("/api/v1/auth/logout")
 async def auth_logout():
     """Clear the session cookie."""
     from fastapi.responses import JSONResponse as JR
+
     response = JR(content={"status": "ok"})
     response.delete_cookie("sequor_session", path="/")
     return response
@@ -693,23 +807,27 @@ async def auth_me(request: Request):
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
 
     from sequor.auth import decode_token
+
     payload = decode_token(token)
     if not payload:
         return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
 
-    return JSONResponse(content={
-        "operator": {
-            "id": payload.get("operator_id"),
-            "name": payload.get("name"),
-            "email": payload.get("email"),
-            "tenant_id": payload.get("tenant_id"),
-            "account_id": payload.get("account_id"),
-            "role": payload.get("role"),
+    return JSONResponse(
+        content={
+            "operator": {
+                "id": payload.get("operator_id"),
+                "name": payload.get("name"),
+                "email": payload.get("email"),
+                "tenant_id": payload.get("tenant_id"),
+                "account_id": payload.get("account_id"),
+                "role": payload.get("role"),
+            }
         }
-    })
+    )
 
 
 # ── Portal API (authenticated) ─────────────────────────────────────────────────-
+
 
 def _get_session_operator(request: Request) -> dict | None:
     """Extract operator from the session JWT cookie. Returns None if not authenticated."""
@@ -717,6 +835,7 @@ def _get_session_operator(request: Request) -> dict | None:
     if not token:
         return None
     from sequor.auth import decode_token
+
     payload = decode_token(token)
     if not payload:
         return None
@@ -728,6 +847,7 @@ def _require_auth(request: Request) -> dict:
     operator = _get_session_operator(request)
     if not operator:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=401, detail="Authentication required")
     return operator
 
@@ -784,14 +904,16 @@ async def portal_api_dashboard(request: Request):
 
         await session.commit()
 
-    return JSONResponse(content={
-        "stats": {
-            "messages_this_week": msg_count or 0,
-            "messages_today": today_count or 0,
-            "auto_replied_this_week": auto_reply_count or 0,
-            "open_escalations": open_esc_count or 0,
+    return JSONResponse(
+        content={
+            "stats": {
+                "messages_this_week": msg_count or 0,
+                "messages_today": today_count or 0,
+                "auto_replied_this_week": auto_reply_count or 0,
+                "open_escalations": open_esc_count or 0,
+            }
         }
-    })
+    )
 
 
 @app.get("/api/v1/portal/messages")
@@ -820,20 +942,22 @@ async def portal_api_messages(request: Request, limit: int = 50, offset: int = 0
 
     messages = []
     for msg, contact in rows:
-        messages.append({
-            "id": str(msg.id),
-            "direction": msg.direction.value,
-            "channel": msg.channel.value,
-            "body_text": msg.body_text or "",
-            "subject": msg.subject,
-            "received_at": msg.received_at.isoformat() if msg.received_at else None,
-            "contact": {
-                "id": str(contact.id),
-                "name": contact.name,
-                "phone": contact.phone,
-                "email": contact.email,
+        messages.append(
+            {
+                "id": str(msg.id),
+                "direction": msg.direction.value,
+                "channel": msg.channel.value,
+                "body_text": msg.body_text or "",
+                "subject": msg.subject,
+                "received_at": msg.received_at.isoformat() if msg.received_at else None,
+                "contact": {
+                    "id": str(contact.id),
+                    "name": contact.name,
+                    "phone": contact.phone,
+                    "email": contact.email,
+                },
             }
-        })
+        )
 
     return JSONResponse(content={"messages": messages, "limit": limit, "offset": offset})
 
@@ -866,30 +990,32 @@ async def portal_api_escalations(request: Request, limit: int = 50, offset: int 
 
     escalations = []
     for esc, msg, contact, backup in rows:
-        escalations.append({
-            "id": str(esc.id),
-            "status": esc.status.value,
-            "priority": esc.priority.value,
-            "assigned_at": esc.assigned_at.isoformat() if esc.assigned_at else None,
-            "acknowledged_at": esc.acknowledged_at.isoformat() if esc.acknowledged_at else None,
-            "resolved_at": esc.resolved_at.isoformat() if esc.resolved_at else None,
-            "resolution_summary": esc.resolution_summary,
-            "message": {
-                "id": str(msg.id),
-                "body_text": msg.body_text or "",
-                "subject": msg.subject,
-                "received_at": msg.received_at.isoformat() if msg.received_at else None,
-            },
-            "contact": {
-                "id": str(contact.id),
-                "name": contact.name,
-                "phone": contact.phone,
-            },
-            "assigned_to": {
-                "id": str(backup.id),
-                "name": backup.name,
-            },
-        })
+        escalations.append(
+            {
+                "id": str(esc.id),
+                "status": esc.status.value,
+                "priority": esc.priority.value,
+                "assigned_at": esc.assigned_at.isoformat() if esc.assigned_at else None,
+                "acknowledged_at": esc.acknowledged_at.isoformat() if esc.acknowledged_at else None,
+                "resolved_at": esc.resolved_at.isoformat() if esc.resolved_at else None,
+                "resolution_summary": esc.resolution_summary,
+                "message": {
+                    "id": str(msg.id),
+                    "body_text": msg.body_text or "",
+                    "subject": msg.subject,
+                    "received_at": msg.received_at.isoformat() if msg.received_at else None,
+                },
+                "contact": {
+                    "id": str(contact.id),
+                    "name": contact.name,
+                    "phone": contact.phone,
+                },
+                "assigned_to": {
+                    "id": str(backup.id),
+                    "name": backup.name,
+                },
+            }
+        )
 
     return JSONResponse(content={"escalations": escalations, "limit": limit, "offset": offset})
 
@@ -947,35 +1073,37 @@ async def portal_api_escalation_detail(request: Request, esc_id: str):
         return JSONResponse(status_code=404, content={"detail": "Escalation not found"})
 
     esc, msg, contact, backup = row
-    return JSONResponse(content={
-        "escalation": {
-            "id": str(esc.id),
-            "status": esc.status.value,
-            "priority": esc.priority.value,
-            "assigned_at": esc.assigned_at.isoformat() if esc.assigned_at else None,
-            "acknowledged_at": esc.acknowledged_at.isoformat() if esc.acknowledged_at else None,
-            "resolved_at": esc.resolved_at.isoformat() if esc.resolved_at else None,
-            "resolution_summary": esc.resolution_summary,
-            "message": {
-                "id": str(msg.id),
-                "body_text": msg.body_text or "",
-                "subject": msg.subject,
-                "channel": msg.channel.value,
-                "direction": msg.direction.value,
-                "received_at": msg.received_at.isoformat() if msg.received_at else None,
-            },
-            "contact": {
-                "id": str(contact.id),
-                "name": contact.name,
-                "phone": contact.phone,
-                "email": contact.email,
-            },
-            "assigned_to": {
-                "id": str(backup.id),
-                "name": backup.name,
-            },
+    return JSONResponse(
+        content={
+            "escalation": {
+                "id": str(esc.id),
+                "status": esc.status.value,
+                "priority": esc.priority.value,
+                "assigned_at": esc.assigned_at.isoformat() if esc.assigned_at else None,
+                "acknowledged_at": esc.acknowledged_at.isoformat() if esc.acknowledged_at else None,
+                "resolved_at": esc.resolved_at.isoformat() if esc.resolved_at else None,
+                "resolution_summary": esc.resolution_summary,
+                "message": {
+                    "id": str(msg.id),
+                    "body_text": msg.body_text or "",
+                    "subject": msg.subject,
+                    "channel": msg.channel.value,
+                    "direction": msg.direction.value,
+                    "received_at": msg.received_at.isoformat() if msg.received_at else None,
+                },
+                "contact": {
+                    "id": str(contact.id),
+                    "name": contact.name,
+                    "phone": contact.phone,
+                    "email": contact.email,
+                },
+                "assigned_to": {
+                    "id": str(backup.id),
+                    "name": backup.name,
+                },
+            }
         }
-    })
+    )
 
 
 @app.get("/api/v1/portal/contacts")
@@ -1001,21 +1129,23 @@ async def portal_api_contacts(request: Request, limit: int = 100, offset: int = 
         contacts = result.scalars().all()
         await session.commit()
 
-    return JSONResponse(content={
-        "contacts": [
-            {
-                "id": str(c.id),
-                "name": c.name,
-                "email": c.email,
-                "phone": c.phone,
-                "company": c.company,
-                "tags": c.tags or [],
-                "channel_preference": c.channel_preference.value,
-                "last_seen": c.last_seen.isoformat() if c.last_seen else None,
-            }
-            for c in contacts
-        ]
-    })
+    return JSONResponse(
+        content={
+            "contacts": [
+                {
+                    "id": str(c.id),
+                    "name": c.name,
+                    "email": c.email,
+                    "phone": c.phone,
+                    "company": c.company,
+                    "tags": c.tags or [],
+                    "channel_preference": c.channel_preference.value,
+                    "last_seen": c.last_seen.isoformat() if c.last_seen else None,
+                }
+                for c in contacts
+            ]
+        }
+    )
 
 
 @app.get("/api/v1/portal/documents")
@@ -1064,6 +1194,7 @@ async def portal_api_delete_document(request: Request, document_id: str):
 
     from sequor.db.database import get_engine
     from sqlalchemy import text
+
     engine = get_engine()
 
     async with engine.connect() as conn:
@@ -1116,20 +1247,28 @@ async def portal_api_upload_document(
             content={"error": "Too many upload attempts. Please try again later."},
         )
 
+    # Bound the read at the cap + 1 byte so an oversized upload is rejected
+    # WITHOUT buffering the whole (potentially multi-GB) body into memory first.
+    # Same fail-closed shape as the onboarding upload path (R2-M6).
+    _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
     try:
-        content = await file.read()
+        content = await file.read(_MAX_UPLOAD_BYTES + 1)
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Failed to read file"})
 
     # Check file size (25MB)
-    if len(content) > 25 * 1024 * 1024:
-        return JSONResponse(status_code=400, content={"error": "File too large. Maximum size is 25MB."})
+    if len(content) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(
+            status_code=413, content={"error": "File too large. Maximum size is 25MB."}
+        )
 
     # Check file extension
     filename = file.filename or ""
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ("pdf", "docx", "txt"):
-        return JSONResponse(status_code=400, content={"error": "Unsupported file type. Use PDF, DOCX, or TXT."})
+        return JSONResponse(
+            status_code=400, content={"error": "Unsupported file type. Use PDF, DOCX, or TXT."}
+        )
 
     try:
         from sequor.ai.ingestion import DocumentIngester
@@ -1150,13 +1289,15 @@ async def portal_api_upload_document(
 
         async with AsyncSession(engine) as session:
             result = await session.execute(
-                text("""
+                text(
+                    """
                 INSERT INTO documents
                 (id, tenant_id, name, type, file_hash, chunk_count, indexed_at, last_indexed_at, status)
                 VALUES (gen_random_uuid(), :tenant_id, :name, :type, :file_hash,
                  :chunk_count, :indexed_at, :last_indexed_at, :status)
                 RETURNING id
-                """),
+                """
+                ),
                 {
                     "tenant_id": UUID(tenant_id),
                     "name": filename,
@@ -1169,6 +1310,8 @@ async def portal_api_upload_document(
                 },
             )
             row = result.fetchone()
+            if row is None:
+                raise RuntimeError("document insert returned no id row")
             document_id = row[0]
             await session.commit()
 
@@ -1216,12 +1359,11 @@ async def portal_api_upload_document(
                 status=DocumentStatus.ready,
             )
         except Exception as e:
-            _logger.warning("portal.upload.embedding.failed", document_id=str(document_id), error=str(e))
+            _logger.warning(
+                "portal.upload.embedding.failed", document_id=str(document_id), error=str(e)
+            )
             # Store chunks without embeddings and mark ready (BM25 still works)
-            chunk_data = [
-                (chunk.index, chunk.text, None)
-                for chunk in raw_chunks
-            ]
+            chunk_data = [(chunk.index, chunk.text, None) for chunk in raw_chunks]
             if chunk_data:
                 await vector_store.store_chunks(
                     tenant_id=UUID(tenant_id),
@@ -1246,16 +1388,31 @@ async def portal_api_upload_document(
         return JSONResponse(status_code=422, content={"error": str(e)})
     except Exception as e:
         _logger.exception("portal.upload.error", error=str(e), error_type=type(e).__name__)
-        error_msg = str(e)
-        # Provide helpful hints based on common errors
-        if "ollama" in error_msg.lower() or "connection" in error_msg.lower():
-            return JSONResponse(status_code=500, content={"error": f"AI service unavailable: {error_msg}. Make sure Ollama is running."})
-        elif "timeout" in error_msg.lower():
-            return JSONResponse(status_code=500, content={"error": "Upload timed out. The document may be too large or the AI service is slow."})
-        elif "vector" in error_msg.lower() or "embedding" in error_msg.lower():
-            return JSONResponse(status_code=500, content={"error": f"Document processing error: {error_msg}"})
+        # Categorize for a helpful hint, but do NOT echo the raw exception
+        # message to the caller (it can leak internal detail). Full detail is
+        # logged server-side above.
+        error_msg = str(e).lower()
+        if "ollama" in error_msg or "connection" in error_msg:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "AI service unavailable. Please try again shortly."},
+            )
+        elif "timeout" in error_msg:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Upload timed out. The document may be too large or the AI service is slow."
+                },
+            )
+        elif "vector" in error_msg or "embedding" in error_msg:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Document processing error. Please try again."},
+            )
         else:
-            return JSONResponse(status_code=500, content={"error": f"Upload failed: {error_msg}"})
+            return JSONResponse(
+                status_code=500, content={"error": "Upload failed. Please try again."}
+            )
 
 
 @app.get("/api/v1/portal/keyphrase/mappings")
@@ -1283,18 +1440,20 @@ async def portal_api_keyphrase_mappings(request: Request):
         for row in rows:
             km = row[0]
             doc_name = row[1]
-            mappings.append({
-                "id": str(km.id),
-                "phrase": km.phrase,
-                "aliases": km.aliases or "",
-                "document_id": str(km.document_id),
-                "document_name": doc_name,
-                "mapping_type": km.mapping_type.value,
-                "confidence_boost": km.confidence_boost,
-                "usage_count": km.usage_count,
-                "is_active": km.is_active,
-                "created_at": km.created_at.isoformat() if km.created_at else None,
-            })
+            mappings.append(
+                {
+                    "id": str(km.id),
+                    "phrase": km.phrase,
+                    "aliases": km.aliases or "",
+                    "document_id": str(km.document_id),
+                    "document_name": doc_name,
+                    "mapping_type": km.mapping_type.value,
+                    "confidence_boost": km.confidence_boost,
+                    "usage_count": km.usage_count,
+                    "is_active": km.is_active,
+                    "created_at": km.created_at.isoformat() if km.created_at else None,
+                }
+            )
 
         await session.commit()
 
@@ -1310,6 +1469,7 @@ async def portal_api_keyphrase_create(request: Request):
     from sequor.db.database import get_engine
     from sqlalchemy.ext.asyncio import AsyncSession
     from sequor.db.models import KeyPhraseMapping, Document, KeyPhraseMappingType
+    from sqlalchemy import select
     from pydantic import BaseModel
 
     class CreateMappingRequest(BaseModel):
@@ -1329,16 +1489,17 @@ async def portal_api_keyphrase_create(request: Request):
     engine = get_engine()
     async with AsyncSession(engine) as session:
         doc_result = await session.execute(
-            select(Document).where(
-                Document.id == req.document_id,
-                Document.tenant_id == tenant_id
-            )
+            select(Document).where(Document.id == req.document_id, Document.tenant_id == tenant_id)
         )
         doc = doc_result.scalar_one_or_none()
         if not doc:
             return JSONResponse(content={"error": "Document not found"}, status_code=404)
 
-        mapping_type = KeyPhraseMappingType(req.mapping_type) if req.mapping_type else KeyPhraseMappingType.auto_reply
+        mapping_type = (
+            KeyPhraseMappingType(req.mapping_type)
+            if req.mapping_type
+            else KeyPhraseMappingType.auto_reply
+        )
 
         new_mapping = KeyPhraseMapping(
             tenant_id=tenant_id,
@@ -1352,18 +1513,21 @@ async def portal_api_keyphrase_create(request: Request):
         await session.commit()
         await session.refresh(new_mapping)
 
-    return JSONResponse(content={
-        "id": str(new_mapping.id),
-        "phrase": new_mapping.phrase,
-        "aliases": new_mapping.aliases or "",
-        "document_id": str(new_mapping.document_id),
-        "document_name": doc.name,
-        "mapping_type": new_mapping.mapping_type.value,
-        "confidence_boost": new_mapping.confidence_boost,
-        "usage_count": new_mapping.usage_count,
-        "is_active": new_mapping.is_active,
-        "created_at": new_mapping.created_at.isoformat() if new_mapping.created_at else None,
-    }, status_code=201)
+    return JSONResponse(
+        content={
+            "id": str(new_mapping.id),
+            "phrase": new_mapping.phrase,
+            "aliases": new_mapping.aliases or "",
+            "document_id": str(new_mapping.document_id),
+            "document_name": doc.name,
+            "mapping_type": new_mapping.mapping_type.value,
+            "confidence_boost": new_mapping.confidence_boost,
+            "usage_count": new_mapping.usage_count,
+            "is_active": new_mapping.is_active,
+            "created_at": new_mapping.created_at.isoformat() if new_mapping.created_at else None,
+        },
+        status_code=201,
+    )
 
 
 @app.delete("/api/v1/portal/keyphrase/mappings/{mapping_id}")
@@ -1381,8 +1545,7 @@ async def portal_api_keyphrase_delete(request: Request, mapping_id: str):
     async with AsyncSession(engine) as session:
         result = await session.execute(
             delete(KeyPhraseMapping).where(
-                KeyPhraseMapping.id == mapping_id,
-                KeyPhraseMapping.tenant_id == tenant_id
+                KeyPhraseMapping.id == mapping_id, KeyPhraseMapping.tenant_id == tenant_id
             )
         )
         await session.commit()
@@ -1405,8 +1568,7 @@ async def portal_api_keyphrase_suggestions(request: Request):
     async with AsyncSession(engine) as session:
         result = await session.execute(
             select(Document).where(
-                Document.tenant_id == tenant_id,
-                Document.status != None  # noqa: E501
+                Document.tenant_id == tenant_id, Document.status != None  # noqa: E501
             )
         )
         docs = result.scalars().all()
@@ -1422,7 +1584,9 @@ async def portal_api_keyphrase_suggestions(request: Request):
         await session.commit()
 
     if not docs_response:
-        return JSONResponse(content={"suggestions": [], "message": "Upload documents first to get suggestions"})
+        return JSONResponse(
+            content={"suggestions": [], "message": "Upload documents first to get suggestions"}
+        )
 
     # Gather document text content (limit to first 3 docs, 2000 chars each for suggestion generation)
     doc_summaries = []
@@ -1436,9 +1600,8 @@ async def portal_api_keyphrase_suggestions(request: Request):
     existing_mappings = set()
     async with AsyncSession(engine) as session:
         from sequor.db.models import KeyPhraseMapping as KPM
-        result = await session.execute(
-            select(KPM.phrase).where(KPM.tenant_id == tenant_id)
-        )
+
+        result = await session.execute(select(KPM.phrase).where(KPM.tenant_id == tenant_id))
         existing = result.scalars().all()
         for p in existing:
             existing_mappings.add(p.lower())
@@ -1447,16 +1610,20 @@ async def portal_api_keyphrase_suggestions(request: Request):
     # Generate suggestions using LLM
     try:
         from sequor.ai.client import get_ollama_client
+
         llm = get_ollama_client()
 
         system_prompt = """You are a helpful assistant that identifies key phrases customers might use when asking about topics covered in business documents. Given a list of documents, suggest 8-12 common phrases or questions customers would use. Focus on natural language questions and short topic phrases. Return ONLY a JSON array of strings, nothing else. Example: ["pricing", "how much does it cost", "refund policy", "cancel subscription"]"""
 
         prompt = f"""Based on these documents:\n{doc_context}\n\nSuggest 8-12 key phrases (in English) that customers might use when asking about topics in these documents. Include both short phrases and natural questions. Return ONLY a JSON array of strings."""
 
-        suggestions_text = await llm.generate(prompt=prompt, system=system_prompt, temperature=0.5, max_tokens=500)
+        suggestions_text = await llm.generate(
+            prompt=prompt, system=system_prompt, temperature=0.5, max_tokens=500
+        )
 
         # Parse the JSON response
         import json
+
         suggestions = json.loads(suggestions_text)
 
         # Filter out already-mapped phrases
@@ -1466,24 +1633,31 @@ async def portal_api_keyphrase_suggestions(request: Request):
         result_suggestions = []
         for phrase in new_suggestions:
             for doc in docs_response[:3]:
-                result_suggestions.append({
-                    "phrase": phrase,
-                    "document_id": doc["id"],
-                    "document_name": doc["name"],
-                })
+                result_suggestions.append(
+                    {
+                        "phrase": phrase,
+                        "document_id": doc["id"],
+                        "document_name": doc["name"],
+                    }
+                )
 
-        return JSONResponse(content={
-            "suggestions": result_suggestions,
-            "source_documents": [d["id"] for d in docs_response[:3]],
-        })
+        return JSONResponse(
+            content={
+                "suggestions": result_suggestions,
+                "source_documents": [d["id"] for d in docs_response[:3]],
+            }
+        )
     except Exception as e:
         import structlog
+
         logger = structlog.get_logger()
         logger.warning("keyphrase_suggestions.failed", error=str(e))
-        return JSONResponse(content={
-            "suggestions": [],
-            "error": "Could not generate suggestions. Make sure Ollama is running.",
-        })
+        return JSONResponse(
+            content={
+                "suggestions": [],
+                "error": "Could not generate suggestions. Make sure Ollama is running.",
+            }
+        )
 
 
 @app.get("/api/v1/portal/channels")
@@ -1498,19 +1672,23 @@ async def portal_api_channels(request: Request):
     whatsapp_webhook = f"{scheme}://{host}/api/v1/whatsapp/inbound"
     email_webhook = f"{scheme}://{host}/api/v1/email/inbound"
 
-    return JSONResponse(content={
-        "whatsapp": {
-            "phone_number_id": settings.whatsapp_phone_number_id or "",
-            "business_account_id": settings.whatsapp_business_account_id or "",
-            "webhook_url": whatsapp_webhook,
-            "configured": bool(settings.whatsapp_phone_number_id and settings.whatsapp_access_token),
-        },
-        "email": {
-            "from_domain": settings.email_from_domain or "",
-            "webhook_url": email_webhook,
-            "configured": bool(settings.sendgrid_api_key),
-        },
-    })
+    return JSONResponse(
+        content={
+            "whatsapp": {
+                "phone_number_id": settings.whatsapp_phone_number_id or "",
+                "business_account_id": settings.whatsapp_business_account_id or "",
+                "webhook_url": whatsapp_webhook,
+                "configured": bool(
+                    settings.whatsapp_phone_number_id and settings.whatsapp_access_token
+                ),
+            },
+            "email": {
+                "from_domain": settings.email_from_domain or "",
+                "webhook_url": email_webhook,
+                "configured": bool(settings.sendgrid_api_key),
+            },
+        }
+    )
 
 
 @app.get("/api/v1/portal/subscription")
@@ -1529,21 +1707,15 @@ async def portal_api_subscription(request: Request):
     engine = get_engine()
     async with AsyncSession(engine) as session:
         # Get tenant and account info
-        tenant_result = await session.execute(
-            select(Tenant).where(Tenant.id == tenant_id)
-        )
+        tenant_result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
         tenant = tenant_result.scalars().first()
 
-        account_result = await session.execute(
-            select(Account).where(Account.id == account_id)
-        )
+        account_result = await session.execute(select(Account).where(Account.id == account_id))
         account = account_result.scalars().first()
 
         # Count operators (BackupContact records) for this account
         operator_count = await session.scalar(
-            select(func.count(BackupContact.id)).where(
-                BackupContact.account_id == account_id
-            )
+            select(func.count(BackupContact.id)).where(BackupContact.account_id == account_id)
         )
 
         # Messages this month
@@ -1585,21 +1757,23 @@ async def portal_api_subscription(request: Request):
     # Stripe checkout URL for upgrades (Stripe portal is configured separately)
     upgrade_available = plan_name in ("free", "starter")
 
-    return JSONResponse(content={
-        "plan": {
-            "name": plan_name,
-            "display_name": plan_name.capitalize(),
-            "message_limit": message_limit,
-            "operator_limit": operator_limit,
-            "document_limit": document_limit,
-        },
-        "usage": {
-            "messages_this_month": messages_this_month or 0,
-            "operator_count": operator_count or 0,
-            "document_count": document_count or 0,
-        },
-        "upgrade_available": upgrade_available,
-    })
+    return JSONResponse(
+        content={
+            "plan": {
+                "name": plan_name,
+                "display_name": plan_name.capitalize(),
+                "message_limit": message_limit,
+                "operator_limit": operator_limit,
+                "document_limit": document_limit,
+            },
+            "usage": {
+                "messages_this_month": messages_this_month or 0,
+                "operator_count": operator_count or 0,
+                "document_count": document_count or 0,
+            },
+            "upgrade_available": upgrade_available,
+        }
+    )
 
 
 @app.get("/api/v1/portal/me")
@@ -1636,9 +1810,7 @@ async def portal_api_me(request: Request):
             )
             contact = result.scalars().first()
 
-            acct_result = await session.execute(
-                select(Account).where(Account.id == account_id)
-            )
+            acct_result = await session.execute(select(Account).where(Account.id == account_id))
             account = acct_result.scalars().first()
 
             # Count unresolved escalations for sidebar badge
@@ -1658,13 +1830,15 @@ async def portal_api_me(request: Request):
     except Exception as e:
         _logger.exception("portal_api_me.error", error=str(e))
 
-    return JSONResponse(content={
-        "name": name,
-        "email": email,
-        "role": role,
-        "account_name": account_name,
-        "escalation_count": escalation_count,
-    })
+    return JSONResponse(
+        content={
+            "name": name,
+            "email": email,
+            "role": role,
+            "account_name": account_name,
+            "escalation_count": escalation_count,
+        }
+    )
 
 
 @app.post("/api/v1/portal/upgrade")
@@ -1675,6 +1849,7 @@ async def portal_api_upgrade(request: Request):
     email = operator.get("email", "")
 
     from sequor.billing.service import create_checkout_session
+
     success_url = str(request.url_for("portal_subscription")) + "?upgrade=success"
     cancel_url = str(request.url_for("portal_subscription")) + "?upgrade=cancelled"
 
@@ -1726,24 +1901,10 @@ async def portal_signup():
 async def portal_logout():
     """Clear session and redirect to login."""
     from fastapi.responses import RedirectResponse
+
     response = RedirectResponse(url="/portal/login", status_code=302)
     response.delete_cookie("sequor_session", path="/")
     return response
-
-
-def _portal_guard(request: Request):
-    """Check if operator is logged in. Redirects to /portal/login if not."""
-    from fastapi.responses import RedirectResponse
-    token = request.cookies.get("sequor_session") or request.headers.get("x-session-token")
-    operator = sessionStorage = None
-    if token:
-        try:
-            import json as _json
-        except ImportError:
-            _json = None
-    if not operator:
-        return RedirectResponse(url="/portal/login", status_code=302)
-    return None
 
 
 def _read_template(name: str) -> str:
@@ -1757,15 +1918,21 @@ async def portal_dashboard(request: Request):
         try:
             return _render("dashboard.html", request, demo=True, showcase=True)
         except Exception:
-            import traceback
+            # Never render a traceback into the page — this branch is
+            # unauthenticated. Log server-side; return a static error.
             _logger.exception("template.render_failed", template="login.html")
-            return HTMLResponse(f"<h1>Login</h1><pre>{traceback.format_exc()}</pre>")
+            return HTMLResponse(
+                "<h1>Something went wrong</h1><p>Please try again later.</p>",
+                status_code=500,
+            )
     try:
         return _render("dashboard.html", request)
     except Exception:
-        import traceback
         _logger.exception("template.render_failed", template="dashboard.html")
-        return HTMLResponse(f"<h1>Dashboard</h1><pre>{traceback.format_exc()}</pre>")
+        return HTMLResponse(
+            "<h1>Something went wrong</h1><p>Please try again later.</p>",
+            status_code=500,
+        )
 
 
 @app.get("/portal/messages")
