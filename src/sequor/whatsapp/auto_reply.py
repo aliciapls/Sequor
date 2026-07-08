@@ -111,7 +111,11 @@ class WhatsAppAutoReplyService:
         6. Auto-send if high confidence AND session window is open
         7. Send template acknowledgement if session expired but high confidence
         """
-        threshold = confidence_threshold or self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        threshold = (
+            confidence_threshold
+            if confidence_threshold is not None
+            else self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        )
 
         logger.info(
             "whatsapp_auto_reply.process.start",

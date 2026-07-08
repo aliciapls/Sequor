@@ -222,6 +222,31 @@ async def test_learned_answer_high_similarity_auto_sent(generator: ResponseGener
     assert result.was_auto_sent is True
 
 
+async def test_learned_answer_low_classifier_high_similarity_auto_sent(
+    generator: ResponseGenerator,
+):
+    """Security-review H1: learned-answer path intentionally uses similarity alone
+    (not min(classifier, similarity)) because a human-verified answer is more
+    trustworthy than an uncertain classifier. A message with classifier=0.2 +
+    similarity=0.92 auto-sends — the human already approved this answer."""
+    classification = _classification(category="routine", confidence=0.2)
+    learned = [
+        {
+            "id": uuid4(),
+            "answer_text": "Human-verified answer.",
+            "similarity": 0.92,
+        }
+    ]
+
+    result = await generator.generate(
+        uuid4(), "matching query", classification, learned_answers=learned
+    )
+
+    # similarity 0.92 >= 0.90 → auto-send; classifier's 0.2 is intentionally
+    # not factored in (human-verified answer trumps uncertain classifier)
+    assert result.was_auto_sent is True
+
+
 async def test_learned_answer_badge_assignment_high(generator: ResponseGenerator):
     """Learned answer with similarity >= 0.95 gets 'high' badge (A3 spec-table thresholds:
     >=0.95 high, >=0.80 moderate, >=0.60 low)."""

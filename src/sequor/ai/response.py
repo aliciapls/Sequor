@@ -233,8 +233,14 @@ class ResponseGenerator:
         """Generate response using learned answers (human escalation data).
 
         The learned-answer match similarity IS the unified response confidence
-        here (a human-verified answer matched by vector similarity); both the gate
-        and the badge read it (A3 unification)."""
+        here — a human-verified answer matched by vector similarity. This is an
+        INTENTIONAL exception to the RAG-path ``min(classifier, synthesis)``
+        unification: a human-verified answer is more trustworthy than an
+        uncertain classifier, so the classifier confidence is NOT factored in
+        (the human already approved this answer). Both the gate and the badge
+        read the similarity directly (A3 unification — the learned path uses
+        the similarity as the single quantity, analogous to how the RAG path
+        uses ``min(classifier, synthesis)``)."""
         if not learned_answers:
             return await self._generate_from_rag(
                 tenant_id, message_text, classification, confidence_threshold

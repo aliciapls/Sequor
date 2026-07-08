@@ -375,6 +375,7 @@ async def email_inbound(request: Request):
         from sequor.email.inbound import InboundEmailProcessor
         from sequor.db.database import get_engine
         from sequor.db.crud import SessionCrud
+        from sqlalchemy import select
         from sqlalchemy.ext.asyncio import AsyncSession
 
         engine = get_engine()
@@ -415,6 +416,15 @@ async def email_inbound(request: Request):
                     )
                     from uuid import UUID as _UUID
 
+                    # Read the per-account confidence threshold (A3 unification —
+                    # different accounts may want tighter or looser auto-send gates)
+                    from sequor.db.models import Account as _Account
+
+                    _acct_stmt = select(_Account).where(_Account.id == _UUID(result["account_id"]))
+                    _acct_result = await session.execute(_acct_stmt)
+                    _account = _acct_result.scalar_one_or_none()
+                    _acct_threshold = _account.confidence_threshold if _account else 0.90
+
                     ctx = MessageContext(
                         tenant_id=_UUID(result["tenant_id"]),
                         account_id=_UUID(result["account_id"]),
@@ -426,7 +436,9 @@ async def email_inbound(request: Request):
                         external_message_id=payload.get("message_id"),
                         in_reply_to=payload.get("in_reply_to"),
                     )
-                    ai_result = await service.process_message(ctx)
+                    ai_result = await service.process_message(
+                        ctx, confidence_threshold=_acct_threshold
+                    )
                     result["ai_routing"] = ai_result.routing_target
                     result["ai_confidence"] = ai_result.confidence_score
                 except Exception:
@@ -528,6 +540,7 @@ async def whatsapp_inbound(request: Request):
         from sequor.whatsapp.inbound import InboundWhatsAppProcessor
         from sequor.db.database import get_engine
         from sequor.db.crud import SessionCrud
+        from sqlalchemy import select
         from sqlalchemy.ext.asyncio import AsyncSession
 
         engine = get_engine()
@@ -579,7 +592,20 @@ async def whatsapp_inbound(request: Request):
                             external_message_id=result.get("external_message_id"),
                             session_expired=result.get("session_expired", False),
                         )
-                        ai_result = await svc.process_message(ctx)
+
+                        # Read per-account confidence threshold (A3 unification)
+                        from sequor.db.models import Account as _WA_Account
+
+                        _wa_acct_stmt = select(_WA_Account).where(
+                            _WA_Account.id == _UUID(result["account_id"])
+                        )
+                        _wa_acct_result = await session.execute(_wa_acct_stmt)
+                        _wa_account = _wa_acct_result.scalar_one_or_none()
+                        _wa_threshold = _wa_account.confidence_threshold if _wa_account else 0.90
+
+                        ai_result = await svc.process_message(
+                            ctx, confidence_threshold=_wa_threshold
+                        )
                         result["ai_routing"] = ai_result.routing_target
                         result["ai_confidence"] = ai_result.confidence_score
                         result["ai_message_sent"] = ai_result.message_sent

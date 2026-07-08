@@ -112,7 +112,11 @@ class AutoReplyService:
         Returns:
             AutoReplyResult with processing outcome
         """
-        threshold = confidence_threshold or self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        threshold = (
+            confidence_threshold
+            if confidence_threshold is not None
+            else self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        )
 
         logger.info(
             "auto_reply.process.start",
