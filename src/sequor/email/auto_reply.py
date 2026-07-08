@@ -141,6 +141,7 @@ class AutoReplyService:
                 message_text=context.body_text,
                 classification=classification,
                 learned_answers=learned_answers,
+                confidence_threshold=threshold,
             )
 
             response_record = await self._record_response(
@@ -165,7 +166,7 @@ class AutoReplyService:
                     escalation_id=str(escalation_id),
                 )
 
-            elif response_result.was_auto_sent and classification.confidence >= threshold:
+            elif response_result.was_auto_sent:
                 email_sent = await self._send_auto_reply(
                     context=context,
                     response_result=response_result,

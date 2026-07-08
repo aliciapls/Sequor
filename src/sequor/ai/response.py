@@ -9,11 +9,31 @@ from uuid import UUID
 
 import structlog
 
-from sequor.ai.classifier import ClassificationResult, MessageCategory, MessageUrgency
+from sequor.ai.classifier import (
+    ClassificationResult,
+    MessageCategory,
+    MessageClassifier,
+    MessageUrgency,
+)
 from sequor.ai.learning import LearningLoop
 from sequor.ai.rag_pipeline import RAGPipeline
 
 logger = structlog.get_logger()
+
+
+def _badge_for(confidence: float) -> str:
+    """Map a unified response confidence to the spec badge level
+    (``response-accuracy.md`` §Badge Levels): >=0.95 high, >=0.80 moderate,
+    >=0.60 low, else uncertain. Both the auto-send gate and the rendered badge
+    read the SAME ``response_confidence`` (A3 unification) — this function fixes
+    the badge-render side of that agreement."""
+    if confidence >= 0.95:
+        return "high"
+    if confidence >= 0.80:
+        return "moderate"
+    if confidence >= 0.60:
+        return "low"
+    return "uncertain"
 
 
 @dataclass
@@ -63,6 +83,7 @@ class ResponseGenerator:
         classification: ClassificationResult,
         learned_answers: list[dict] | None = None,
         system_instructions: str | None = None,
+        confidence_threshold: float = 0.90,
     ) -> ResponseResult:
         """Generate a response for a classified message.
 
@@ -91,7 +112,7 @@ class ResponseGenerator:
 
         if learned_answers and len(learned_answers) > 0:
             return await self._generate_from_learned(
-                tenant_id, message_text, classification, learned_answers
+                tenant_id, message_text, classification, learned_answers, confidence_threshold
             )
 
         synthesis = await self._rag.query(
@@ -100,33 +121,37 @@ class ResponseGenerator:
             top_k=5,
         )
 
-        # Three-tier confidence routing per spec:
-        # - > 90%: auto-reply to contact
-        # - 60-90%: escalate WITH AI draft for review
-        # - < 60%: escalate WITHOUT AI draft
-        confidence = classification.confidence
-        is_routine = classification.category in [
-            MessageCategory.ROUTINE,
-            MessageCategory.SEMI_ROUTINE,
-        ]
-        has_good_synthesis = synthesis.confidence_badge in ["high", "moderate"]
-        low_synthesis = (
-            synthesis.confidence_badge == "uncertain" or synthesis.confidence < 0.3
-        )
+        # A3 unification: ONE response confidence drives BOTH the auto-send gate
+        # and the rendered badge. The response is only as confident as its weakest
+        # link — the classifier verdict AND the RAG synthesis chain (retrieval ×
+        # hallucination, already combined in synthesis.confidence). Pre-A3 the gate
+        # keyed off classification.confidence while the badge showed
+        # synthesis.confidence, so a high-classifier / low-synthesis message could
+        # auto-send while its badge read "uncertain".
+        response_confidence = min(classification.confidence, synthesis.confidence)
         is_complex = classification.category == MessageCategory.COMPLEX
 
-        was_auto_sent = confidence >= 0.9 and is_routine and has_good_synthesis and not is_complex
+        was_auto_sent = MessageClassifier.should_auto_respond(
+            classification, response_confidence, confidence_threshold
+        )
 
         escalation_needed = not was_auto_sent
+        # Escalate WITH an AI draft when the (unified) confidence is mid-band: the
+        # synthesis is usable enough to offer the operator a starting point but not
+        # confident enough to auto-send. Below 0.6 / uncertain / complex → no draft.
+        badge = _badge_for(response_confidence)
         escalation_has_ai_draft = (
-            escalation_needed and confidence >= 0.6 and not low_synthesis and not is_complex
+            escalation_needed
+            and response_confidence >= 0.6
+            and badge != "uncertain"
+            and not is_complex
         )
 
         logger.info(
             "response.generate.ok",
             tenant_id=str(tenant_id),
-            badge=synthesis.confidence_badge,
-            confidence=confidence,
+            badge=badge,
+            confidence=response_confidence,
             was_auto_sent=was_auto_sent,
             escalation_needed=escalation_needed,
             escalation_has_ai_draft=escalation_has_ai_draft,
@@ -134,8 +159,8 @@ class ResponseGenerator:
 
         return ResponseResult(
             content=synthesis.answer,
-            confidence_badge=synthesis.confidence_badge,
-            confidence_score=synthesis.confidence,
+            confidence_badge=badge,
+            confidence_score=response_confidence,
             was_auto_sent=was_auto_sent,
             sources=synthesis.sources,
             routing_target="auto_respond" if was_auto_sent else "escalation_queue",
@@ -203,36 +228,35 @@ class ResponseGenerator:
         message_text: str,
         classification: ClassificationResult,
         learned_answers: list[dict],
+        confidence_threshold: float = 0.90,
     ) -> ResponseResult:
-        """Generate response using learned answers (human escalation data)."""
+        """Generate response using learned answers (human escalation data).
+
+        The learned-answer match similarity IS the unified response confidence
+        here (a human-verified answer matched by vector similarity); both the gate
+        and the badge read it (A3 unification)."""
         if not learned_answers:
-            return await self._generate_from_rag(tenant_id, message_text, classification)
+            return await self._generate_from_rag(
+                tenant_id, message_text, classification, confidence_threshold
+            )
 
         best_answer = learned_answers[0]
-        confidence = best_answer.get("similarity", 0.5)
+        response_confidence = best_answer.get("similarity", 0.5)
 
-        was_auto_sent = confidence >= 0.85 and classification.category in [
-            MessageCategory.ROUTINE,
-            MessageCategory.SEMI_ROUTINE,
-        ]
+        was_auto_sent = MessageClassifier.should_auto_respond(
+            classification, response_confidence, confidence_threshold
+        )
 
         answer_text = best_answer.get("answer_text", "")
         sources = [
             {
                 "source_type": "human_answer",
                 "answer_id": str(best_answer.get("id")),
-                "similarity": confidence,
+                "similarity": response_confidence,
             }
         ]
 
-        if confidence >= 0.8:
-            badge = "high"
-        elif confidence >= 0.6:
-            badge = "moderate"
-        elif confidence >= 0.4:
-            badge = "low"
-        else:
-            badge = "uncertain"
+        badge = _badge_for(response_confidence)
 
         logger.info(
             "response.from_learned.ok",
@@ -244,7 +268,7 @@ class ResponseGenerator:
         return ResponseResult(
             content=answer_text,
             confidence_badge=badge,
-            confidence_score=confidence,
+            confidence_score=response_confidence,
             was_auto_sent=was_auto_sent,
             sources=sources,
             routing_target="auto_respond" if was_auto_sent else "escalation_queue",
@@ -257,32 +281,36 @@ class ResponseGenerator:
         tenant_id: UUID,
         message_text: str,
         classification: ClassificationResult,
+        confidence_threshold: float = 0.90,
     ) -> ResponseResult:
-        """Generate response using RAG pipeline."""
+        """Generate response using RAG pipeline (unified confidence: the weaker of
+        classifier + synthesis, per A3)."""
         synthesis = await self._rag.query(
             tenant_id=tenant_id,
             query=message_text,
             top_k=5,
         )
 
-        was_auto_sent = classification.confidence >= 0.9 and synthesis.confidence_badge in [
-            "high",
-            "moderate",
-        ]
-
-        escalation_needed = (
-            synthesis.confidence_badge == "uncertain" or synthesis.confidence < 0.3
+        response_confidence = min(classification.confidence, synthesis.confidence)
+        was_auto_sent = MessageClassifier.should_auto_respond(
+            classification, response_confidence, confidence_threshold
         )
+        badge = _badge_for(response_confidence)
+        is_complex = classification.category == MessageCategory.COMPLEX
+        escalation_needed = not was_auto_sent
 
         return ResponseResult(
             content=synthesis.answer,
-            confidence_badge=synthesis.confidence_badge,
-            confidence_score=synthesis.confidence,
+            confidence_badge=badge,
+            confidence_score=response_confidence,
             was_auto_sent=was_auto_sent,
             sources=synthesis.sources,
-            routing_target="auto_respond"
-            if was_auto_sent and not escalation_needed
-            else "escalation_queue",
+            routing_target="auto_respond" if was_auto_sent else "escalation_queue",
             escalation_needed=escalation_needed,
-            escalation_has_ai_draft=False,
+            escalation_has_ai_draft=(
+                escalation_needed
+                and response_confidence >= 0.6
+                and badge != "uncertain"
+                and not is_complex
+            ),
         )

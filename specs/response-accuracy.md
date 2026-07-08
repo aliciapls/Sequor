@@ -30,9 +30,11 @@ These are in direct tension. The resolution is **human-in-the-loop for uncertain
 ### Option C: Human-in-the-Loop with Confidence Badges (Balanced) — **REQUIRED**
 
 - Every AI-generated response carries a confidence badge: "I'm X% confident this answer is correct"
-- For confidence > 90%: auto-send with badge
-- For confidence 60-90%: route to backup for review and approval before sending
-- For confidence < 60%: route to backup with a suggested response for the backup to edit and send
+- The **badge table** (§Badge Levels) is the canonical auto-send threshold. A3 unification (2026-07-08): the gate and the badge read the SAME unified confidence quantity — the weaker of classifier confidence and RAG/synthesis confidence.
+- For confidence >= 95%: auto-send with "High confidence" badge
+- For confidence 80–95%: auto-send with "Moderate confidence" badge
+- For confidence 60–80%: route to backup for review with AI draft
+- For confidence < 60%: route to backup with a suggested response for the backup to compose and send
 - All responses are logged regardless of path
 
 **Option C is the only design consistent with the brief's stated constraint. Without human-in-the-loop, the product cannot satisfy "accurate responses always" while also delivering automation value.**
@@ -43,16 +45,18 @@ These are in direct tension. The resolution is **human-in-the-loop for uncertain
 
 ### Badge Levels
 
+The unified response confidence (A3 unification, 2026-07-08) is the single quantity consumed by BOTH the auto-send gate and the confidence badge render. It is `min(classifier_confidence, synthesis_confidence)` for RAG responses and `similarity` for learned-answer matches. The spec-table thresholds below are the canonical gate; the code's `_badge_for()` function in `response.py` implements them mechanically.
+
 | Confidence Range | Badge Text            | Behavior                                                           |
 | ---------------- | --------------------- | ------------------------------------------------------------------ |
-| > 95%            | "High confidence"     | Auto-send with badge; log to audit trail                           |
-| 80-95%           | "Moderate confidence" | Auto-send with explicit badge; backup can override                 |
-| 60-80%           | "Low confidence"      | Route to backup; backup reviews and approves or edits before send  |
+| >= 95%           | "High confidence"     | Auto-send with badge; log to audit trail                           |
+| >= 80% and < 95% | "Moderate confidence" | Auto-send with explicit badge; backup can override                 |
+| >= 60% and < 80% | "Low confidence"      | Route to backup; backup reviews and approves or edits before send  |
 | < 60%            | "Uncertain"           | Route to backup with suggested response; backup composes and sends |
 
 ### Badge Display
 
-- In WhatsApp: appended as a footer note — "[Auto-generated; 92% confidence. Reply STOP to speak with a human]"
+- In WhatsApp: appended as a footer note — "[Auto-generated; {N}% confidence] Sent by {business_name}" — driven by the unified response confidence
 - In email: added as an X-AI-Confidence header + visible footer
 - The badge MUST NOT be editable by the AI or configurable by the user — it is a fixed governance control
 

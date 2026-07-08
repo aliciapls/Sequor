@@ -287,15 +287,31 @@ Confidence guidelines:
             and classification.category != MessageCategory.HIGH_STAKES
         )
 
+    @staticmethod
     def should_auto_respond(
-        self,
         classification: ClassificationResult,
+        response_confidence: float,
         confidence_threshold: float = 0.90,
     ) -> bool:
-        """Determine if the message should be auto-responded.
+        """The SOLE auto-send predicate (A3 unification). Returns True only when a
+        message may be auto-replied WITHOUT a human in the loop.
+
+        ``response_confidence`` is the unified quantity (the weaker of classifier
+        + RAG synthesis, or the learned-answer similarity) that BOTH this gate and
+        the rendered badge read — pre-A3 the gate keyed off classifier confidence
+        while the badge showed synthesis confidence, so they could disagree.
+        ``confidence_threshold`` is the per-account ``Account.confidence_threshold``
+        (default 0.90). HIGH_STAKES categories and HIGH/CRITICAL urgency are
+        filtered at the ``ResponseGenerator`` dispatcher before this is reached,
+        so they never auto-send regardless of confidence.
+
+        This is a deterministic SAFETY gate on the LLM's already-produced
+        classification (the classifier itself reasons via the LLM) — permitted
+        deterministic logic (agent-reasoning safety-guard exception), not routing.
 
         Args:
-            classification: Classification result
+            classification: Classification result (category + urgency)
+            response_confidence: The unified response confidence (gate + badge)
             confidence_threshold: Minimum confidence for auto-response
 
         Returns:
@@ -304,5 +320,5 @@ Confidence guidelines:
         return (
             classification.category in [MessageCategory.ROUTINE, MessageCategory.SEMI_ROUTINE]
             and classification.urgency in [MessageUrgency.LOW, MessageUrgency.MEDIUM]
-            and classification.confidence >= confidence_threshold
+            and response_confidence >= confidence_threshold
         )
