@@ -158,6 +158,7 @@ class AutoReplyService:
                     context=context,
                     response_id=response_record,
                     classification=classification,
+                    unified_confidence=response_result.confidence_score,
                 )
                 logger.info(
                     "auto_reply.escalated",
@@ -259,6 +260,7 @@ class AutoReplyService:
         context: MessageContext,
         response_id: UUID,
         classification: ClassificationResult,
+        unified_confidence: float = 0.0,
     ) -> UUID:
         """Create an escalation via EscalationService (sends email, writes audit).
 
@@ -294,9 +296,13 @@ class AutoReplyService:
                 account_id=context.account_id,
                 priority=priority,
                 ai_summary=classification.reasoning or "Classification-based escalation",
-                routing_reason=f"AI confidence {classification.confidence:.0%}, category {classification.category.value}",
+                routing_reason=(
+                    f"AI confidence {unified_confidence:.0%} "
+                    f"(classifier {classification.confidence:.0%}), "
+                    f"category {classification.category.value}"
+                ),
                 suggested_response=getattr(classification, "suggested_response", None),
-                confidence_score=classification.confidence,
+                confidence_score=unified_confidence,
             )
             await session.commit()
 

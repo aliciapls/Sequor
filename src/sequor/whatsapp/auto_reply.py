@@ -158,6 +158,7 @@ class WhatsAppAutoReplyService:
                     context=context,
                     response_id=response_record,
                     classification=classification,
+                    unified_confidence=response_result.confidence_score,
                 )
                 logger.info(
                     "whatsapp_auto_reply.escalated",
@@ -274,6 +275,7 @@ class WhatsAppAutoReplyService:
         context: WhatsAppMessageContext,
         response_id: UUID,
         classification: ClassificationResult,
+        unified_confidence: float = 0.0,
     ) -> UUID:
         from sequor.db.crud import SessionCrud
         from sequor.db.database import get_engine
@@ -308,11 +310,12 @@ class WhatsAppAutoReplyService:
                 priority=priority,
                 ai_summary=classification.reasoning or "Classification-based escalation",
                 routing_reason=(
-                    f"AI confidence {classification.confidence:.0%}, "
+                    f"AI confidence {unified_confidence:.0%} "
+                    f"(classifier {classification.confidence:.0%}), "
                     f"category {classification.category.value}"
                 ),
                 suggested_response=getattr(classification, "suggested_response", None),
-                confidence_score=classification.confidence,
+                confidence_score=unified_confidence,
             )
             await session.commit()
 
