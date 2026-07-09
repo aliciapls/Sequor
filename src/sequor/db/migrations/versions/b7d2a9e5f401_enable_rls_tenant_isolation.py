@@ -103,10 +103,12 @@ _LOOKUP_FUNCTIONS_SQL = [
     CREATE OR REPLACE FUNCTION resolve_backup_contact_by_email_blind_index(p_idx varchar)
     RETURNS TABLE (
         id uuid, tenant_id uuid, account_id uuid,
-        name varchar, password_hash varchar, tier text
+        name varchar, email varchar, tier text
     )
     LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-        SELECT id, tenant_id, account_id, name, password_hash, tier::text
+        -- R7-01: password_hash moved from backup_contacts to accounts;
+        -- this function returns backup-contact metadata (no credential columns)
+        SELECT id, tenant_id, account_id, name, email, tier::text
         FROM backup_contacts
         WHERE email_blind_index = p_idx AND active = true
         LIMIT 1;
