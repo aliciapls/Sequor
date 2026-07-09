@@ -174,12 +174,16 @@ class TestOnboardingSignupValidation:
     DB-enforced via RLS, so signup no longer provisions a schema)."""
 
     @patch("sequor.onboarding.service.send_verification_email", new_callable=AsyncMock)
+    @patch("sequor.db.tenant_context.settings")
     @patch("sequor.config.settings")
-    async def test_signup_rejects_duplicate_email(self, mock_settings, mock_email):
+    async def test_signup_rejects_duplicate_email(
+        self, mock_settings, mock_ts_settings, mock_email
+    ):
         """Signup must reject duplicate owner_email."""
         from sequor.onboarding.service import signup, DuplicateEmailError
 
         mock_settings.encryption_master_key = TEST_ENCRYPTION_KEY
+        mock_ts_settings.encryption_master_key = TEST_ENCRYPTION_KEY
 
         existing = MagicMock()
         session = _FakeSession(existing_account=existing)

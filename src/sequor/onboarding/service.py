@@ -153,6 +153,8 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
             raise DuplicateEmailError(
                 f"An account with email {_mask_email(request.owner_email)} already exists"
             )
+    except DuplicateEmailError:
+        raise
     except Exception:
         logger.warning(
             "onboarding.dup_check_skipped",
