@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     llm_model: str = "llama3.1"
     embedding_model: str = "nomic-embed-text"
 
+    # LLM provider selection: "ollama" (local) or "minimax" (cloud)
+    llm_provider: str = "ollama"
+
+    # MiniMax (cloud LLM — OpenAI-compatible API)
+    minimax_api_key: str = ""
+    minimax_model: str = "MiniMax-M1"
+    minimax_base_url: str = "https://api.minimax.chat/v1"
+
     # Embeddings fallback (OpenAI — used when Ollama is unavailable)
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"

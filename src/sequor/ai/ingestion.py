@@ -18,7 +18,7 @@ from uuid import UUID
 import structlog
 
 from sequor.ai.chunker import Chunk, get_chunker_for_document_type
-from sequor.ai.client import OllamaClient, get_ollama_client
+from sequor.ai.client import MiniMaxClient, OllamaClient, get_ollama_client
 from sequor.ai.document_parser import ParsedDocument, get_parser_for_file
 from sequor.ai.vector_store import VectorStore
 
@@ -51,7 +51,7 @@ class DocumentIngester:
     def __init__(
         self,
         vector_store: VectorStore,
-        llm_client: OllamaClient | None = None,
+        llm_client: OllamaClient | MiniMaxClient | None = None,
         db_model: Any = None,
     ) -> None:
         """Initialize the document ingester.

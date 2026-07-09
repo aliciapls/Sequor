@@ -11,7 +11,7 @@ from uuid import UUID
 import structlog
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from sequor.ai.client import OllamaClient, get_ollama_client
+from sequor.ai.client import MiniMaxClient, OllamaClient, get_ollama_client
 
 logger = structlog.get_logger()
 
@@ -39,7 +39,7 @@ class LearningLoop:
 
     def __init__(
         self,
-        llm_client: OllamaClient | None = None,
+        llm_client: OllamaClient | MiniMaxClient | None = None,
         engine: AsyncEngine | None = None,
     ) -> None:
         """Initialize the learning loop.

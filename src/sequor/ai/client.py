@@ -1,9 +1,9 @@
-"""Ollama client for local LLM and embedding generation."""
+"""LLM clients — local (Ollama) and cloud (MiniMax) generation + embeddings."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Coroutine
+from typing import Any
 
 import httpx
 import structlog
@@ -11,6 +11,11 @@ import structlog
 from sequor.config import settings
 
 logger = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Ollama provider
+# ---------------------------------------------------------------------------
 
 
 class OllamaClient:
@@ -53,17 +58,7 @@ class OllamaClient:
         temperature: float = 0.3,
         max_tokens: int = 2048,
     ) -> str:
-        """Generate text using the LLM.
-
-        Args:
-            prompt: The user prompt
-            system: Optional system prompt
-            temperature: Sampling temperature (0.0-2.0)
-            max_tokens: Maximum tokens to generate
-
-        Returns:
-            Generated text response
-        """
+        """Generate text using the LLM."""
         client = await self._get_client()
 
         messages = []
@@ -104,16 +99,7 @@ class OllamaClient:
             ) from None
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for texts.
-
-        Tries Ollama first, falls back to OpenAI if Ollama is unavailable.
-
-        Args:
-            texts: List of text strings to embed
-
-        Returns:
-            List of embedding vectors
-        """
+        """Generate embeddings. Tries Ollama first, falls back to OpenAI."""
         try:
             return await self._generate_ollama_embeddings(texts)
         except (httpx.ConnectError, RuntimeError):
@@ -126,7 +112,9 @@ class OllamaClient:
         embeddings = []
         for text in texts:
             payload = {"model": self.embedding_model, "prompt": text}
-            logger.debug("ollama.embedding.start", model=self.embedding_model, text_length=len(text))
+            logger.debug(
+                "ollama.embedding.start", model=self.embedding_model, text_length=len(text)
+            )
             try:
                 response = await client.post("/api/embeddings", json=payload)
                 response.raise_for_status()
@@ -134,7 +122,9 @@ class OllamaClient:
                 embedding = data.get("embedding", [])
                 embeddings.append(embedding)
             except httpx.HTTPStatusError as e:
-                logger.error("ollama.embedding.error", status=e.response.status_code, text_length=len(text))
+                logger.error(
+                    "ollama.embedding.error", status=e.response.status_code, text_length=len(text)
+                )
                 raise
             except httpx.ConnectError:
                 logger.warning("ollama.embedding.unreachable", base_url=self.base_url)
@@ -143,16 +133,20 @@ class OllamaClient:
         return embeddings
 
     async def _generate_openai_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings via OpenAI API. Falls back to no embeddings on failure."""
-        from sequor.config import settings
+        """Generate embeddings via OpenAI API."""
         if not settings.openai_api_key:
             logger.warning("openai.embedding.skipped", reason="OPENAI_API_KEY not set")
             raise RuntimeError("OpenAI API key not configured")
         import openai
+
         client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
         embeddings = []
         for text in texts:
-            logger.debug("openai.embedding.start", model=settings.openai_embedding_model, text_length=len(text))
+            logger.debug(
+                "openai.embedding.start",
+                model=settings.openai_embedding_model,
+                text_length=len(text),
+            )
             try:
                 resp = await client.embeddings.create(
                     model=settings.openai_embedding_model,
@@ -163,7 +157,9 @@ class OllamaClient:
             except Exception as e:
                 logger.warning("openai.embedding.failed", error=str(e))
                 raise RuntimeError(f"OpenAI embedding failed: {e}") from e
-        logger.info("openai.embedding.ok", model=settings.openai_embedding_model, text_count=len(texts))
+        logger.info(
+            "openai.embedding.ok", model=settings.openai_embedding_model, text_count=len(texts)
+        )
         return embeddings
 
     async def is_available(self) -> bool:
@@ -176,16 +172,159 @@ class OllamaClient:
             return False
 
 
-# Global client instance
-_ollama_client: OllamaClient | None = None
+# ---------------------------------------------------------------------------
+# MiniMax provider (OpenAI-compatible cloud API)
+# ---------------------------------------------------------------------------
 
 
-def get_ollama_client() -> OllamaClient:
-    """Get or create the global Ollama client."""
-    global _ollama_client
-    if _ollama_client is None:
-        _ollama_client = OllamaClient()
-    return _ollama_client
+class MiniMaxClient:
+    """Client for MiniMax cloud LLM service.
+
+    MiniMax provides an OpenAI-compatible chat completions API.
+    Embeddings are delegated to OpenAI (MiniMax does not currently offer embeddings).
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        embedding_model: str | None = None,
+    ) -> None:
+        self.api_key = api_key or settings.minimax_api_key
+        self.model = model or settings.minimax_model
+        self.base_url = base_url or settings.minimax_base_url
+        self.embedding_model = embedding_model or settings.embedding_model
+        self._client: Any = None  # openai.AsyncOpenAI
+
+    def _get_client(self) -> Any:
+        """Get or create the OpenAI-compatible client pointed at MiniMax."""
+        if self._client is None:
+            import openai
+
+            self._client = openai.AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
+    async def generate(
+        self,
+        prompt: str,
+        system: str | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Generate text via MiniMax chat completions API."""
+        client = self._get_client()
+
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        logger.info("minimax.generate.start", model=self.model, prompt_length=len(prompt))
+
+        try:
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            content = response.choices[0].message.content or ""
+            logger.info(
+                "minimax.generate.ok",
+                model=self.model,
+                response_length=len(content),
+            )
+            return content
+        except Exception as e:
+            logger.error("minimax.generate.error", error=str(e))
+            raise RuntimeError(f"MiniMax generation failed: {e}") from e
+
+    async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings via OpenAI (MiniMax does not offer embeddings).
+
+        Falls back to Ollama if OpenAI is not configured.
+        """
+        # Try OpenAI first
+        if settings.openai_api_key:
+            import openai
+
+            client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+            embeddings: list[list[float]] = []
+            for text in texts:
+                logger.debug(
+                    "openai.embedding.start",
+                    model=settings.openai_embedding_model,
+                    text_length=len(text),
+                )
+                try:
+                    resp = await client.embeddings.create(
+                        model=settings.openai_embedding_model,
+                        input=text,
+                    )
+                    embeddings.append(resp.data[0].embedding)
+                except Exception as e:
+                    logger.warning("openai.embedding.failed", error=str(e))
+                    raise RuntimeError(f"OpenAI embedding failed: {e}") from e
+            logger.info(
+                "openai.embedding.ok",
+                model=settings.openai_embedding_model,
+                text_count=len(texts),
+            )
+            return embeddings
+
+        # Fall back to Ollama for embeddings
+        logger.warning("minimax.embedding.fallback_to_ollama")
+        ollama = OllamaClient(embedding_model=self.embedding_model)
+        return await ollama._generate_ollama_embeddings(texts)
+
+    async def is_available(self) -> bool:
+        """Check if MiniMax API is reachable."""
+        try:
+            client = self._get_client()
+            # Lightweight probe — list models (or just check connectivity)
+            await client.models.list()
+            return True
+        except Exception:
+            return False
+
+
+# ---------------------------------------------------------------------------
+# Global client factory
+# ---------------------------------------------------------------------------
+
+_client: OllamaClient | MiniMaxClient | None = None
+
+
+def get_llm_client() -> OllamaClient | MiniMaxClient:
+    """Get or create the LLM client based on settings.llm_provider."""
+    global _client
+    if _client is None:
+        if settings.llm_provider == "minimax":
+            logger.info("llm.client.init", provider="minimax", model=settings.minimax_model)
+            _client = MiniMaxClient()
+        else:
+            logger.info("llm.client.init", provider="ollama", model=settings.llm_model)
+            _client = OllamaClient()
+    return _client
+
+
+# Backward-compatible alias — used throughout the codebase
+get_ollama_client = get_llm_client
+
+
+# ---------------------------------------------------------------------------
+# Safe generation helper
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -198,7 +337,7 @@ class LLMResult:
 
 
 async def safe_generate(
-    client: OllamaClient,
+    client: OllamaClient | MiniMaxClient,
     prompt: str,
     system: str | None = None,
     temperature: float = 0.3,
