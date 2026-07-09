@@ -26,7 +26,7 @@ from sequor.ai.classifier import (
     MessageClassifier,
     MessageUrgency,
 )
-from sequor.ai.client import MiniMaxClient, OllamaClient, get_llm_client, get_ollama_client
+from sequor.ai.client import DeepSeekClient, OllamaClient, get_llm_client, get_ollama_client
 from sequor.ai.document_parser import (
     CSVParser,
     DocumentParser,
@@ -47,7 +47,7 @@ from sequor.ai.vector_store import SearchResult, VectorStore
 __all__ = [
     # Client
     "OllamaClient",
-    "MiniMaxClient",
+    "DeepSeekClient",
     "get_ollama_client",
     "get_llm_client",
     # Document parsing

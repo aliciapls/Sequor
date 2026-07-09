@@ -1,4 +1,4 @@
-"""LLM clients — local (Ollama) and cloud (MiniMax) generation + embeddings."""
+"""LLM clients — local (Ollama) and cloud (DeepSeek) generation + embeddings."""
 
 from __future__ import annotations
 
@@ -173,15 +173,15 @@ class OllamaClient:
 
 
 # ---------------------------------------------------------------------------
-# MiniMax provider (OpenAI-compatible cloud API)
+# DeepSeek provider (OpenAI-compatible cloud API)
 # ---------------------------------------------------------------------------
 
 
-class MiniMaxClient:
-    """Client for MiniMax cloud LLM service.
+class DeepSeekClient:
+    """Client for DeepSeek cloud LLM service.
 
-    MiniMax provides an OpenAI-compatible chat completions API.
-    Embeddings are delegated to OpenAI (MiniMax does not currently offer embeddings).
+    DeepSeek provides an OpenAI-compatible chat completions API.
+    Embeddings are delegated to OpenAI or Ollama.
     """
 
     def __init__(
@@ -191,14 +191,14 @@ class MiniMaxClient:
         base_url: str | None = None,
         embedding_model: str | None = None,
     ) -> None:
-        self.api_key = api_key or settings.minimax_api_key
-        self.model = model or settings.minimax_model
-        self.base_url = base_url or settings.minimax_base_url
+        self.api_key = api_key or settings.deepseek_api_key
+        self.model = model or settings.deepseek_model
+        self.base_url = base_url or settings.deepseek_base_url
         self.embedding_model = embedding_model or settings.embedding_model
         self._client: Any = None  # openai.AsyncOpenAI
 
     def _get_client(self) -> Any:
-        """Get or create the OpenAI-compatible client pointed at MiniMax."""
+        """Get or create the OpenAI-compatible client pointed at DeepSeek."""
         if self._client is None:
             import openai
 
@@ -229,7 +229,7 @@ class MiniMaxClient:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        logger.info("minimax.generate.start", model=self.model, prompt_length=len(prompt))
+        logger.info("deepseek.generate.start", model=self.model, prompt_length=len(prompt))
 
         try:
             response = await client.chat.completions.create(
@@ -240,13 +240,13 @@ class MiniMaxClient:
             )
             content = response.choices[0].message.content or ""
             logger.info(
-                "minimax.generate.ok",
+                "deepseek.generate.ok",
                 model=self.model,
                 response_length=len(content),
             )
             return content
         except Exception as e:
-            logger.error("minimax.generate.error", error=str(e))
+            logger.error("deepseek.generate.error", error=str(e))
             raise RuntimeError(f"MiniMax generation failed: {e}") from e
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
@@ -302,24 +302,17 @@ class MiniMaxClient:
 # Global client factory
 # ---------------------------------------------------------------------------
 
-_client: OllamaClient | MiniMaxClient | None = None
+_client: OllamaClient | DeepSeekClient | None = None
 
 
-def get_llm_client() -> OllamaClient | MiniMaxClient:
+def get_llm_client() -> OllamaClient | DeepSeekClient:
     """Get or create the LLM client based on settings.llm_provider."""
     global _client
     if _client is None:
         provider = settings.llm_provider
-        if provider == "minimax":
-            logger.info("llm.client.init", provider="minimax", model=settings.minimax_model)
-            _client = MiniMaxClient(
-                api_key=settings.minimax_api_key,
-                model=settings.minimax_model,
-                base_url=settings.minimax_base_url,
-            )
-        elif provider == "deepseek":
+        if provider == "deepseek":
             logger.info("llm.client.init", provider="deepseek", model=settings.deepseek_model)
-            _client = MiniMaxClient(
+            _client = DeepSeekClient(
                 api_key=settings.deepseek_api_key,
                 model=settings.deepseek_model,
                 base_url=settings.deepseek_base_url,
@@ -349,7 +342,7 @@ class LLMResult:
 
 
 async def safe_generate(
-    client: OllamaClient | MiniMaxClient,
+    client: OllamaClient | DeepSeekClient,
     prompt: str,
     system: str | None = None,
     temperature: float = 0.3,

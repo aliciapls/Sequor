@@ -1,0 +1,37 @@
+- generic [ref=f2e2]:
+  - link "Back" [ref=f2e3] [cursor=pointer]:
+    - /url: /
+    - img [ref=f2e4]
+    - text: Back
+  - link "S Sequor" [ref=f2e6] [cursor=pointer]:
+    - /url: /
+    - generic [ref=f2e7]: S
+    - generic [ref=f2e8]: Sequor
+  - heading "Create your account" [level=1] [ref=f2e10]
+  - generic [ref=f2e11]:
+    - generic [ref=f2e12]:
+      - generic [ref=f2e13]:
+        - generic [ref=f2e14]: First name
+        - textbox "First name" [ref=f2e15]:
+          - /placeholder: Alex
+      - generic [ref=f2e16]:
+        - generic [ref=f2e17]: Last name
+        - textbox "Last name" [ref=f2e18]:
+          - /placeholder: Chen
+    - generic [ref=f2e19]:
+      - generic [ref=f2e20]: Company name
+      - textbox "Company name" [ref=f2e21]:
+        - /placeholder: Acme Corp
+    - generic [ref=f2e22]:
+      - generic [ref=f2e23]: Work email
+      - textbox "Work email" [ref=f2e24]:
+        - /placeholder: alex@acmecorp.com
+    - generic [ref=f2e25]:
+      - generic [ref=f2e26]: Password
+      - textbox "Password" [ref=f2e27]:
+        - /placeholder: Min. 8 characters
+    - button "Create account" [ref=f2e28] [cursor=pointer]
+  - generic [ref=f2e29]:
+    - text: Already have an account?
+    - link "Sign in" [ref=f2e30] [cursor=pointer]:
+      - /url: /portal/login

@@ -1,0 +1,111 @@
+- generic [ref=f6e2]:
+  - navigation [ref=f6e3]:
+    - link "S Sequor" [ref=f6e4] [cursor=pointer]:
+      - /url: /portal/dashboard
+      - generic [ref=f6e5]: S
+      - generic [ref=f6e6]: Sequor
+    - generic [ref=f6e7]: Main
+    - generic [ref=f6e8]:
+      - link "Dashboard" [ref=f6e9] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f6e10]
+        - text: Dashboard
+      - link "Messages" [ref=f6e15] [cursor=pointer]:
+        - /url: /portal/messages
+        - img [ref=f6e16]
+        - text: Messages
+      - link "Escalations" [ref=f6e18] [cursor=pointer]:
+        - /url: /portal/escalations
+        - img [ref=f6e19]
+        - text: Escalations
+      - link "Auto-Replies" [ref=f6e21] [cursor=pointer]:
+        - /url: /portal/auto-replies
+        - img [ref=f6e22]
+        - text: Auto-Replies
+    - generic [ref=f6e25]: Configuration
+    - generic [ref=f6e26]:
+      - link "Backup Contacts" [ref=f6e27] [cursor=pointer]:
+        - /url: /portal/contacts
+        - img [ref=f6e28]
+        - text: Backup Contacts
+      - link "Document Hub" [ref=f6e33] [cursor=pointer]:
+        - /url: /portal/documents
+        - img [ref=f6e34]
+        - text: Document Hub
+      - link "Key Phrase Maps" [ref=f6e37] [cursor=pointer]:
+        - /url: /portal/keyphrases
+        - img [ref=f6e38]
+        - text: Key Phrase Maps
+      - link "Channels" [ref=f6e41] [cursor=pointer]:
+        - /url: /portal/channels
+        - img [ref=f6e42]
+        - text: Channels
+    - generic [ref=f6e44]: Account
+    - generic [ref=f6e45]:
+      - link "Subscription" [ref=f6e46] [cursor=pointer]:
+        - /url: /portal/subscription
+        - img [ref=f6e47]
+        - text: Subscription
+      - link "Setup Guide" [ref=f6e49] [cursor=pointer]:
+        - /url: /portal/faq
+        - img [ref=f6e50]
+        - text: Setup Guide
+      - link "Settings" [ref=f6e51] [cursor=pointer]:
+        - /url: /portal/settings
+        - img [ref=f6e52]
+        - text: Settings
+    - generic [ref=f6e56]:
+      - generic [ref=f6e57]:
+        - generic [ref=f6e58]: D
+        - generic [ref=f6e59]:
+          - generic [ref=f6e60]: Demo Corp
+          - generic [ref=f6e61]: demo@democorp-test.com
+      - button "Sign out" [ref=f6e62] [cursor=pointer]:
+        - img [ref=f6e63]
+  - generic [ref=f6e66]:
+    - generic [ref=f6e69]: Channels
+    - generic [ref=f6e70]:
+      - generic [ref=f6e71]:
+        - generic [ref=f6e72]:
+          - heading "Channel Configuration" [level=1] [ref=f6e73]
+          - paragraph [ref=f6e74]: Connect your communication channels — WhatsApp and email
+        - link "Setup Guide" [ref=f6e76] [cursor=pointer]:
+          - /url: /portal/faq
+          - img [ref=f6e77]
+          - text: Setup Guide
+      - generic [ref=f6e79]:
+        - generic [ref=f6e80]:
+          - generic [ref=f6e81]:
+            - generic [ref=f6e82]:
+              - img [ref=f6e83]
+              - generic [ref=f6e85]: WhatsApp Business
+            - generic [ref=f6e86]: Not configured
+          - generic [ref=f6e87]:
+            - generic [ref=f6e88]:
+              - generic [ref=f6e89]: Phone Number ID
+              - textbox "Not set" [ref=f6e90]: Not configured
+            - generic [ref=f6e91]:
+              - generic [ref=f6e92]: Business Account ID
+              - textbox "Not set" [ref=f6e93]: Not configured
+            - generic [ref=f6e94]:
+              - generic [ref=f6e95]: Webhook URL
+              - textbox "Not set" [ref=f6e96]: https://sequor.kailash.ai/api/v1/whatsapp/inbound
+            - img [ref=f6e98]
+            - paragraph [ref=f6e100]: Configure WhatsApp Business in your Meta developer portal. Set the webhook URL to the URL above and verify with the token configured in your environment.
+        - generic [ref=f6e101]:
+          - generic [ref=f6e102]:
+            - generic [ref=f6e103]:
+              - img [ref=f6e104]
+              - generic [ref=f6e107]: Email (SendGrid)
+            - generic [ref=f6e108]: Configured
+          - generic [ref=f6e109]:
+            - generic [ref=f6e110]:
+              - generic [ref=f6e111]: Verified Sender Domain
+              - textbox "Not set" [ref=f6e112]: sequor.integrum.global
+            - generic [ref=f6e113]:
+              - generic [ref=f6e114]: Inbound Parsing Endpoint
+              - textbox "Not set" [ref=f6e115]: https://sequor.kailash.ai/api/v1/email/inbound
+            - generic [ref=f6e116]:
+              - img [ref=f6e117]
+              - generic [ref=f6e119]: MX records verified · Receiving emails
+            - paragraph [ref=f6e120]: Set your SendGrid Inbound Parse webhook to the URL above. Ensure MX records for your sender domain point to SendGrid.

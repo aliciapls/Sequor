@@ -1,0 +1,36 @@
+- generic [ref=f7e2]:
+  - link "Back" [ref=f7e3] [cursor=pointer]:
+    - /url: /
+    - img [ref=f7e4]
+    - text: Back
+  - link "S Sequor" [ref=f7e6] [cursor=pointer]:
+    - /url: /
+    - generic [ref=f7e7]: S
+    - generic [ref=f7e8]: Sequor
+  - heading "Welcome back" [level=1] [ref=f7e10]
+  - paragraph [ref=f7e11]: Sign in to your operator portal
+  - generic [ref=f7e12]:
+    - generic [ref=f7e13]:
+      - generic [ref=f7e14]: Email address
+      - textbox "Email address" [ref=f7e15]:
+        - /placeholder: you@company.com
+        - text: demo@democorp-test.com
+    - generic [ref=f7e16]:
+      - generic [ref=f7e17]: Password
+      - generic [ref=f7e18]:
+        - textbox "Password" [ref=f7e19]:
+          - /placeholder: ••••••••
+          - text: SecurePass1
+        - button "Show password" [ref=f7e20] [cursor=pointer]:
+          - img [ref=f7e21]
+    - generic [ref=f7e24]:
+      - generic [ref=f7e25] [cursor=pointer]:
+        - checkbox "Remember me" [ref=f7e26]
+        - text: Remember me
+      - link "Forgot password?" [ref=f7e27] [cursor=pointer]:
+        - /url: "#"
+    - button "Sign in" [ref=f7e28] [cursor=pointer]
+  - generic [ref=f7e29]:
+    - text: Don't have an account?
+    - link "Sign up free" [ref=f7e30] [cursor=pointer]:
+      - /url: /portal/signup

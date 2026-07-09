@@ -1,0 +1,183 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link "S Sequor" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e5]: S
+        - generic [ref=e6]: Sequor
+      - generic [ref=e7]:
+        - link "Log in" [ref=e8] [cursor=pointer]:
+          - /url: /portal/login
+        - link "Get started" [ref=e9] [cursor=pointer]:
+          - /url: /portal/signup
+  - generic [ref=e11]:
+    - generic [ref=e12]: For Professional Services Teams
+    - heading "Instant AI replies from your documents. Escalations that actually need it." [level=1] [ref=e13]:
+      - text: Instant AI replies from your documents.
+      - text: Escalations that actually need it.
+    - paragraph [ref=e14]: Connect WhatsApp and email. Upload your FAQs, pricing, and policies. Sequor reads your documents and replies to clients automatically — routing only the questions that need a human.
+    - generic [ref=e15]:
+      - link "Get started free" [ref=e16] [cursor=pointer]:
+        - /url: /portal/signup
+      - link "Sign in" [ref=e17] [cursor=pointer]:
+        - /url: /portal/login
+  - generic [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e21]: 80%
+      - generic [ref=e22]: Messages auto-replied
+    - generic [ref=e23]:
+      - generic [ref=e24]: 4hr
+      - generic [ref=e25]: SLA guarantee on escalations
+    - generic [ref=e26]:
+      - generic [ref=e27]: 5 min
+      - generic [ref=e28]: Average setup time
+    - generic [ref=e29]:
+      - generic [ref=e30]: PDPA
+      - generic [ref=e31]: Compliant by default
+  - generic [ref=e32]:
+    - generic [ref=e33]: How it works
+    - heading "One platform, full coverage" [level=2] [ref=e34]
+    - paragraph [ref=e35]: Connect your channels, upload your documents, and let AI handle the rest.
+    - generic [ref=e36]:
+      - generic [ref=e37]:
+        - img [ref=e39]
+        - heading "WhatsApp + Email in one place" [level=3] [ref=e41]
+        - paragraph [ref=e42]: Connect both channels in minutes. All inbound messages route through Sequor's AI layer — no more switching between apps.
+      - generic [ref=e43]:
+        - img [ref=e45]
+        - heading "Auto-replies from your own documents" [level=3] [ref=e49]
+        - paragraph [ref=e50]: Upload your FAQs, pricing, policies, and contracts. When a client asks about these, Sequor drafts a reply from the right source — instantly.
+      - generic [ref=e51]:
+        - img [ref=e53]
+        - heading "Document Hub with key phrase maps" [level=3] [ref=e56]
+        - paragraph [ref=e57]: Upload and manage the documents Sequor uses. Set key phrase triggers so the right information reaches the right client automatically.
+      - generic [ref=e58]:
+        - img [ref=e60]
+        - heading "Smart escalations with full context" [level=3] [ref=e62]
+        - paragraph [ref=e63]: Legal, billing, and complex queries are flagged and routed to the right person with all the context needed to respond in one move.
+      - generic [ref=e64]:
+        - img [ref=e66]
+        - heading "Operator dashboard" [level=3] [ref=e71]
+        - paragraph [ref=e72]: See all messages, escalations, and auto-replies in one place. Track response times, SLA health, and team performance.
+      - generic [ref=e73]:
+        - img [ref=e75]
+        - heading "PDPA compliant by default" [level=3] [ref=e78]
+        - paragraph [ref=e79]: All message data is encrypted at rest and in transit. Audit logs, access controls, and data residency built in — Singapore PDPA requirements met out of the box.
+  - generic [ref=e81]:
+    - generic [ref=e82]: Operator Portal
+    - heading "Your command center — messages, escalations, and AI at a glance" [level=2] [ref=e83]
+    - iframe [ref=e85]:
+      - generic [ref=f1e2]:
+        - link "Back" [ref=f1e3] [cursor=pointer]:
+          - /url: /
+          - img [ref=f1e4]
+          - text: Back
+        - link "S Sequor" [ref=f1e6] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f1e7]: S
+          - generic [ref=f1e8]: Sequor
+        - heading "Welcome back" [level=1] [ref=f1e10]
+        - paragraph [ref=f1e11]: Sign in to your operator portal
+        - generic [ref=f1e12]:
+          - generic [ref=f1e13]:
+            - generic [ref=f1e14]: Email address
+            - textbox "Email address" [ref=f1e15]:
+              - /placeholder: you@company.com
+          - generic [ref=f1e16]:
+            - generic [ref=f1e17]: Password
+            - generic [ref=f1e18]:
+              - textbox "Password" [ref=f1e19]:
+                - /placeholder: ••••••••
+              - button "Show password" [ref=f1e20] [cursor=pointer]:
+                - img [ref=f1e21]
+          - generic [ref=f1e24]:
+            - generic [ref=f1e25] [cursor=pointer]:
+              - checkbox "Remember me" [ref=f1e26]
+              - text: Remember me
+            - link "Forgot password?" [ref=f1e27] [cursor=pointer]:
+              - /url: "#"
+          - button "Sign in" [ref=f1e28] [cursor=pointer]
+        - generic [ref=f1e29]:
+          - text: Don't have an account?
+          - link "Sign up free" [ref=f1e30] [cursor=pointer]:
+            - /url: /portal/signup
+  - generic [ref=e86]:
+    - generic [ref=e87]: Pricing
+    - heading "Start free. Scale when you're ready." [level=2] [ref=e88]
+    - paragraph [ref=e89]: No hidden fees. No minimums. Cancel anytime.
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - generic [ref=e92]: Free
+        - generic [ref=e93]: For individuals exploring Sequor
+        - generic [ref=e94]: $0/mo
+        - list [ref=e96]:
+          - listitem [ref=e97]: 50 messages/mo
+          - listitem [ref=e98]: WhatsApp + Email
+          - listitem [ref=e99]: 5 documents
+          - listitem [ref=e100]: Basic auto-reply
+          - listitem [ref=e101]: 30-day audit log
+        - link "Get started" [ref=e102] [cursor=pointer]:
+          - /url: /portal/signup
+      - generic [ref=e103]:
+        - generic [ref=e104]: Solo
+        - generic [ref=e105]: For solo operators
+        - generic [ref=e106]: $15/mo
+        - list [ref=e108]:
+          - listitem [ref=e109]: 200 messages/mo
+          - listitem [ref=e110]: WhatsApp + Email
+          - listitem [ref=e111]: 10 documents
+          - listitem [ref=e112]: RAG auto-replies
+          - listitem [ref=e113]: 30-day audit log
+        - link "Get started" [ref=e114] [cursor=pointer]:
+          - /url: /portal/signup
+      - generic [ref=e115]:
+        - text: Most popular
+        - generic [ref=e116]: Starter
+        - generic [ref=e117]: For small teams (3-5 seats)
+        - generic [ref=e118]: $35/seat/mo
+        - list [ref=e120]:
+          - listitem [ref=e121]: Unlimited messages
+          - listitem [ref=e122]: WhatsApp + Email
+          - listitem [ref=e123]: 5 team members
+          - listitem [ref=e124]: RAG + SLA tracking
+          - listitem [ref=e125]: 90-day audit trail
+          - listitem [ref=e126]: Priority support
+        - link "Get started" [ref=e127] [cursor=pointer]:
+          - /url: /portal/signup
+      - generic [ref=e128]:
+        - generic [ref=e129]: Professional
+        - generic [ref=e130]: For growing teams (5+ seats)
+        - generic [ref=e131]: $55/seat/mo
+        - list [ref=e133]:
+          - listitem [ref=e134]: Unlimited messages
+          - listitem [ref=e135]: WhatsApp + Email
+          - listitem [ref=e136]: Unlimited team members
+          - listitem [ref=e137]: Priority RAG processing
+          - listitem [ref=e138]: 12-month audit trail
+          - listitem [ref=e139]: Advanced analytics
+          - listitem [ref=e140]: PDPA compliance report
+        - link "Get started" [ref=e141] [cursor=pointer]:
+          - /url: /portal/signup
+  - generic [ref=e143]:
+    - heading "Start covering your clients today" [level=2] [ref=e144]
+    - paragraph [ref=e145]: Connect your channels and documents in under 5 minutes. No credit card required.
+    - generic [ref=e146]:
+      - link "Get started free" [ref=e147] [cursor=pointer]:
+        - /url: /portal/signup
+      - link "Sign in" [ref=e148] [cursor=pointer]:
+        - /url: /portal/login
+  - contentinfo [ref=e149]:
+    - generic [ref=e150]:
+      - generic [ref=e151]:
+        - generic [ref=e152]: S
+        - generic [ref=e153]: Sequor
+      - generic [ref=e154]:
+        - link "Privacy Policy" [ref=e155] [cursor=pointer]:
+          - /url: "#"
+        - link "Terms of Service" [ref=e156] [cursor=pointer]:
+          - /url: "#"
+        - link "Security" [ref=e157] [cursor=pointer]:
+          - /url: "#"
+        - link "Contact" [ref=e158] [cursor=pointer]:
+          - /url: "#"
+      - generic [ref=e159]: © 2026 Sequor. Built for professional services teams in Singapore and SEA.

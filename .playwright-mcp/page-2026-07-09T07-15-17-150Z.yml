@@ -1,0 +1,114 @@
+- generic [ref=f3e2]:
+  - navigation [ref=f3e3]:
+    - link "S Sequor" [ref=f3e4] [cursor=pointer]:
+      - /url: /portal/dashboard
+      - generic [ref=f3e5]: S
+      - generic [ref=f3e6]: Sequor
+    - generic [ref=f3e7]: Main
+    - generic [ref=f3e8]:
+      - link "Dashboard" [ref=f3e9] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f3e10]
+        - text: Dashboard
+      - link "Messages" [ref=f3e15] [cursor=pointer]:
+        - /url: /portal/messages
+        - img [ref=f3e16]
+        - text: Messages
+      - link "Escalations" [ref=f3e18] [cursor=pointer]:
+        - /url: /portal/escalations
+        - img [ref=f3e19]
+        - text: Escalations
+      - link "Auto-Replies" [ref=f3e21] [cursor=pointer]:
+        - /url: /portal/auto-replies
+        - img [ref=f3e22]
+        - text: Auto-Replies
+    - generic [ref=f3e25]: Configuration
+    - generic [ref=f3e26]:
+      - link "Backup Contacts" [ref=f3e27] [cursor=pointer]:
+        - /url: /portal/contacts
+        - img [ref=f3e28]
+        - text: Backup Contacts
+      - link "Document Hub" [ref=f3e33] [cursor=pointer]:
+        - /url: /portal/documents
+        - img [ref=f3e34]
+        - text: Document Hub
+      - link "Key Phrase Maps" [ref=f3e37] [cursor=pointer]:
+        - /url: /portal/keyphrases
+        - img [ref=f3e38]
+        - text: Key Phrase Maps
+      - link "Channels" [ref=f3e41] [cursor=pointer]:
+        - /url: /portal/channels
+        - img [ref=f3e42]
+        - text: Channels
+    - generic [ref=f3e44]: Account
+    - generic [ref=f3e45]:
+      - link "Subscription" [ref=f3e46] [cursor=pointer]:
+        - /url: /portal/subscription
+        - img [ref=f3e47]
+        - text: Subscription
+      - link "Setup Guide" [ref=f3e49] [cursor=pointer]:
+        - /url: /portal/faq
+        - img [ref=f3e50]
+        - text: Setup Guide
+      - link "Settings" [ref=f3e51] [cursor=pointer]:
+        - /url: /portal/settings
+        - img [ref=f3e52]
+        - text: Settings
+    - generic [ref=f3e56]:
+      - generic [ref=f3e57]:
+        - generic [ref=f3e58]: D
+        - generic [ref=f3e59]:
+          - generic [ref=f3e60]: Demo Corp
+          - generic [ref=f3e61]: demo@democorp-test.com
+      - button "Sign out" [ref=f3e62] [cursor=pointer]:
+        - img [ref=f3e63]
+  - generic [ref=f3e66]:
+    - generic [ref=f3e69]: Dashboard
+    - generic [ref=f3e70]:
+      - generic [ref=f3e71]:
+        - generic [ref=f3e72]:
+          - generic [ref=f3e73]: Messages Received
+          - generic [ref=f3e74]: "--"
+        - generic [ref=f3e75]:
+          - generic [ref=f3e76]: Auto-Replied
+          - generic [ref=f3e77]: "--"
+        - generic [ref=f3e78]:
+          - generic [ref=f3e79]: Escalated
+          - generic [ref=f3e80]: "--"
+        - generic [ref=f3e81]:
+          - generic [ref=f3e82]: Avg Response Time
+          - generic [ref=f3e83]: "--"
+      - generic [ref=f3e84]:
+        - generic [ref=f3e85]:
+          - generic [ref=f3e87]: Message Volume — Last 7 Days
+          - generic [ref=f3e89]:
+            - img [ref=f3e90]
+            - strong [ref=f3e94]: No message volume data yet
+            - paragraph [ref=f3e95]: Volume will appear here once messages start arriving
+        - generic [ref=f3e96]:
+          - generic [ref=f3e98]: Resolution Breakdown — Today
+          - generic [ref=f3e100]:
+            - img [ref=f3e101]
+            - strong [ref=f3e104]: No resolutions yet today
+            - paragraph [ref=f3e105]: Resolution stats will appear here at the end of the day
+      - generic [ref=f3e106]:
+        - generic [ref=f3e107]:
+          - generic [ref=f3e108]:
+            - generic [ref=f3e109]: Recent Messages
+            - link "View all" [ref=f3e110] [cursor=pointer]:
+              - /url: /portal/messages
+          - table [ref=f3e112]:
+            - rowgroup [ref=f3e113]:
+              - row "Channel From Message Status Time" [ref=f3e114]:
+                - columnheader "Channel" [ref=f3e115]
+                - columnheader "From" [ref=f3e116]
+                - columnheader "Message" [ref=f3e117]
+                - columnheader "Status" [ref=f3e118]
+                - columnheader "Time" [ref=f3e119]
+            - rowgroup [ref=f3e120]:
+              - row "Loading…" [ref=f3e121]:
+                - cell "Loading…" [ref=f3e122]
+        - generic [ref=f3e124]:
+          - generic [ref=f3e125]: Open Escalations
+          - link "View all" [ref=f3e126] [cursor=pointer]:
+            - /url: /portal/escalations
