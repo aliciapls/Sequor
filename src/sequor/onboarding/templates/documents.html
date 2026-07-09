@@ -279,20 +279,19 @@ document.getElementById('upload-form').onsubmit = async function(e) {
                 statusEl.textContent = 'Uploading... ' + percent + '%';
             }
         };
+        // The file transfer is done at this point, but the server still has to
+        // parse + embed the document before responding. Show "Processing…"
+        // so the bar isn't stuck at 90% looking frozen while we wait.
+        xhr.upload.onload = function() {
+            progressBar.style.width = '95%';
+            statusEl.textContent = 'Processing — indexing document…';
+        };
         xhr.onload = function() {
             progressBar.style.width = '100%';
             statusEl.textContent = 'Processing...';
             if (xhr.status >= 200 && xhr.status < 300) {
-                var data = {};
-                try { data = JSON.parse(xhr.responseText) || {}; } catch(e) {}
-                var suggested = data.suggested_key_phrases || [];
-                if (suggested.length > 0) {
-                    statusEl.textContent = 'Done! ' + suggested.length + ' key phrases suggested — open the document to review.';
-                    setTimeout(function() { closeUploadModal(); loadDocuments(); }, 1600);
-                } else {
-                    statusEl.textContent = 'Done!';
-                    setTimeout(function() { closeUploadModal(); loadDocuments(); }, 500);
-                }
+                statusEl.textContent = 'Done! Key phrases will appear in the document shortly.';
+                setTimeout(function() { closeUploadModal(); loadDocuments(); }, 1200);
             } else {
                 var err = 'Upload failed';
                 try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
@@ -335,7 +334,7 @@ async function openDocDetail(doc) {
     document.getElementById('detail-doc-uploaded').textContent = doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString() : '—';
 
     document.getElementById('detail-keyphrases').innerHTML = '<div style="padding:12px;text-align:center;color:var(--slate-400);font-size:13px;">Loading...</div>';
-    document.getElementById('detail-link-phrases').href = '/portal/keyphrases';
+    document.getElementById('detail-link-phrases').href = '/portal/keyphrases?doc=' + doc.id;
 
     modal.style.display = 'flex';
 
@@ -358,7 +357,7 @@ async function loadKeyPhrasesForDoc(docId) {
         }
         var linked = allMappings.filter(function(m) { return m.document_id === docId; });
         if (linked.length === 0) {
-            container.innerHTML = '<div style="padding:10px 12px;background:var(--slate-50);border-radius:8px;font-size:13px;color:var(--slate-500);">No key phrases linked. <a href="/portal/keyphrases" style="color:var(--duck-600);">Add one →</a></div>';
+            container.innerHTML = '<div style="padding:10px 12px;background:var(--slate-50);border-radius:8px;font-size:13px;color:var(--slate-500);">No key phrases linked yet. <a href="/portal/keyphrases?doc=' + docId + '" style="color:var(--duck-600);">Add one →</a></div>';
         } else {
             container.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
                 linked.map(function(m) {

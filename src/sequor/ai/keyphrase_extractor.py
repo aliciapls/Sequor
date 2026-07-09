@@ -59,6 +59,39 @@ async def extract_key_phrases(text: str, llm_client: Any) -> list[str]:
         return []
 
 
+async def autosuggest_for_document(
+    *, tenant_id, document_id, doc_text, llm_client, engine
+) -> None:
+    """Background-safe end-to-end: extract phrases from text and create mappings.
+
+    Builds its own DB session (RLS-bound). Designed to be fire-and-forget from
+    the upload handler so the upload response isn't blocked on the LLM call.
+    Best-effort — never raises.
+    """
+    try:
+        phrases = await extract_key_phrases(doc_text, llm_client)
+        if not phrases:
+            return
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, tenant_id)  # RLS
+            await create_suggested_mappings(
+                session=session,
+                tenant_id=tenant_id,
+                document_id=document_id,
+                phrases=phrases,
+            )
+    except Exception as e:  # pre-acknowledged best-effort fallback (Rule 3 carve-out)
+        _logger.warning(
+            "keyphrase.autosuggest_failed",
+            document_id=str(document_id),
+            error=str(e),
+        )
+
+
 async def create_suggested_mappings(
     *,
     session: Any,

@@ -1473,36 +1473,27 @@ async def portal_api_upload_document(
                 status=DocumentStatus.ready,
             )
 
-        # Best-effort: auto-suggest key phrases from the document's own text.
-        # The upload has already succeeded by this point, so any failure here
-        # is non-fatal — we log and return an empty suggestion list rather than
-        # turn a successful upload into a 500.
-        suggested_key_phrases: list[str] = []
+        # Fire key-phrase auto-suggestion in the BACKGROUND so the upload
+        # response isn't blocked on the LLM call (blocking it made the upload
+        # appear to hang at ~90% while the client waited for the response).
+        # Suggestions are created shortly after and appear when the document is
+        # opened. Best-effort — never affects the upload result.
         try:
-            from sequor.ai.keyphrase_extractor import (
-                create_suggested_mappings,
-                extract_key_phrases,
-            )
+            import asyncio
+            from sequor.ai.keyphrase_extractor import autosuggest_for_document
 
             doc_text = "\n".join(chunk.text for chunk in raw_chunks)
-            phrases = await extract_key_phrases(doc_text, ingester._llm)
-            if phrases:
-                async with AsyncSession(engine) as kp_session:
-                    from sequor.db.tenant_context import bind_tenant
-
-                    await bind_tenant(kp_session, tenant_id)  # RLS: bind before tenant-scoped write
-                    suggested_key_phrases = await create_suggested_mappings(
-                        session=kp_session,
-                        tenant_id=tenant_id,
-                        document_id=document_id,
-                        phrases=phrases,
-                    )
-        except Exception as e:
-            _logger.warning(
-                "keyphrase.autosuggest_failed",
-                document_id=str(document_id),
-                error=str(e),
+            asyncio.create_task(
+                autosuggest_for_document(
+                    tenant_id=tenant_id,
+                    document_id=document_id,
+                    doc_text=doc_text,
+                    llm_client=ingester._llm,
+                    engine=engine,
+                )
             )
+        except Exception as e:
+            _logger.warning("keyphrase.autosuggest_dispatch_failed", error=str(e))
 
         return JSONResponse(
             status_code=201,
@@ -1511,7 +1502,6 @@ async def portal_api_upload_document(
                 "document_id": str(document_id),
                 "filename": filename,
                 "document_type": document_type,
-                "suggested_key_phrases": suggested_key_phrases,
             },
         )
     except ValueError as e:

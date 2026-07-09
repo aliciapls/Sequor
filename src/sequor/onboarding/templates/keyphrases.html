@@ -14,7 +14,7 @@
 
 <div class="card mb-6">
     <div class="card-header">
-        <div class="card-title">Active Mappings</div>
+        <div class="card-title">Active Mappings <span id="filter-note" style="font-size:12px;font-weight:400;color:var(--slate-500);"></span></div>
         <input type="text" class="form-input" id="search-input" placeholder="Search phrases or docs..." style="width:220px;font-size:13px;padding:6px 12px;" oninput="filterMappings()">
     </div>
     <div class="table-wrapper">
@@ -88,6 +88,7 @@
 {% endblock %}
 {% block page_script %}
 var allMappings = [];
+var docFilter = new URLSearchParams(window.location.search).get('doc');
 
 function showAddModal() {
     document.getElementById('add-modal').style.display = 'flex';
@@ -156,6 +157,7 @@ async function loadDocuments() {
         docs.forEach(function(d) {
             select.innerHTML += '<option value="' + d.id + '">' + escHtml(d.name) + '</option>';
         });
+        if (docFilter) { select.value = docFilter; }
     } catch (e) {
         console.error('Failed to load documents', e);
     }
@@ -172,7 +174,13 @@ async function loadMappings() {
         if (!res.ok) throw new Error('Failed');
         var data = await res.json();
         allMappings = data.mappings || [];
-        renderMappings(allMappings);
+        var visible = docFilter ? allMappings.filter(function(m) { return m.document_id === docFilter; }) : allMappings;
+        renderMappings(visible);
+        if (docFilter) {
+            var note = document.getElementById('filter-note');
+            var dname = visible.length > 0 ? visible[0].document_name : 'this document';
+            note.innerHTML = '— filtered to ' + escHtml(dname) + ' <a href="/portal/keyphrases" style="color:var(--duck-600);">(show all)</a>';
+        }
     } catch (e) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--slate-400);">Failed to load mappings.</td></tr>';
     }
