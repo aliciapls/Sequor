@@ -1,0 +1,45 @@
+2026-07-04T09:00:55.131Z <journal-skip>commit=016932f508ed reason=merge-commit subject="Merge pull request #4 from aliciapls/codify/jack-hong-2026-07-03"</journal-skip>
+2026-07-04T13:56:02.715Z <journal-skip>commit=35d18ad7ed2f reason=docs-routine subject="docs(redteam): Round-2 closure-parity receipt (all 6 ①-defects CLOSED)"</journal-skip>
+2026-07-04T13:56:02.715Z <journal-skip>commit=0a08e30ebaef reason=fix-routine subject="fix(security): close #6 — remove remaining traceback leaks in portal_dashboard"</journal-skip>
+2026-07-04T13:56:02.715Z <journal-skip>commit=3a791f57b465 reason=docs-routine subject="docs(redteam): Round 1 findings + dispositions (future-of-work)"</journal-skip>
+2026-07-04T17:56:19.561Z <journal-skip>commit=8321ba5540d0 reason=fix-routine subject="fix(correctness): guard two latent None-dereferences in onboarding/app.py"</journal-skip>
+2026-07-04T17:56:19.562Z <journal-skip>commit=d9aa265d4885 reason=docs-routine subject="docs(redteam): Round-2 holistic findings + ②-scope decision packet"</journal-skip>
+2026-07-04T17:56:19.562Z <journal-skip>commit=e2b79df3972a reason=fix-routine subject="fix(security): redteam R2 — close latent NameErrors, fail-closed encryption default, admin/upload/timing hardening"</journal-skip>
+2026-07-05T03:14:50.744Z <journal-skip>commit=edb9003cf0f5 reason=docs-routine subject="docs(specs): resolve cross-spec contradictions + ratify A2=RLS (user-approved)"</journal-skip>
+2026-07-05T04:23:17.044Z <journal-skip>commit=c771c455597d reason=docs-routine subject="docs(journal): R5/R6 convergence closeout — session notes + GAP journal 0011"</journal-skip>
+2026-07-05T04:23:17.044Z <journal-skip>commit=f36f7f1bbbd7 reason=docs-routine subject="docs(specs): R6 — carry routing-flywheel design in DEVIATIONS, not the spec body"</journal-skip>
+2026-07-05T04:23:17.044Z <journal-skip>commit=42f8009e1637 reason=fix-routine subject="fix(redteam): R5 holistic post-multi-wave — close accretion gaps + log divergences"</journal-skip>
+2026-07-05T04:23:17.044Z <journal-skip>commit=edb9003cf0f5 reason=docs-routine subject="docs(specs): resolve cross-spec contradictions + ratify A2=RLS (user-approved)"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=814c15bb130e reason=docs-routine subject="docs(journal): capture exhaustive A1 encryption site map (0012) + 1b plan"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=d3a4abd2b13d reason=feat-no-novel-body subject="feat(db): bind_tenant helper + wire own-session auto_reply writes — 1b (WIP)"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=96c1a450d750 reason=no-match subject="refactor(crypto): extract encrypt_field/decrypt_field for shared use — 1b prep"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=ee653a510f09 reason=test-routine subject="test(tier2): activate the Tier-2 PostgreSQL feedback loop + log R7-01"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=c771c455597d reason=docs-routine subject="docs(journal): R5/R6 convergence closeout — session notes + GAP journal 0011"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=f36f7f1bbbd7 reason=docs-routine subject="docs(specs): R6 — carry routing-flywheel design in DEVIATIONS, not the spec body"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=42f8009e1637 reason=fix-routine subject="fix(redteam): R5 holistic post-multi-wave — close accretion gaps + log divergences"</journal-skip>
+2026-07-05T05:55:21.043Z <journal-skip>commit=edb9003cf0f5 reason=docs-routine subject="docs(specs): resolve cross-spec contradictions + ratify A2=RLS (user-approved)"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=814c15bb130e reason=docs-routine subject="docs(journal): capture exhaustive A1 encryption site map (0012) + 1b plan"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=d3a4abd2b13d reason=feat-no-novel-body subject="feat(db): bind_tenant helper + wire own-session auto_reply writes — 1b (WIP)"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=96c1a450d750 reason=no-match subject="refactor(crypto): extract encrypt_field/decrypt_field for shared use — 1b prep"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=f2d85e3eaec0 reason=already-captured subject="feat(db): tenant-context boundary — shard 1a (A1/A2 foundation)"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=ee653a510f09 reason=test-routine subject="test(tier2): activate the Tier-2 PostgreSQL feedback loop + log R7-01"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=c771c455597d reason=docs-routine subject="docs(journal): R5/R6 convergence closeout — session notes + GAP journal 0011"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=f36f7f1bbbd7 reason=docs-routine subject="docs(specs): R6 — carry routing-flywheel design in DEVIATIONS, not the spec body"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=42f8009e1637 reason=fix-routine subject="fix(redteam): R5 holistic post-multi-wave — close accretion gaps + log divergences"</journal-skip>
+2026-07-05T05:55:28.033Z <journal-skip>commit=edb9003cf0f5 reason=docs-routine subject="docs(specs): resolve cross-spec contradictions + ratify A2=RLS (user-approved)"</journal-skip>
+2026-07-05T11:44:16.011Z <journal-skip>commit=f72bb9e75980 reason=docs-routine subject="docs(wave-1): mark 1b BUILT + converged; add 1f (Account blind index)"</journal-skip>
+2026-07-05T11:44:16.012Z <journal-skip>commit=8477cfef1fce reason=fix-routine subject="fix(redteam): shard 1b round-3 — last uuid.UUID-on-dict site (templates) — R7"</journal-skip>
+2026-07-05T14:34:19.261Z <journal-skip>commit=f44e79ec3ad9 reason=docs-routine subject="docs(wave-1): shard 1f converged — close journal/0013 (AMENDMENT 0014) + GAP 0015"</journal-skip>
+2026-07-05T14:34:19.262Z <journal-skip>commit=4faba46471bd reason=fix-routine subject="fix(redteam): shard 1f round-2 — raw_execute guard is SELECT-only (close CTE bypass)"</journal-skip>
+2026-07-05T14:34:19.262Z <journal-skip>commit=aca5672dfb6f reason=feat-no-novel-body subject="feat(db): Account email blind index for inbound resolution (1f)"</journal-skip>
+2026-07-05T14:34:19.262Z <journal-skip>commit=f72bb9e75980 reason=docs-routine subject="docs(wave-1): mark 1b BUILT + converged; add 1f (Account blind index)"</journal-skip>
+2026-07-05T14:34:19.262Z <journal-skip>commit=8477cfef1fce reason=fix-routine subject="fix(redteam): shard 1b round-3 — last uuid.UUID-on-dict site (templates) — R7"</journal-skip>
+2026-07-06T16:09:15.169Z <journal-skip>commit=363ed24533aa reason=docs-routine subject="docs(wave-1): inter-wave gate PASSED — Wave 1 CONVERGED (journal 0022)"</journal-skip>
+2026-07-06T16:09:15.170Z <journal-skip>commit=43d7c4b8f9f8 reason=fix-routine subject="fix(wave-1): inter-wave holistic redteam — suite determinism + 4 hardening fixes"</journal-skip>
+2026-07-06T16:09:15.170Z <journal-skip>commit=0e0840e7542d reason=docs-routine subject="docs(wave-1): shard 1e converged + Wave 1 complete — journal 0020/0021 + R7-01 RESOLVED"</journal-skip>
+2026-07-06T16:09:15.170Z <journal-skip>commit=342ceb7bc385 reason=fix-routine subject="fix(redteam): shard 1e round-1 — portal/me reads Account; dead role branch"</journal-skip>
+2026-07-06T16:09:15.170Z <journal-skip>commit=9333b8ff3646 reason=feat-no-novel-body subject="feat(db): separate owner-login from backup contact — shard 1e (R7-01)"</journal-skip>
+2026-07-08T15:56:01.189Z <journal-skip>commit=b7dbe8880d3a reason=docs-routine subject="docs(sweep): 2026-07-08 end-of-cycle audit (demo-driven)"</journal-skip>
+2026-07-08T15:56:01.189Z <journal-skip>commit=42ba19d07676 reason=docs-routine subject="docs(wave-2): A3 /analyze + /todos — planning artifacts"</journal-skip>
+2026-07-08T15:56:11.674Z <journal-skip>commit=b7dbe8880d3a reason=docs-routine subject="docs(sweep): 2026-07-08 end-of-cycle audit (demo-driven)"</journal-skip>
+2026-07-08T15:56:11.675Z <journal-skip>commit=42ba19d07676 reason=docs-routine subject="docs(wave-2): A3 /analyze + /todos — planning artifacts"</journal-skip>
