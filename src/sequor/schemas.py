@@ -23,7 +23,7 @@ class OnboardingRequest(BaseModel):
 
     org_name: str = Field(min_length=1, max_length=255)
     owner_email: EmailStr
-    owner_password: str = Field(min_length=8, max_length=128)
+    owner_password: str = Field(min_length=8, max_length=72)
     account_name: str = Field(min_length=1, max_length=255)
     ownership_type: str = Field(pattern=r"^(individual|department)$")
     backup_name: str = Field(min_length=1, max_length=255)

@@ -120,12 +120,14 @@ def build_auto_reply_email(
     confidence_badge: str,
 ) -> tuple[str, str]:
     """Build an auto-reply email for high-confidence AI responses."""
+    confidence_note = f"Confidence: {confidence_badge}."
     body_html = (
         "<div style='font-size:14px;white-space:pre-wrap;'>"
         f"{_html_escape(response_content)}</div>"
         "<hr style='border:none;border-top:1px solid #eee;margin:16px 0;'>"
         "<p style='font-size:12px;color:#999;'>"
         "This reply was generated automatically by your AI assistant. "
+        f"{confidence_note} "
         "If you believe this response needs correction, please contact the business directly."
         "</p>"
     )
@@ -135,6 +137,7 @@ def build_auto_reply_email(
         f"{response_content}\n\n"
         "---\n"
         "This reply was generated automatically by your AI assistant. "
+        f"{confidence_note} "
         "If you believe this response needs correction, please contact the business directly."
     )
     return html, text

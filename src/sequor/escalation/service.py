@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
@@ -23,9 +23,6 @@ from sequor.email.templates import (
 )
 from sequor.escalation.sla import calculate_deadline, is_breached
 from sequor.protocols import EmailSender
-
-if TYPE_CHECKING:
-    pass
 
 logger = structlog.get_logger()
 
