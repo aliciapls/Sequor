@@ -130,12 +130,20 @@ async def _reprocess_stuck_documents() -> None:
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
     """Startup: create tables if needed, reprocess stuck documents, and start
-    the PDPA retention-purge scheduler (opt-in via retention_purge_enabled)."""
+    the PDPA retention-purge scheduler (opt-in via retention_purge_enabled).
+
+    init_db() requires ALTER TABLE / CREATE TABLE (table-owner privileges).
+    When running as a non-owner app role (required for RLS enforcement), these
+    fail with InsufficientPrivilege — which is expected on restart. The tables
+    and policies are already in place from the deployment step."""
     retention_scheduler = None
     try:
         from sequor.db.database import init_db
 
         await init_db()
+    except Exception:
+        _logger.warning("lifespan.init_db_failed", exc_info=True)
+    try:
         await _reprocess_stuck_documents()
         from sequor.db.retention import create_retention_scheduler
 
