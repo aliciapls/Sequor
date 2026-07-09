@@ -82,6 +82,7 @@ class ReturnSummaryData(TypedDict):
 
 def _html_escape(s: str) -> str:
     import html
+
     return html.escape(s, quote=True)
 
 
@@ -145,7 +146,7 @@ def build_auto_reply_email(
 
 
 def build_escalation_subject(data: EscalationEmailData) -> str:
-    short_id = data["escalation_id"][:8]
+    short_id = str(data["escalation_id"])[:8]
     return _sanitize_header(f"[UNRESOLVED] {data['one_line_summary']} (Ref: {short_id})")
 
 
@@ -228,10 +229,13 @@ def build_digest_email(data: DigestEmailData) -> tuple[str, str]:
         if data["oldest_unresolved_hours"] is not None
         else "N/A"
     )
-    topics_list = "".join(
-        f'<li style="font-size:13px;">{_html_escape(t)}</li>'
-        for t in data["new_knowledge_topics"]
-    ) or '<li style="font-size:13px;color:#999;">None today</li>'
+    topics_list = (
+        "".join(
+            f'<li style="font-size:13px;">{_html_escape(t)}</li>'
+            for t in data["new_knowledge_topics"]
+        )
+        or '<li style="font-size:13px;color:#999;">None today</li>'
+    )
 
     body_html = (
         f"<h2 style='margin:0 0 16px;'>{_html_escape(subject)}</h2>"
@@ -300,10 +304,12 @@ def build_weekly_recap_email(data: WeeklyRecapData) -> tuple[str, str]:
     ai_pct = data["ai_auto_resolved"] / total * 100
     human_pct = data["human_resolved"] / total * 100
 
-    topics_list = "".join(
-        f"<li style='font-size:13px;'>{_html_escape(t)}</li>"
-        for t in data["top_topics"][:5]
-    ) or '<li style="font-size:13px;color:#999;">No topics recorded</li>'
+    topics_list = (
+        "".join(
+            f"<li style='font-size:13px;'>{_html_escape(t)}</li>" for t in data["top_topics"][:5]
+        )
+        or '<li style="font-size:13px;color:#999;">No topics recorded</li>'
+    )
 
     body_html = (
         f"<h2 style='margin:0 0 16px;'>{_html_escape(subject)}</h2>"

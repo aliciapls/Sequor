@@ -56,6 +56,15 @@ async def _seed_account(session: AsyncSession, domain: str = "digesttest.com"):
     session.add(tenant)
     await session.flush()
 
+    # Provision an encryption key for this tenant, mirroring signup. Tests that
+    # bypass signup and create tenants directly MUST do this: every production
+    # tenant has a key, so bind_tenant fail-closes without one. Binding here
+    # also makes the seed's encrypted Account/BackupContact writes consistent.
+    from sequor.db.tenant_context import reset_key_manager, set_tenant_context
+
+    reset_key_manager()
+    await set_tenant_context(session, tenant.id, provision=True)
+
     account = Account(
         tenant_id=tenant.id,
         name="Test Account",
@@ -93,6 +102,7 @@ async def _seed_account(session: AsyncSession, domain: str = "digesttest.com"):
     # Return simple namespace to avoid detached instance access
     class Result:
         pass
+
     r = Result()
     r.tenant_id = tenant_id
     r.id = tenant_id  # for gather_digest_data compatibility

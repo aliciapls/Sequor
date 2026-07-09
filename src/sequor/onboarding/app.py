@@ -70,56 +70,89 @@ async def _reprocess_stuck_documents() -> None:
     from datetime import datetime, timezone
 
     engine = get_engine()
+    # RLS: documents is tenant-scoped, so this cross-tenant maintenance scan must
+    # enumerate tenants and bind each before querying its documents — matching the
+    # SLAScheduler per-tenant-commit pattern. Under a non-owner app role a single
+    # unbound session would see 0 rows (fail-closed) and stuck docs would never be
+    # reprocessed. `tenants` is the registry (not RLS-scoped), so enumerating it
+    # needs no bind.
     async with AsyncSession(engine) as session:
-        # Find documents stuck at 'indexing' with no vector embeddings
-        result = await session.execute(
-            text(
-                """
-                SELECT d.id, d.tenant_id, d.name
-                FROM documents d
-                LEFT JOIN document_chunks dc ON dc.document_id = d.id AND dc.embedding IS NOT NULL
-                WHERE d.status = 'indexing' AND dc.id IS NULL
-            """
-            )
-        )
-        stuck = result.fetchall()
-        if not stuck:
-            _logger.info("reprocess_stuck.none_found")
-            return
-        _logger.info("reprocess_stuck.found", count=len(stuck))
-        now = datetime.now(timezone.utc)
-        for row in stuck:
-            doc_id, tenant_id, name = row[0], row[1], row[2]
-            await session.execute(
-                text(
+        tenant_rows = (await session.execute(text("SELECT id FROM tenants"))).fetchall()
+    if not tenant_rows:
+        _logger.info("reprocess_stuck.no_tenants")
+        return
+    now = datetime.now(timezone.utc)
+    total_fixed = 0
+    for (tenant_id,) in tenant_rows:
+        async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, tenant_id)
+            stuck = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT d.id, d.name
+                        FROM documents d
+                        LEFT JOIN document_chunks dc
+                          ON dc.document_id = d.id AND dc.embedding IS NOT NULL
+                        WHERE d.status = 'indexing' AND dc.id IS NULL
                     """
-                    UPDATE documents
-                    SET status = 'ready', last_indexed_at = :now
-                    WHERE id = :doc_id
-                """
-                ),
-                {"doc_id": doc_id, "now": now},
-            )
-            _logger.info(
-                "reprocess_stuck.fixed",
-                document_id=str(doc_id),
-                tenant_id=str(tenant_id),
-                name=name,
-            )
-        await session.commit()
+                    )
+                )
+            ).fetchall()
+            for row in stuck:
+                doc_id, name = row[0], row[1]
+                await session.execute(
+                    text(
+                        """
+                        UPDATE documents
+                        SET status = 'ready', last_indexed_at = :now
+                        WHERE id = :doc_id
+                    """
+                    ),
+                    {"doc_id": doc_id, "now": now},
+                )
+                _logger.info(
+                    "reprocess_stuck.fixed",
+                    document_id=str(doc_id),
+                    tenant_id=str(tenant_id),
+                    name=name,
+                )
+            await session.commit()
+            total_fixed += len(stuck)
+    if total_fixed == 0:
+        _logger.info("reprocess_stuck.none_found")
+    else:
+        _logger.info("reprocess_stuck.complete", total_fixed=total_fixed)
 
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
-    """Startup: create tables if needed, then reprocess stuck documents."""
+    """Startup: create tables if needed, reprocess stuck documents, and start
+    the PDPA retention-purge scheduler (opt-in via retention_purge_enabled).
+
+    init_db() requires ALTER TABLE / CREATE TABLE (table-owner privileges).
+    When running as a non-owner app role (required for RLS enforcement), these
+    fail with InsufficientPrivilege — which is expected on restart. The tables
+    and policies are already in place from the deployment step."""
+    retention_scheduler = None
     try:
         from sequor.db.database import init_db
 
         await init_db()
+    except Exception:
+        _logger.warning("lifespan.init_db_failed", exc_info=True)
+    try:
         await _reprocess_stuck_documents()
+        from sequor.db.retention import create_retention_scheduler
+
+        retention_scheduler = await create_retention_scheduler()
     except Exception:
         _logger.exception("lifespan.startup.failed")
     yield
+    if retention_scheduler is not None:
+        await retention_scheduler.stop()
 
 
 app = FastAPI(title="Sequor Onboarding", version="0.1.0", lifespan=_app_lifespan)
@@ -353,6 +386,7 @@ async def email_inbound(request: Request):
         from sequor.email.inbound import InboundEmailProcessor
         from sequor.db.database import get_engine
         from sequor.db.crud import SessionCrud
+        from sqlalchemy import select
         from sqlalchemy.ext.asyncio import AsyncSession
 
         engine = get_engine()
@@ -393,6 +427,15 @@ async def email_inbound(request: Request):
                     )
                     from uuid import UUID as _UUID
 
+                    # Read the per-account confidence threshold (A3 unification —
+                    # different accounts may want tighter or looser auto-send gates)
+                    from sequor.db.models import Account as _Account
+
+                    _acct_stmt = select(_Account).where(_Account.id == _UUID(result["account_id"]))
+                    _acct_result = await session.execute(_acct_stmt)
+                    _account = _acct_result.scalar_one_or_none()
+                    _acct_threshold = _account.confidence_threshold if _account else 0.90
+
                     ctx = MessageContext(
                         tenant_id=_UUID(result["tenant_id"]),
                         account_id=_UUID(result["account_id"]),
@@ -404,7 +447,9 @@ async def email_inbound(request: Request):
                         external_message_id=payload.get("message_id"),
                         in_reply_to=payload.get("in_reply_to"),
                     )
-                    ai_result = await service.process_message(ctx)
+                    ai_result = await service.process_message(
+                        ctx, confidence_threshold=_acct_threshold
+                    )
                     result["ai_routing"] = ai_result.routing_target
                     result["ai_confidence"] = ai_result.confidence_score
                 except Exception:
@@ -506,6 +551,7 @@ async def whatsapp_inbound(request: Request):
         from sequor.whatsapp.inbound import InboundWhatsAppProcessor
         from sequor.db.database import get_engine
         from sequor.db.crud import SessionCrud
+        from sqlalchemy import select
         from sqlalchemy.ext.asyncio import AsyncSession
 
         engine = get_engine()
@@ -557,7 +603,20 @@ async def whatsapp_inbound(request: Request):
                             external_message_id=result.get("external_message_id"),
                             session_expired=result.get("session_expired", False),
                         )
-                        ai_result = await svc.process_message(ctx)
+
+                        # Read per-account confidence threshold (A3 unification)
+                        from sequor.db.models import Account as _WA_Account
+
+                        _wa_acct_stmt = select(_WA_Account).where(
+                            _WA_Account.id == _UUID(result["account_id"])
+                        )
+                        _wa_acct_result = await session.execute(_wa_acct_stmt)
+                        _wa_account = _wa_acct_result.scalar_one_or_none()
+                        _wa_threshold = _wa_account.confidence_threshold if _wa_account else 0.90
+
+                        ai_result = await svc.process_message(
+                            ctx, confidence_threshold=_wa_threshold
+                        )
                         result["ai_routing"] = ai_result.routing_target
                         result["ai_confidence"] = ai_result.confidence_score
                         result["ai_message_sent"] = ai_result.message_sent
@@ -600,12 +659,11 @@ async def auth_login(request: Request):
         return JSONResponse(status_code=400, content={"detail": "Email and password required"})
 
     from sequor.db.database import get_engine
-    from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
+    from sequor.db.encrypted_column import compute_email_blind_index
     from sequor.auth import verify_password, create_access_token_for_operator
-    from sequor.db.encryption_keys import KeyManager
     from sequor.config import settings
     from sqlalchemy import select
-    from sequor.db.models import BackupContact, Account
+    from sequor.db.models import Account
     from sqlalchemy.ext.asyncio import AsyncSession
 
     try:
@@ -613,19 +671,22 @@ async def auth_login(request: Request):
         async with AsyncSession(engine) as session:
             blind_index = compute_email_blind_index(email)
             # Use raw SQL to avoid triggering EncryptedString decryption
-            # before we have the tenant key set
+            # before we have the tenant key set. Route through the SECURITY
+            # DEFINER lookup function so the query bypasses RLS — login is a
+            # cross-tenant lookup (any backup contact, any tenant, can log in);
+            # the session has no tenant bound yet.
             from sqlalchemy import text
 
             row = await session.execute(
                 text(
-                    "SELECT id, tenant_id, account_id, name, password_hash, tier "
-                    "FROM backup_contacts WHERE email_blind_index = :idx AND active = true"
+                    "SELECT id, tenant_id, password_hash, name "
+                    "FROM resolve_account_login_by_email_blind_index(:idx)"
                 ),
                 {"idx": blind_index},
             )
-            contact = row.mappings().first()
+            acct = row.mappings().first()
 
-            if not contact:
+            if not acct:
                 # Burn equivalent bcrypt cycles so an absent email is not
                 # measurably faster than a present one (r2-security L2).
                 verify_password(password, _DUMMY_PASSWORD_HASH)
@@ -633,7 +694,7 @@ async def auth_login(request: Request):
                     status_code=401, content={"detail": "Invalid email or password"}
                 )
 
-            password_hash = contact["password_hash"]
+            password_hash = acct["password_hash"]
             if not password_hash:
                 verify_password(password, _DUMMY_PASSWORD_HASH)
                 return JSONResponse(
@@ -645,37 +706,32 @@ async def auth_login(request: Request):
                     status_code=401, content={"detail": "Invalid email or password"}
                 )
 
-            op_id = str(contact["id"])
-            op_name = contact["name"]
-            op_tenant_id = str(contact["tenant_id"])
-            op_account_id = str(contact["account_id"])
-            op_tier = (
-                contact["tier"].value if hasattr(contact["tier"], "value") else str(contact["tier"])
-            )
+            # R7-01: login resolves the ACCOUNT (the owner-login identity), not
+            # the backup contact. The resolved entity IS the account, so
+            # op_account_id == op_id; the account owner is the admin operator.
+            op_id = str(acct["id"])
+            op_account_id = op_id
+            op_tenant_id = str(acct["tenant_id"])
+            op_name = acct["name"]
+            # R7-01: login is owner-only — the account owner is always the admin
+            # operator. A non-owner "operator" role is reserved for a future
+            # multi-operator model; today every login resolves the Account owner.
 
-            # Now set tenant key so we can read encrypted columns
-            km = KeyManager(settings.encryption_master_key)
-            tenant_key = await km.get_tenant_key(session, UUID(op_tenant_id))
-            set_tenant_key(tenant_key)
+            # Bind the operator's tenant — installs the encryption key AND sets
+            # the RLS GUC — so the ORM reload below (owner_email) decrypts and is
+            # scoped to this tenant under RLS. The lookup function bypassed RLS
+            # to FIND the account; this re-bind scopes the reload.
+            from sequor.db.tenant_context import bind_tenant
 
-            # Load the full ORM object now that tenant key is set
-            result = await session.execute(
-                select(BackupContact).where(BackupContact.id == contact["id"])
-            )
-            operator = result.scalars().first()
-            op_email = operator.email if operator else email
+            await bind_tenant(session, UUID(op_tenant_id))
 
-            # `operator` can be None if the contact was removed between the
-            # blind-index lookup and this re-select; the op_email line above
-            # already anticipates it, so the account lookup MUST guard too
-            # rather than dereference operator.account_id on None (r2 Pyright).
-            account_name = ""
-            if operator is not None:
-                acct_result = await session.execute(
-                    select(Account).where(Account.id == operator.account_id)
-                )
-                account = acct_result.scalars().first()
-                account_name = account.name if account else ""
+            # Load the full Account ORM (owner_email is EncryptedString — decrypts
+            # under the bound tenant key; RLS GUC scopes the read). Falls back to
+            # the supplied email if the row vanished between lookup and reload.
+            result = await session.execute(select(Account).where(Account.id == acct["id"]))
+            account = result.scalars().first()
+            op_email = account.owner_email if account else email
+            account_name = account.name if account else op_name
 
             await session.commit()
 
@@ -685,7 +741,7 @@ async def auth_login(request: Request):
             account_id=op_account_id,
             name=op_name,
             email=op_email,
-            role="admin" if op_tier == "primary" else "operator",
+            role="admin",
         )
 
         response = JSONResponse(
@@ -698,7 +754,7 @@ async def auth_login(request: Request):
                     "tenant_id": op_tenant_id,
                     "account_id": op_account_id,
                     "account_name": account_name,
-                    "role": "admin" if op_tier == "primary" else "operator",
+                    "role": "admin",
                 },
             }
         )
@@ -722,9 +778,12 @@ async def auth_login(request: Request):
 
 @app.post("/api/v1/admin/backfill-blind-indexes")
 async def backfill_blind_indexes(request: Request):
-    """Backfill email_blind_index for all existing BackupContact records.
+    """Backfill the Account blind indexes (owner_email + email_address) for login + inbound.
 
-    This is a one-time migration to support the new encrypted email login.
+    R7-01: login resolves the Account by ``owner_email_blind_index``; inbound resolves
+    by ``owner_email``/``email_address_blind_index`` (1f). Signup populates both; this
+    is a one-time admin migration for any Account rows predating those (a fresh-
+    substrate deploy has none, but the endpoint stays correct for a populated one).
     """
     operator = _require_auth(request)
     # Cross-tenant migration op — restrict to admin operators. Without this any
@@ -735,11 +794,9 @@ async def backfill_blind_indexes(request: Request):
 
         raise HTTPException(status_code=403, detail="Admin role required")
 
-    from sequor.config import settings
     from sequor.db.database import get_engine
-    from sequor.db.encrypted_column import compute_email_blind_index, set_tenant_key
-    from sequor.db.encryption_keys import KeyManager
-    from sequor.db.models import BackupContact
+    from sequor.db.encrypted_column import compute_email_blind_index
+    from sequor.db.models import Account, Tenant
     from sqlalchemy import select, update
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -747,38 +804,47 @@ async def backfill_blind_indexes(request: Request):
     updated = 0
     errors = []
 
+    # RLS: Account is tenant-scoped, so this cross-tenant admin scan must
+    # enumerate tenants and bind each (matching the startup-task / scheduler
+    # per-tenant pattern). bind_tenant sets the tenant key AND the RLS GUC, so
+    # owner_email decrypts and the query/update are scoped to the bound tenant.
+    # Under a non-owner app role a single unbound session sees 0 rows.
     async with AsyncSession(engine) as session:
-        # Get all contacts missing blind index
-        result = await session.execute(
-            select(BackupContact).where(BackupContact.email_blind_index == None)
-        )
-        contacts = result.scalars().all()
+        tenant_rows = (await session.execute(select(Tenant.id))).all()
+    for (tenant_id,) in tenant_rows:
+        async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
 
-        for contact in contacts:
-            try:
-                # Get tenant key
-                km = KeyManager(settings.encryption_master_key)
-                tenant_key = await km.get_tenant_key(session, contact.tenant_id)
-                set_tenant_key(tenant_key)
-
-                # Decrypt email (EncryptedString.process_result_value decrypts using context key)
-                email = contact.email
-
-                # Compute and store blind index
-                blind_index = compute_email_blind_index(email)
-                await session.execute(
-                    update(BackupContact)
-                    .where(BackupContact.id == contact.id)
-                    .values(email_blind_index=blind_index)
+            await bind_tenant(session, tenant_id)
+            accounts = (
+                (
+                    await session.execute(
+                        select(Account).where(Account.owner_email_blind_index == None)
+                    )
                 )
-                updated += 1
-            except Exception:
-                # Log the detail server-side; do NOT echo raw exception text back
-                # in the API response (r2-security M4).
-                _logger.exception("admin.backfill.contact_failed", contact_id=str(contact.id))
-                errors.append(str(contact.id))
-
-        await session.commit()
+                .scalars()
+                .all()
+            )
+            for account in accounts:
+                try:
+                    # owner_email decrypts under the bound tenant key. Both blind
+                    # indexes derive from owner_email at signup (login + inbound).
+                    blind_index = compute_email_blind_index(account.owner_email)
+                    await session.execute(
+                        update(Account)
+                        .where(Account.id == account.id)
+                        .values(
+                            owner_email_blind_index=blind_index,
+                            email_address_blind_index=blind_index,
+                        )
+                    )
+                    updated += 1
+                except Exception:
+                    # Log server-side; do NOT echo raw exception text back in the
+                    # API response (r2-security M4).
+                    _logger.exception("admin.backfill.account_failed", account_id=str(account.id))
+                    errors.append(str(account.id))
+            await session.commit()
 
     return JSONResponse(
         content={
@@ -867,6 +933,9 @@ async def portal_api_dashboard(request: Request):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)  # RLS: bind before any tenant-scoped query
         now = datetime.now(timezone.utc)
         week_ago = now - timedelta(days=7)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -929,6 +998,9 @@ async def portal_api_messages(request: Request, limit: int = 50, offset: int = 0
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Message, Contact)
             .join(Contact, Message.contact_id == Contact.id)
@@ -975,6 +1047,9 @@ async def portal_api_escalations(request: Request, limit: int = 50, offset: int 
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Escalation, Message, Contact, BackupContact)
             .join(Message, Escalation.message_id == Message.id)
@@ -1036,6 +1111,9 @@ async def portal_api_escalation_resolve(request: Request, esc_id: str):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         await session.execute(
             update(Escalation)
             .where(Escalation.tenant_id == tenant_id, Escalation.id == esc_id)
@@ -1059,6 +1137,9 @@ async def portal_api_escalation_detail(request: Request, esc_id: str):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Escalation, Message, Contact, BackupContact)
             .join(Message, Escalation.message_id == Message.id)
@@ -1119,6 +1200,9 @@ async def portal_api_contacts(request: Request, limit: int = 100, offset: int = 
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)
         result = await session.execute(
             select(Contact)
             .where(Contact.tenant_id == tenant_id)
@@ -1161,6 +1245,9 @@ async def portal_api_documents(request: Request, limit: int = 100, offset: int =
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)  # RLS: bind before any tenant-scoped query
         result = await session.execute(
             select(Document)
             .where(Document.tenant_id == tenant_id)
@@ -1198,6 +1285,11 @@ async def portal_api_delete_document(request: Request, document_id: str):
     engine = get_engine()
 
     async with engine.connect() as conn:
+        # RLS: bind the tenant GUC (transaction-local) before any tenant-scoped
+        # query/write on this connection.
+        from sequor.db.tenant_context import _set_rls_guc
+
+        await _set_rls_guc(conn, tenant_id)
         # Verify ownership
         check = await conn.execute(
             text("SELECT tenant_id FROM documents WHERE id = :id"),
@@ -1214,9 +1306,9 @@ async def portal_api_delete_document(request: Request, document_id: str):
             text("DELETE FROM document_chunks WHERE document_id = :id"),
             {"id": UUID(document_id)},
         )
-        # Delete key phrase mappings
+        # Delete key phrase mappings (table is key_phrase_mappings — matches the model)
         await conn.execute(
-            text("DELETE FROM keyphrase_mappings WHERE document_id = :id"),
+            text("DELETE FROM key_phrase_mappings WHERE document_id = :id"),
             {"id": UUID(document_id)},
         )
         # Delete document
@@ -1288,6 +1380,9 @@ async def portal_api_upload_document(
         doc_type_value = document_type
 
         async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, tenant_id)  # RLS: bind before tenant-scoped write
             result = await session.execute(
                 text(
                     """
@@ -1321,6 +1416,7 @@ async def portal_api_upload_document(
             llm_client=get_ollama_client(),
         )
         await ingester._update_document_status(
+            tenant_id=UUID(tenant_id),
             document_id=document_id,
             status=DocumentStatus.indexing,
         )
@@ -1355,6 +1451,7 @@ async def portal_api_upload_document(
             )
 
             await ingester._update_document_status(
+                tenant_id=UUID(tenant_id),
                 document_id=document_id,
                 status=DocumentStatus.ready,
             )
@@ -1371,6 +1468,7 @@ async def portal_api_upload_document(
                     chunks=chunk_data,
                 )
             await ingester._update_document_status(
+                tenant_id=UUID(tenant_id),
                 document_id=document_id,
                 status=DocumentStatus.ready,
             )
@@ -1428,6 +1526,9 @@ async def portal_api_keyphrase_mappings(request: Request):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)  # RLS: bind before any tenant-scoped query
         result = await session.execute(
             select(KeyPhraseMapping, Document.name)
             .join(Document, KeyPhraseMapping.document_id == Document.id)
@@ -1488,6 +1589,9 @@ async def portal_api_keyphrase_create(request: Request):
     # Validate document belongs to tenant
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)  # RLS: bind before any tenant-scoped query
         doc_result = await session.execute(
             select(Document).where(Document.id == req.document_id, Document.tenant_id == tenant_id)
         )
@@ -1543,6 +1647,9 @@ async def portal_api_keyphrase_delete(request: Request, mapping_id: str):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)  # RLS: bind before any tenant-scoped write
         result = await session.execute(
             delete(KeyPhraseMapping).where(
                 KeyPhraseMapping.id == mapping_id, KeyPhraseMapping.tenant_id == tenant_id
@@ -1566,6 +1673,9 @@ async def portal_api_keyphrase_suggestions(request: Request):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)  # RLS: bind before any tenant-scoped query
         result = await session.execute(
             select(Document).where(
                 Document.tenant_id == tenant_id, Document.status != None  # noqa: E501
@@ -1599,6 +1709,9 @@ async def portal_api_keyphrase_suggestions(request: Request):
     # Get existing mappings to avoid suggesting already-mapped phrases
     existing_mappings = set()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        await bind_tenant(session, tenant_id)  # RLS: bind before any tenant-scoped query
         from sequor.db.models import KeyPhraseMapping as KPM
 
         result = await session.execute(select(KPM.phrase).where(KPM.tenant_id == tenant_id))
@@ -1706,6 +1819,11 @@ async def portal_api_subscription(request: Request):
 
     engine = get_engine()
     async with AsyncSession(engine) as session:
+        from sequor.db.tenant_context import bind_tenant
+
+        # Account.owner_email/email_address are EncryptedString — bind before the
+        # select(Account) below so the ORM read decrypts instead of fail-closing.
+        await bind_tenant(session, tenant_id)
         # Get tenant and account info
         tenant_result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
         tenant = tenant_result.scalars().first()
@@ -1784,12 +1902,9 @@ async def portal_api_me(request: Request):
     account_id = operator["account_id"]
 
     from sequor.db.database import get_engine
-    from sequor.db.encryption_keys import KeyManager
-    from sequor.db.encrypted_column import set_tenant_key
-    from sequor.config import settings
     from sqlalchemy import select, func
     from sqlalchemy.ext.asyncio import AsyncSession
-    from sequor.db.models import BackupContact, Account, Escalation
+    from sequor.db.models import Account, Escalation
 
     name = operator.get("name", "")
     email = ""
@@ -1800,16 +1915,18 @@ async def portal_api_me(request: Request):
     try:
         engine = get_engine()
         async with AsyncSession(engine) as session:
-            # Set tenant key so EncryptedString columns decrypt on read
-            km = KeyManager(settings.encryption_master_key)
-            tenant_key = await km.get_tenant_key(session, UUID(tenant_id))
-            set_tenant_key(tenant_key)
+            # Bind the tenant — installs the encryption key AND sets the RLS GUC
+            # — so the Account read below is scoped to this tenant under RLS
+            # (and the EncryptedString owner_email decrypts).
+            from sequor.db.tenant_context import bind_tenant
 
-            result = await session.execute(
-                select(BackupContact).where(BackupContact.id == operator["operator_id"])
-            )
-            contact = result.scalars().first()
+            await bind_tenant(session, tenant_id)
 
+            # R7-01: the operator IS the account owner, so /me reads the owner
+            # identity from Account (owner_email, name) — NOT BackupContact. The
+            # backup contact is a DIFFERENT person; operator_id is the Account.id
+            # post-1e, so a BackupContact.id lookup would return None and email
+            # would come back blank (the regression round-1 found).
             acct_result = await session.execute(select(Account).where(Account.id == account_id))
             account = acct_result.scalars().first()
 
@@ -1822,9 +1939,10 @@ async def portal_api_me(request: Request):
             )
             escalation_count = count_result.scalar() or 0
 
-            # Capture fields while session is open (encrypted strings need tenant key context)
-            name = contact.name if contact else operator.get("name", "")
-            email = contact.email if contact else ""
+            # Capture fields while session is open (owner_email is EncryptedString —
+            # needs the bound tenant key to decrypt).
+            name = account.name if account else operator.get("name", "")
+            email = account.owner_email if account else operator.get("email", "")
             role = operator.get("role", "")
             account_name = account.name if account else ""
     except Exception as e:

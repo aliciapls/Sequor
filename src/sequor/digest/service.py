@@ -51,6 +51,12 @@ class DigestService:
 
         Returns a summary dict or None if the account has no activity.
         """
+        # Bind before any encrypted-column read (Account.owner_email/email_address
+        # are EncryptedString; Escalation.resolution_summary / Response.content /
+        # LearnedAnswer.*_text are encrypted under the tenant key). No-op without
+        # ENCRYPTION_MASTER_KEY (dev fail-open).
+        await self._db.bind_tenant(tenant_id)
+
         account = await self._db.read("Account", str(account_id))
         if account is None:
             logger.warning("digest.account_not_found", account_id=str(account_id))
@@ -106,7 +112,7 @@ class DigestService:
         results = []
         for account in accounts:
             try:
-                result = await self.send_digest(tenant_id, uuid.UUID(account["id"]))
+                result = await self.send_digest(tenant_id, uuid.UUID(str(account["id"])))
                 if result:
                     results.append(result)
             except Exception:
@@ -122,7 +128,7 @@ class DigestService:
         results = []
         for tenant in tenants:
             try:
-                tenant_results = await self.send_all_accounts(uuid.UUID(tenant["id"]))
+                tenant_results = await self.send_all_accounts(uuid.UUID(str(tenant["id"])))
                 results.extend(tenant_results)
             except Exception:
                 logger.exception(
@@ -248,6 +254,13 @@ async def gather_digest_data(
     """
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
+
+    # Bind the session to the tenant so Escalation.resolution_summary,
+    # Response.content and LearnedAnswer.*_text (all EncryptedString) decrypt on
+    # the reads below. No-op without ENCRYPTION_MASTER_KEY (dev fail-open).
+    from sequor.db.tenant_context import bind_tenant
+
+    await bind_tenant(session, tenant_id)
 
     # Select ONLY the non-encrypted columns we need. Loading the full Account
     # row would decrypt owner_email/email_address (EncryptedString) during

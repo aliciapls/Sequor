@@ -19,6 +19,9 @@ class FakeExpress:
     def __init__(self, storage: dict | None = None):
         self.storage: dict[str, dict[str, dict]] = storage or {}
 
+    async def bind_tenant(self, tenant_id) -> None:
+        """No-op stand-in for SessionCrud.bind_tenant (unit tests run without a master key)."""
+
     def _ensure_model(self, model: str) -> None:
         if model not in self.storage:
             self.storage[model] = {}
@@ -109,8 +112,7 @@ class TestParseSendgridPayload:
             "subject": "Re: Escalation",
             "text": "Reply content",
             "headers": (
-                f"Message-ID: <reply@mail>\n"
-                f"References: <escalation-{esc_id}@sequor.coverage>"
+                f"Message-ID: <reply@mail>\n" f"References: <escalation-{esc_id}@sequor.coverage>"
             ),
         }
 
@@ -130,9 +132,7 @@ class TestStripQuotedReply:
 
     def test_strips_outlook_quote(self):
         text = (
-            "My response\n"
-            "\n-----Original Message-----\n"
-            "From: Bob\nTo: Alice\nSubject: Hello"
+            "My response\n" "\n-----Original Message-----\n" "From: Bob\nTo: Alice\nSubject: Hello"
         )
         result = strip_quoted_reply(text)
         assert result == "My response"

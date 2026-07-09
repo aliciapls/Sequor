@@ -68,6 +68,18 @@ class EscalationService:
         self._email_sender = email_sender
         self._default_sla = config_sla_hours or settings.default_escalation_sla_hours
 
+    async def bind_tenant(self, tenant_id) -> None:
+        """Bind this service's session to *tenant_id* for encrypted-column access.
+
+        EscalationService reads ``BackupContact.email`` / ``Account.owner_email``
+        / ``Message.*`` / ``Contact.name`` and writes ``Escalation.resolution_summary``
+        — all ``EncryptedString``. The caller MUST bind the tenant before invoking
+        any method that touches those columns. The request-bound callers
+        (``auto_reply._create_escalation``) bind at session open; background
+        callers (``SLAScheduler``) MUST call this per-tenant in their loop.
+        """
+        await self._db.bind_tenant(tenant_id)
+
     async def create_escalation(
         self,
         message_id: uuid.UUID,
@@ -300,7 +312,9 @@ class EscalationService:
             org_name=org_name,
             one_line_summary=original.get("ai_summary", "Escalated"),
         )
-        subject = _sanitize_header(f"[ESCALATED] {build_escalation_subject(_escalation_email_data)}")
+        subject = _sanitize_header(
+            f"[ESCALATED] {build_escalation_subject(_escalation_email_data)}"
+        )
 
         try:
             await self._email_sender.send_escalation_email(
@@ -349,15 +363,18 @@ class EscalationService:
             },
         )
 
-        # Write audit trail
+        # Write audit trail. _orm_to_dict returns UUID columns as uuid.UUID
+        # objects, so str()-coerce before uuid.UUID() (uuid.UUID(<UUID>) raises).
         await self._write_audit(
-            tenant_id=uuid.UUID(existing["tenant_id"]),
+            tenant_id=uuid.UUID(str(existing["tenant_id"])),
             action="escalation.resolved",
             doer_type="backup_contact",
-            doer_id=uuid.UUID(existing["backup_contact_id"]),
+            doer_id=uuid.UUID(str(existing["backup_contact_id"])),
             recipient_type="contact",
-            recipient_id=uuid.UUID(existing.get("message_id", str(escalation_id))),
-            message_id=uuid.UUID(existing["message_id"]) if existing.get("message_id") else None,
+            recipient_id=uuid.UUID(str(existing.get("message_id") or escalation_id)),
+            message_id=(
+                uuid.UUID(str(existing["message_id"])) if existing.get("message_id") else None
+            ),
             metadata={"resolution_summary": resolution_summary[:200]},
         )
 
@@ -420,9 +437,7 @@ class EscalationService:
             if b:
                 backup_map[str(bid)] = b
 
-        account_ids = list({
-            b["account_id"] for b in backup_map.values() if b.get("account_id")
-        })
+        account_ids = list({b["account_id"] for b in backup_map.values() if b.get("account_id")})
         account_map: dict[str, dict] = {}
         for aid in account_ids:
             a = await self._db.read("Account", str(aid))
@@ -468,7 +483,7 @@ class EscalationService:
         scheduler tick that reads the escalation after the update will
         see expired and skip it.
         """
-        escalation_id = escalation["id"]
+        escalation_id = str(escalation["id"])
         tier = escalation.get("tier", 1)
 
         current = await self._db.read("Escalation", str(escalation_id))
@@ -481,9 +496,8 @@ class EscalationService:
             return {"escalation_id": escalation_id, "status": "skipped"}
 
         now = datetime.now(timezone.utc)
-        summary = (
-            f"SLA breached at tier {tier}. "
-            + ("Escalated to tier 2." if tier == 1 else "No further escalation available.")
+        summary = f"SLA breached at tier {tier}. " + (
+            "Escalated to tier 2." if tier == 1 else "No further escalation available."
         )
         updated = await self._db.update(
             "Escalation",
@@ -531,24 +545,24 @@ class EscalationService:
                 )
 
             try:
-                backup = await self._db.read(
-                    "BackupContact", str(escalation["backup_contact_id"])
-                )
+                backup = await self._db.read("BackupContact", str(escalation["backup_contact_id"]))
                 if backup and backup.get("email"):
                     short_id = escalation_id[:8]
                     await self._email_sender.send_escalation_email(
                         to=backup["email"],
                         escalation_id=escalation_id,
-                        subject=_sanitize_header(f"[SLA BREACHED] Escalation {short_id} requires attention"),
+                        subject=_sanitize_header(
+                            f"[SLA BREACHED] Escalation {short_id} requires attention"
+                        ),
                         body_html=(
                             "<p>The escalation for message "
-                            f"{escalation.get('message_id', 'unknown')[:8]} "
+                            f"{str(escalation.get('message_id', 'unknown'))[:8]} "
                             "has not been acknowledged within the SLA window "
                             "and has been escalated.</p>"
                         ),
                         body_text=(
                             "The escalation for message "
-                            f"{escalation.get('message_id', 'unknown')[:8]} "
+                            f"{str(escalation.get('message_id', 'unknown'))[:8]} "
                             "has not been acknowledged within the SLA window "
                             "and has been escalated."
                         ),

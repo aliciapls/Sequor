@@ -84,6 +84,26 @@ class Settings(BaseSettings):
             raise ValueError("scheduler_interval_seconds must be >= 10")
         return v
 
+    # PDPA retention-purge job (DEVIATIONS §F2). Defaults to daily per the spec's
+    # "nightly batch job". A purge running more often than hourly is a misconfig
+    # (retention is coarse), so the floor is 60s — enough for a dev fast-loop
+    # without allowing an accidental hot-loop deletion.
+    retention_purge_interval_seconds: int = 86400
+    # Opt-in: the purge is a destructive loop, so it does NOT auto-start on app
+    # boot (which would also spawn a background task under the unit-test
+    # TestClient). An operator enables it once the deploy role/env is configured
+    # (RLS is no-FORCE → app must connect as a non-owner role per data-model.md
+    # § "Security by Design"). The job body run_retention_purge_once() is
+    # independent of this flag and is exercised directly by the Tier-2 test.
+    retention_purge_enabled: bool = False
+
+    @field_validator("retention_purge_interval_seconds")
+    @classmethod
+    def _validate_retention_interval(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("retention_purge_interval_seconds must be >= 60")
+        return v
+
     @field_validator("default_confidence_threshold")
     @classmethod
     def _validate_confidence_threshold(cls, v: float) -> float:

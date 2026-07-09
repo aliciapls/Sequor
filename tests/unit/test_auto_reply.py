@@ -132,9 +132,7 @@ async def test_high_confidence_auto_reply(
     mock_email_sender,
 ):
     """High confidence routine message triggers auto-reply email."""
-    mock_classifier.classify.return_value = _classification(
-        category="routine", confidence=0.95
-    )
+    mock_classifier.classify.return_value = _classification(category="routine", confidence=0.95)
     mock_response_gen.generate.return_value = _response(
         was_auto_sent=True,
         escalation_needed=False,
@@ -167,9 +165,7 @@ async def test_low_confidence_escalation(
     mock_email_sender,
 ):
     """Low confidence message triggers escalation without auto-reply."""
-    mock_classifier.classify.return_value = _classification(
-        category="complex", confidence=0.4
-    )
+    mock_classifier.classify.return_value = _classification(category="complex", confidence=0.4)
     mock_response_gen.generate.return_value = _response(
         was_auto_sent=False,
         escalation_needed=True,
@@ -177,8 +173,10 @@ async def test_low_confidence_escalation(
         badge="uncertain",
     )
 
-    with patch.object(service, "_record_response", new_callable=AsyncMock) as mock_record, \
-         patch.object(service, "_create_escalation", new_callable=AsyncMock) as mock_escalation:
+    with (
+        patch.object(service, "_record_response", new_callable=AsyncMock) as mock_record,
+        patch.object(service, "_create_escalation", new_callable=AsyncMock) as mock_escalation,
+    ):
         mock_record.return_value = uuid4()
         mock_escalation.return_value = uuid4()
 
@@ -202,9 +200,7 @@ async def test_high_stakes_forced_escalation(
     mock_email_sender,
 ):
     """High-stakes messages always escalate regardless of confidence."""
-    mock_classifier.classify.return_value = _classification(
-        category="high_stakes", confidence=0.99
-    )
+    mock_classifier.classify.return_value = _classification(category="high_stakes", confidence=0.99)
     mock_response_gen.generate.return_value = _response(
         was_auto_sent=False,
         escalation_needed=True,
@@ -212,8 +208,10 @@ async def test_high_stakes_forced_escalation(
         badge="uncertain",
     )
 
-    with patch.object(service, "_record_response", new_callable=AsyncMock) as mock_record, \
-         patch.object(service, "_create_escalation", new_callable=AsyncMock) as mock_escalation:
+    with (
+        patch.object(service, "_record_response", new_callable=AsyncMock) as mock_record,
+        patch.object(service, "_create_escalation", new_callable=AsyncMock) as mock_escalation,
+    ):
         mock_record.return_value = uuid4()
         mock_escalation.return_value = uuid4()
 
@@ -256,9 +254,7 @@ async def test_auto_reply_email_send_failure(
 ):
     """When email send fails, email_sent is False but response is recorded."""
     mock_classifier.classify.return_value = _classification(confidence=0.95)
-    mock_response_gen.generate.return_value = _response(
-        was_auto_sent=True, escalation_needed=False
-    )
+    mock_response_gen.generate.return_value = _response(was_auto_sent=True, escalation_needed=False)
     mock_email_sender.send_email.side_effect = RuntimeError("SMTP error")
 
     # _send_auto_reply catches the exception and returns False
@@ -282,19 +278,23 @@ async def test_custom_confidence_threshold(
     mock_response_gen,
     mock_email_sender,
 ):
-    """A higher custom threshold can prevent auto-reply even with high confidence."""
+    """A higher custom threshold flows through to generate() — the response generator
+    makes the auto-send decision (A3 unification), so the mock reflects the decision
+    the real generator would make at threshold=0.99 with confidence=0.92."""
     mock_classifier.classify.return_value = _classification(confidence=0.92)
+    # With threshold=0.99 and unified confidence <=0.92, generate() would set
+    # was_auto_sent=False — the gate is tighter than the default 0.90.
     mock_response_gen.generate.return_value = _response(
-        was_auto_sent=True, escalation_needed=False, confidence=0.92, badge="high"
+        was_auto_sent=False, escalation_needed=True, confidence=0.92, badge="moderate"
     )
 
     with patch.object(service, "_record_response", new_callable=AsyncMock) as mock_record:
         mock_record.return_value = uuid4()
 
-        # Default threshold is 0.90; setting 0.99 should prevent sending
         result = await service.process_message(_context(), confidence_threshold=0.99)
 
     assert result.email_sent is False
+    assert result.escalated is True
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +362,10 @@ def test_should_use_learning_low_confidence_blocked(service: AutoReplyService):
 
 
 async def test_learning_loop_queried_when_available(
-    mock_classifier, mock_rag, mock_email_sender, mock_response_gen,
+    mock_classifier,
+    mock_rag,
+    mock_email_sender,
+    mock_response_gen,
 ):
     """When a LearningLoop is provided, search_learned_answers is called."""
     mock_learning = AsyncMock()
@@ -376,12 +379,8 @@ async def test_learning_loop_queried_when_available(
         learning_loop=mock_learning,
     )
 
-    mock_classifier.classify.return_value = _classification(
-        category="routine", confidence=0.8
-    )
-    mock_response_gen.generate.return_value = _response(
-        was_auto_sent=True, escalation_needed=False
-    )
+    mock_classifier.classify.return_value = _classification(category="routine", confidence=0.8)
+    mock_response_gen.generate.return_value = _response(was_auto_sent=True, escalation_needed=False)
 
     with patch.object(service, "_record_response", new_callable=AsyncMock) as mock_record:
         mock_record.return_value = uuid4()

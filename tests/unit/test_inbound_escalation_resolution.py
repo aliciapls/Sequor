@@ -23,6 +23,9 @@ class FakeExpress:
     def __init__(self, storage: dict | None = None):
         self.storage: dict[str, dict[str, dict]] = storage or {}
 
+    async def bind_tenant(self, tenant_id) -> None:
+        """No-op stand-in for SessionCrud.bind_tenant (unit tests run without a master key)."""
+
     def _ensure_model(self, model: str) -> None:
         if model not in self.storage:
             self.storage[model] = {}

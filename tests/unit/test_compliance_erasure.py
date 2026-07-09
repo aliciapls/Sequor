@@ -69,6 +69,20 @@ class _FakeSession:
         self.flushed += 1
 
 
+@pytest.fixture(autouse=True)
+def _stub_tenant_context(monkeypatch):
+    """erase_contact_pii binds the tenant via bind_tenant (shard 1a boundary —
+    sets the per-tenant key AND the RLS GUC via session.execute). These unit
+    tests run against a _FakeSession with no real key/DB, so stub the bind to a
+    no-op — the assertions verify the SQL statements issued, not encryption or
+    the GUC (both covered by the Tier-2 erasure + RLS tests). This makes the
+    suite deterministic whether or not ENCRYPTION_MASTER_KEY is set."""
+    import sequor.db.tenant_context as _tc
+
+    monkeypatch.setattr(_tc, "bind_tenant", AsyncMock())
+    monkeypatch.setattr(_tc, "set_tenant_context", AsyncMock())
+
+
 class TestEraseContactPII:
     async def test_raises_if_contact_not_found(self):
         session = _FakeSession(contact_found=False)

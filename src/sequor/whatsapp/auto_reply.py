@@ -24,7 +24,9 @@ logger = structlog.get_logger()
 
 # Default branded footer appended to every outbound WhatsApp message
 DEFAULT_WHATSAPP_FOOTER = (
-    "\n\n---\nSent by {business_name}\n"
+    "\n\n---\n"
+    "[Auto-generated; {confidence_pct:.0f}% confidence] "
+    "Sent by {business_name}\n"
     "If you'd prefer to speak with a human, reply to this message."
 )
 
@@ -109,7 +111,11 @@ class WhatsAppAutoReplyService:
         6. Auto-send if high confidence AND session window is open
         7. Send template acknowledgement if session expired but high confidence
         """
-        threshold = confidence_threshold or self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        threshold = (
+            confidence_threshold
+            if confidence_threshold is not None
+            else self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        )
 
         logger.info(
             "whatsapp_auto_reply.process.start",
@@ -138,6 +144,7 @@ class WhatsAppAutoReplyService:
                 message_text=context.body_text,
                 classification=classification,
                 learned_answers=learned_answers,
+                confidence_threshold=threshold,
             )
 
             response_record = await self._record_response(
@@ -155,6 +162,7 @@ class WhatsAppAutoReplyService:
                     context=context,
                     response_id=response_record,
                     classification=classification,
+                    unified_confidence=response_result.confidence_score,
                 )
                 logger.info(
                     "whatsapp_auto_reply.escalated",
@@ -163,8 +171,8 @@ class WhatsAppAutoReplyService:
                     escalation_id=str(escalation_id),
                 )
 
-            elif classification.confidence >= threshold:
-                # High confidence — try to auto-send
+            elif response_result.was_auto_sent:
+                # Unified predicate approved auto-send (A3 parity with email) — try to send
                 if not context.session_expired:
                     message_sent = await self._send_auto_reply(
                         context=context,
@@ -245,16 +253,22 @@ class WhatsAppAutoReplyService:
         badge = ConfidenceBadge(response_result.confidence_badge)
 
         async with AsyncSession(get_engine()) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
-            record = await crud.create("responses", {
-                "tenant_id": context.tenant_id,
-                "message_id": context.message_id,
-                "content": response_result.content,
-                "confidence_badge": badge.value,
-                "confidence_score": response_result.confidence_score,
-                "was_auto_sent": response_result.was_auto_sent,
-                "sent_at": now if response_result.was_auto_sent else None,
-            })
+            record = await crud.create(
+                "responses",
+                {
+                    "tenant_id": context.tenant_id,
+                    "message_id": context.message_id,
+                    "content": response_result.content,
+                    "confidence_badge": badge.value,
+                    "confidence_score": response_result.confidence_score,
+                    "was_auto_sent": response_result.was_auto_sent,
+                    "sent_at": now if response_result.was_auto_sent else None,
+                },
+            )
             await session.commit()
 
         resp_id = record.get("id")
@@ -265,6 +279,7 @@ class WhatsAppAutoReplyService:
         context: WhatsAppMessageContext,
         response_id: UUID,
         classification: ClassificationResult,
+        unified_confidence: float = 0.0,
     ) -> UUID:
         from sequor.db.crud import SessionCrud
         from sequor.db.database import get_engine
@@ -284,6 +299,9 @@ class WhatsAppAutoReplyService:
 
         engine = get_engine()
         async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
             # Escalation service needs an email sender — pass a no-op one for WhatsApp
             email_sender: EmailSender = SendGridEmailSender()
@@ -296,11 +314,12 @@ class WhatsAppAutoReplyService:
                 priority=priority,
                 ai_summary=classification.reasoning or "Classification-based escalation",
                 routing_reason=(
-                    f"AI confidence {classification.confidence:.0%}, "
+                    f"AI confidence {unified_confidence:.0%} "
+                    f"(classifier {classification.confidence:.0%}), "
                     f"category {classification.category.value}"
                 ),
                 suggested_response=getattr(classification, "suggested_response", None),
-                confidence_score=classification.confidence,
+                confidence_score=unified_confidence,
             )
             await session.commit()
 
@@ -313,7 +332,10 @@ class WhatsAppAutoReplyService:
         response_result: ResponseResult,
     ) -> bool:
         """Send a free-form text message within the 24-hour session window."""
-        footer = self._footer_tpl.format(business_name=context.business_name)
+        footer = self._footer_tpl.format(
+            business_name=context.business_name,
+            confidence_pct=response_result.confidence_score * 100,
+        )
         body = f"{response_result.content}{footer}"
 
         # Truncate to WhatsApp's 4096 char limit
@@ -372,4 +394,3 @@ class WhatsAppAutoReplyService:
         if len(phone) > 6:
             return phone[:4] + "***" + phone[-2:]
         return "****"
-

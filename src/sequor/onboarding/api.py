@@ -35,11 +35,7 @@ async def handle_signup(request_data: dict) -> dict:
     #    500 when the database is unavailable (F-C4-05 tier violation).
     req = OnboardingRequest(**request_data)
 
-    # 2. Ensure all tables exist, then create records
-    from sequor.db.database import init_db
-
-    await init_db()
-
+    # 2. Create records (tables are created at deploy time / app startup)
     from sqlalchemy.ext.asyncio import AsyncSession as AS
 
     engine = get_engine()

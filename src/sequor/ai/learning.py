@@ -131,27 +131,43 @@ class LearningLoop:
         embedding: list[float] | None,
     ) -> UUID:
         """Store a learned answer in the database."""
+        from sqlalchemy import text
         from sqlalchemy.ext.asyncio import AsyncSession
 
+        from sequor.db.encrypted_column import encrypt_field, get_tenant_key
         from sequor.db.models import SourceType
-
-        from sqlalchemy import text
+        from sequor.db.tenant_context import bind_tenant
 
         async with AsyncSession(self._engine) as session:
+            # This raw INSERT bypasses the EncryptedString TypeDecorator, so the
+            # PII text MUST be encrypted here with the SAME field_names the ORM
+            # column declares (learned_question / learned_answer). Otherwise the
+            # ORM digest read (select(LearnedAnswer)) would try to decrypt
+            # plaintext and raise InvalidTag. bind_tenant loads the per-tenant
+            # key; without a master key it no-ops and we store plaintext,
+            # matching the ORM's dev fail-open.
+            await bind_tenant(session, tenant_id)
+            key = get_tenant_key()
+            enc_question = (
+                encrypt_field(key, "learned_question", question_text) if key else question_text
+            )
+            enc_answer = encrypt_field(key, "learned_answer", answer_text) if key else answer_text
             result = await session.execute(
-                text("""
+                text(
+                    """
                 INSERT INTO learned_answers
                 (id, tenant_id, account_id, question_text, answer_text, source_type,
                  source_escalation_id, embedding, created_at)
                 VALUES (gen_random_uuid(), :tenant_id, :account_id, :question_text, :answer_text,
                         :source_type, :source_escalation_id, :embedding, NOW())
                 RETURNING id
-                """),
+                """
+                ),
                 {
                     "tenant_id": tenant_id,
                     "account_id": account_id,
-                    "question_text": question_text,
-                    "answer_text": answer_text,
+                    "question_text": enc_question,
+                    "answer_text": enc_answer,
                     "source_type": SourceType.human_answer.value,
                     "source_escalation_id": source_escalation_id,
                     "embedding": embedding,
@@ -179,23 +195,33 @@ class LearningLoop:
         emb_str = "[" + ",".join(str(v) for v in query_embedding[0]) + "]"
 
         async with AsyncSession(self._engine) as session:
+            # Bind so the per-tenant key is loaded; the raw-selected PII text is
+            # decrypted with the SAME field_names the ORM column declares.
+            # No-op without a master key (dev fail-open → plaintext passthrough).
+            from sequor.db.encrypted_column import decrypt_field, get_tenant_key
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, tenant_id)
+            key = get_tenant_key()
             account_filter = "AND account_id = :account_id" if account_id else ""
             params: dict = {"tenant_id": tenant_id, "emb": emb_str, "limit": top_k}
             if account_id:
                 params["account_id"] = account_id
 
             result = await session.execute(
-                text(f"""
+                text(
+                    f"""
                 SELECT id, question_text, answer_text, source_type,
                        source_escalation_id, created_at,
-                       1 - (embedding <=> :emb::vector) AS similarity
+                       1 - (embedding <=> CAST(:emb AS vector)) AS similarity
                 FROM learned_answers
                 WHERE tenant_id = :tenant_id
                   AND embedding IS NOT NULL
                   {account_filter}
-                ORDER BY embedding <=> :emb::vector
+                ORDER BY embedding <=> CAST(:emb AS vector)
                 LIMIT :limit
-                """),
+                """
+                ),
                 params,
             )
             rows = result.fetchall()
@@ -208,15 +234,23 @@ class LearningLoop:
             sim = float(sim)
             if sim <= 0.5:
                 continue
-            results.append({
-                "id": getattr(row, "id", None),
-                "question_text": getattr(row, "question_text", ""),
-                "answer_text": getattr(row, "answer_text", ""),
-                "source_type": getattr(row, "source_type", ""),
-                "source_escalation_id": getattr(row, "source_escalation_id", None),
-                "created_at": getattr(row, "created_at", None),
-                "similarity": sim,
-            })
+            raw_q = getattr(row, "question_text", "") or ""
+            raw_a = getattr(row, "answer_text", "") or ""
+            results.append(
+                {
+                    "id": getattr(row, "id", None),
+                    "question_text": (
+                        decrypt_field(key, "learned_question", raw_q) if key and raw_q else raw_q
+                    ),
+                    "answer_text": (
+                        decrypt_field(key, "learned_answer", raw_a) if key and raw_a else raw_a
+                    ),
+                    "source_type": getattr(row, "source_type", ""),
+                    "source_escalation_id": getattr(row, "source_escalation_id", None),
+                    "created_at": getattr(row, "created_at", None),
+                    "similarity": sim,
+                }
+            )
         return results
 
     async def delete_learned_answer(
@@ -230,11 +264,21 @@ class LearningLoop:
         async with AsyncSession(self._engine) as session:
             from sqlalchemy import text
 
+            from sequor.db.tenant_context import bind_tenant
+
+            # Bind the RLS GUC (app.current_tenant). learned_answers is
+            # tenant-scoped under the no-FORCE RLS policy: without the GUC the
+            # row is invisible to DELETE → rowcount=0 → silent no-op (False).
+            # Mirrors _store_learned_answer / search_learned_answers.
+            await bind_tenant(session, tenant_id)
+
             result = await session.execute(
-                text("""
+                text(
+                    """
                 DELETE FROM learned_answers
                 WHERE id = :id AND tenant_id = :tenant_id
-                """),
+                """
+                ),
                 {"id": learned_answer_id, "tenant_id": tenant_id},
             )
             await session.commit()

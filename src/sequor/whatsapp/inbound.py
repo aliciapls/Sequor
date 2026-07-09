@@ -78,6 +78,12 @@ class InboundWhatsAppProcessor:
         tenant_id = account["tenant_id"]
         account_id = account["id"]
 
+        # Bind this session to the resolved tenant BEFORE any encrypted-column
+        # write/read (Contact.name, Message.body_text). The session is shared
+        # across the whole request, so one bind covers every downstream CRUD
+        # call. No-op without ENCRYPTION_MASTER_KEY (dev fail-open).
+        await self._db.bind_tenant(tenant_id)
+
         # 2. Resolve or create Contact by phone number
         contact = await self._resolve_or_create_contact(
             tenant_id=tenant_id,
@@ -150,19 +156,44 @@ class InboundWhatsAppProcessor:
         }
 
     async def _resolve_account(self, to_phone: str) -> dict | None:
-        """Look up an Account by its WhatsApp phone number."""
-        cleaned = to_phone.replace("+", "").replace("-", "").replace(" ", "")
-        accounts = await self._db.list("Account", {"whatsapp_phone": to_phone})
-        if accounts:
-            return accounts[0]
+        """Look up an Account by its WhatsApp phone number.
 
-        # Try cleaned format
-        if cleaned != to_phone:
-            accounts = await self._db.list("Account", {"whatsapp_phone": cleaned})
+        Production (ENCRYPTION_MASTER_KEY set): ``whatsapp_phone`` is a plain
+        column (equality works), but an ORM load would also materialize
+        ``owner_email`` (``EncryptedString``) and fail-close before the tenant
+        key is known — use a raw projection of non-encrypted columns. Queries
+        both the raw and digit-stripped forms in one shot via ``= ANY(:phones)``
+        (row order is unspecified in the implausible case where two accounts
+        hold the two forms).
+
+        Dev (no master key): ``owner_email`` materializes as plaintext, so the
+        ORM list path works; mirror ``bind_tenant``'s no-op-in-dev split.
+        """
+        from sequor.config import settings
+
+        if not settings.encryption_master_key:
+            accounts = await self._db.list("Account", {"whatsapp_phone": to_phone})
             if accounts:
                 return accounts[0]
+            cleaned = to_phone.replace("+", "").replace("-", "").replace(" ", "")
+            if cleaned != to_phone:
+                accounts = await self._db.list("Account", {"whatsapp_phone": cleaned})
+                if accounts:
+                    return accounts[0]
+            return None
 
-        return None
+        cleaned = to_phone.replace("+", "").replace("-", "").replace(" ", "")
+        candidates = [to_phone] if cleaned == to_phone else [to_phone, cleaned]
+        # Route through the SECURITY DEFINER lookup function so the query bypasses
+        # RLS — this lookup IS the tenant discovery (it must cross tenants to find
+        # which tenant owns the phone). A direct SELECT on accounts under RLS
+        # would see no rows (the inbound request has no tenant bound yet).
+        rows = await self._db.raw_execute(
+            "SELECT id, tenant_id, name, whatsapp_phone, status "
+            "FROM resolve_account_by_phone(:phones)",
+            {"phones": candidates},
+        )
+        return rows[0] if rows else None
 
     async def _resolve_or_create_contact(
         self,
@@ -178,12 +209,15 @@ class InboundWhatsAppProcessor:
         if existing:
             return existing[0]
 
-        contact = await self._db.create("Contact", {
-            "id": str(uuid.uuid4()),
-            "tenant_id": tenant_id,
-            "phone": phone,
-            "name": name or phone,
-        })
+        contact = await self._db.create(
+            "Contact",
+            {
+                "id": str(uuid.uuid4()),
+                "tenant_id": tenant_id,
+                "phone": phone,
+                "name": name or phone,
+            },
+        )
         logger.info(
             "whatsapp.inbound.contact_created",
             contact_id=contact["id"],
@@ -240,22 +274,28 @@ class InboundWhatsAppProcessor:
     ) -> None:
         """Create a ChannelConsent record on first WhatsApp contact."""
         try:
-            existing = await self._db.list("ChannelConsent", {
-                "contact_id": contact_id,
-                "channel": ConsentChannel.whatsapp.value,
-            })
+            existing = await self._db.list(
+                "ChannelConsent",
+                {
+                    "contact_id": contact_id,
+                    "channel": ConsentChannel.whatsapp.value,
+                },
+            )
             if existing:
                 return
 
-            await self._db.create("ChannelConsent", {
-                "id": str(uuid.uuid4()),
-                "tenant_id": tenant_id,
-                "contact_id": contact_id,
-                "account_id": account_id,
-                "channel": ConsentChannel.whatsapp.value,
-                "opt_in_method": OptInMethod.first_contact_notice.value,
-                "opt_in_at": datetime.now(timezone.utc),
-            })
+            await self._db.create(
+                "ChannelConsent",
+                {
+                    "id": str(uuid.uuid4()),
+                    "tenant_id": tenant_id,
+                    "contact_id": contact_id,
+                    "account_id": account_id,
+                    "channel": ConsentChannel.whatsapp.value,
+                    "opt_in_method": OptInMethod.first_contact_notice.value,
+                    "opt_in_at": datetime.now(timezone.utc),
+                },
+            )
             logger.info(
                 "whatsapp.inbound.consent_created",
                 contact_id=contact_id,

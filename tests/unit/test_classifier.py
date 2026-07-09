@@ -33,12 +33,14 @@ def _classification_json(
     reasoning: str = "Test reasoning",
 ) -> str:
     """Build a valid classification JSON response string."""
-    return json.dumps({
-        "category": category,
-        "urgency": urgency,
-        "confidence": confidence,
-        "reasoning": reasoning,
-    })
+    return json.dumps(
+        {
+            "category": category,
+            "urgency": urgency,
+            "confidence": confidence,
+            "reasoning": reasoning,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +151,7 @@ async def test_parse_malformed_json_with_regex_fallback():
     """When JSON is malformed, the parser uses regex extraction."""
     # Response with no valid JSON wrapper but extractable fields
     malformed = (
-        'Here is my classification:\n'
+        "Here is my classification:\n"
         '"category": "complex", "urgency": "high", '
         '"confidence": 0.6, "reasoning": "Needs human review"'
     )
@@ -237,7 +239,9 @@ def test_should_use_rag_low_confidence_blocked():
 
 
 def test_should_auto_respond_routine_high_confidence():
-    """Auto-respond is True for routine + low urgency + confidence >= 0.9."""
+    """Auto-respond is True for routine + low urgency + unified confidence >= threshold
+    (A3 unification: the predicate takes the unified response_confidence, not
+    classification.confidence alone)."""
     classification = ClassificationResult(
         category=MessageCategory.ROUTINE,
         urgency=MessageUrgency.LOW,
@@ -246,8 +250,12 @@ def test_should_auto_respond_routine_high_confidence():
         classifier_version="1.0.0",
         classified_at=datetime.now(timezone.utc),
     )
-    classifier = MessageClassifier(llm_client=AsyncMock())
-    assert classifier.should_auto_respond(classification) is True
+    assert (
+        MessageClassifier.should_auto_respond(
+            classification, response_confidence=0.95, confidence_threshold=0.90
+        )
+        is True
+    )
 
 
 def test_should_auto_respond_high_stakes_blocked():
@@ -260,8 +268,12 @@ def test_should_auto_respond_high_stakes_blocked():
         classifier_version="1.0.0",
         classified_at=datetime.now(timezone.utc),
     )
-    classifier = MessageClassifier(llm_client=AsyncMock())
-    assert classifier.should_auto_respond(classification) is False
+    assert (
+        MessageClassifier.should_auto_respond(
+            classification, response_confidence=0.95, confidence_threshold=0.90
+        )
+        is False
+    )
 
 
 def test_should_auto_respond_critical_urgency_blocked():
@@ -274,12 +286,17 @@ def test_should_auto_respond_critical_urgency_blocked():
         classifier_version="1.0.0",
         classified_at=datetime.now(timezone.utc),
     )
-    classifier = MessageClassifier(llm_client=AsyncMock())
-    assert classifier.should_auto_respond(classification) is False
+    assert (
+        MessageClassifier.should_auto_respond(
+            classification, response_confidence=0.95, confidence_threshold=0.90
+        )
+        is False
+    )
 
 
 def test_should_auto_respond_below_threshold():
-    """Auto-respond is blocked when confidence < threshold."""
+    """Auto-respond is blocked when unified confidence < threshold (A3: the gate
+    reads response_confidence, not classification.confidence)."""
     classification = ClassificationResult(
         category=MessageCategory.ROUTINE,
         urgency=MessageUrgency.LOW,
@@ -288,8 +305,12 @@ def test_should_auto_respond_below_threshold():
         classifier_version="1.0.0",
         classified_at=datetime.now(timezone.utc),
     )
-    classifier = MessageClassifier(llm_client=AsyncMock())
-    assert classifier.should_auto_respond(classification) is False
+    assert (
+        MessageClassifier.should_auto_respond(
+            classification, response_confidence=0.85, confidence_threshold=0.90
+        )
+        is False
+    )
 
 
 # ---------------------------------------------------------------------------

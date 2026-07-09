@@ -27,6 +27,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode(), password_hash.encode())
 
+
 # Pre-defined routing rule templates that map to database JSONB values.
 # Each template defines which categories get auto-replied vs escalated.
 ROUTING_RULES = {
@@ -132,12 +133,31 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
 
     owner_domain = request.owner_email.split("@")[1]
     email_index = compute_email_blind_index(request.owner_email)
-    existing = await session.execute(
-        select(BackupContact).where(BackupContact.email_blind_index == email_index)
-    )
-    if existing.scalars().first() is not None:
-        raise DuplicateEmailError(
-            f"An account with email {_mask_email(request.owner_email)} already exists"
+    # R7-01: dedup keys on the OWNER's email via the Account blind index (the
+    # owner-login identity lives on Account now, not BackupContact). Checking
+    # BackupContact.email_blind_index compared owner-vs-owner on the wrong table.
+    #
+    # NOTE: this friendly pre-check runs BEFORE the new Tenant exists, so no
+    # tenant GUC is bound — under the production non-owner app role (RLS no-FORCE,
+    # shard 1c) the policy fail-closes this query to zero rows regardless of
+    # duplicates, so DuplicateEmailError never fires in prod. Additionally, some
+    # PostgreSQL configurations raise DataError (invalid input syntax for type uuid)
+    # when the RLS policy attempts to cast an unset or empty GUC to uuid — catch
+    # that and proceed; the UNIQUE index on owner_email_blind_index (1f) is the
+    # structural backstop.
+    try:
+        existing = await session.execute(
+            select(Account).where(Account.owner_email_blind_index == email_index)
+        )
+        if existing.scalars().first() is not None:
+            raise DuplicateEmailError(
+                f"An account with email {_mask_email(request.owner_email)} already exists"
+            )
+    except Exception:
+        logger.warning(
+            "onboarding.dup_check_skipped",
+            reason="pre-tenant-check failed (RLS policy or permission — "
+            "relying on UNIQUE index backstop)",
         )
 
     # 1. Create Tenant
@@ -154,18 +174,14 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     # 2. Provision encryption key BEFORE creating encrypted records
     try:
         from sequor.config import settings as app_settings
-        from sequor.db.encryption_keys import KeyManager
-        from sequor.db.encrypted_column import set_tenant_key
+        from sequor.db.tenant_context import set_tenant_context
 
         if app_settings.encryption_master_key:
-            km = KeyManager(app_settings.encryption_master_key)
-            tenant_key = await km.provision_tenant_key(session, tenant.id)
-            set_tenant_key(tenant_key)
+            await set_tenant_context(session, tenant.id, provision=True)
             logger.info("onboarding.encryption_key_provisioned", tenant_id=str(tenant.id))
         else:
             raise RuntimeError(
-                "ENCRYPTION_MASTER_KEY is not configured. "
-                "Set it in .env before running signup."
+                "ENCRYPTION_MASTER_KEY is not configured. " "Set it in .env before running signup."
             )
     except RuntimeError:
         raise
@@ -173,34 +189,45 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         logger.exception("onboarding.encryption_key_failed", tenant_id=str(tenant.id))
         raise RuntimeError("Failed to provision tenant encryption key")
 
-    # 3. Create Account (encrypted columns require tenant key set above)
+    # 3. Create Account (encrypted columns require tenant key set above).
+    # Populate BOTH email blind indexes (email_index computed above) so inbound
+    # webhooks can resolve the account without decrypting owner_email/email_address
+    # (shard 1f; see email/whatsapp inbound._resolve_account).
     routing_rules = ROUTING_RULES[request.routing_rule]
     account = Account(
         tenant_id=tenant.id,
         name=request.account_name,
         ownership_type=request.ownership_type,
         owner_email=request.owner_email,
+        owner_email_blind_index=email_index,
         channels=["email"],
         email_address=request.owner_email,
+        email_address_blind_index=email_index,
         routing_rules=routing_rules,
         confidence_threshold=0.90,
         escalation_sla_hours=request.escalation_sla_hours,
+        # R7-01: the owner-login credential lives on the Account (the owner-login
+        # identity), NOT on the BackupContact (the escalation recipient). The
+        # backup contact is a different person with their own email.
+        password_hash=hash_password(request.owner_password),
     )
     session.add(account)
     await session.flush()
 
-    # 4. Create BackupContact (encrypted columns require tenant key set above)
-    from sequor.db.encrypted_column import compute_email_blind_index
-
+    # 4. Create BackupContact — the escalation recipient (the BACKUP PERSON, not
+    # the owner). R7-01: email/email_blind_index are the backup person's, so
+    # escalations (escalation/service.py: to=backup['email']) route to the
+    # designated backup person. (Pre-1e this row stored the OWNER's email +
+    # password — the conflation R7-01 fixes.) compute_email_blind_index is the
+    # global-lookup-key HMAC imported at the top of this function.
     backup = BackupContact(
         tenant_id=tenant.id,
         account_id=account.id,
         name=request.backup_name,
-        email=request.owner_email,
-        email_blind_index=compute_email_blind_index(request.owner_email),
+        email=request.backup_email,
+        email_blind_index=compute_email_blind_index(request.backup_email),
         tier="primary",
         active=True,
-        password_hash=hash_password(request.owner_password),
     )
     session.add(backup)
     await session.flush()
@@ -209,19 +236,10 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
     account.backup_contact_ids = [backup.id]
     session.add(account)
 
-    # 5. Create tenant schema for isolation
-    try:
-        from sequor.db.schema_manager import create_tenant_schema, tenant_id_to_schema
-
-        schema_name = tenant_id_to_schema(tenant.id)
-        tenant.schema_name = schema_name
-        session.add(tenant)
-
-        conn = await session.connection()
-        await create_tenant_schema(conn, schema_name)
-        logger.info("onboarding.schema_created", schema_name=schema_name)
-    except Exception:
-        logger.exception("onboarding.schema_creation_failed", tenant_id=str(tenant.id))
+    # Tenant isolation is DB-enforced via Row-Level Security on the shared
+    # schema (db.rls, shard 1c) — no per-tenant PostgreSQL schema is provisioned
+    # at signup. The retired schema-per-tenant mechanism (schema_manager) had no
+    # callers; RLS replaces it. See DEVIATIONS §A2.
 
     # Capture IDs before commit
     tenant_id = str(tenant.id)
@@ -246,5 +264,3 @@ async def signup(session: AsyncSession, request: OnboardingRequest) -> dict:
         "account_id": account_id,
         "backup_contact_id": backup_id,
     }
-
-

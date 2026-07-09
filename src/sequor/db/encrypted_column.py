@@ -17,7 +17,10 @@ import os
 from base64 import b64decode, b64encode
 from typing import Any, Optional
 
+import structlog
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+logger = structlog.get_logger()
 
 from sequor.config import settings
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -33,8 +36,12 @@ _current_tenant_key: contextvars.ContextVar[Optional[bytes]] = contextvars.Conte
 )
 
 
-def set_tenant_key(key: bytes) -> None:
-    """Set the tenant encryption key for the current async/task context."""
+def set_tenant_key(key: Optional[bytes]) -> None:
+    """Set the tenant encryption key for the current async/task context.
+
+    Pass ``None`` to clear the key (e.g. between tests); ``EncryptedString``
+    then fail-closes outside development rather than reading/writing plaintext.
+    """
     _current_tenant_key.set(key)
 
 
@@ -111,6 +118,32 @@ def compute_email_blind_index(email: str) -> str:
 _NONCE_LENGTH = 12  # AES-GCM recommended nonce size
 
 
+def encrypt_field(tenant_key: bytes, field_name: Optional[str], value: str) -> str:
+    """Encrypt *value* to base64(``nonce || ciphertext``) under a per-field key.
+
+    This is the single crypto implementation shared by the ``EncryptedString``
+    TypeDecorator (ORM path) AND raw-SQL call sites (e.g. the pgvector learned-
+    answer store) so both surfaces produce byte-compatible ciphertext. The
+    ``field_name`` MUST match the value the ORM column declares, otherwise the
+    HKDF-derived per-field key differs and decryption fails.
+    """
+    field_key = derive_field_key(tenant_key, field_name or "default")
+    nonce = os.urandom(_NONCE_LENGTH)
+    aesgcm = AESGCM(field_key)
+    ciphertext = aesgcm.encrypt(nonce, value.encode("utf-8"), None)
+    return b64encode(nonce + ciphertext).decode("ascii")
+
+
+def decrypt_field(tenant_key: bytes, field_name: Optional[str], value: str) -> str:
+    """Inverse of :func:`encrypt_field`. Raises on tag mismatch / bad base64."""
+    field_key = derive_field_key(tenant_key, field_name or "default")
+    raw = b64decode(value)
+    nonce = raw[:_NONCE_LENGTH]
+    ciphertext = raw[_NONCE_LENGTH:]
+    aesgcm = AESGCM(field_key)
+    return aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
+
+
 class EncryptedString(TypeDecorator):
     """SQLAlchemy type that transparently encrypts/decrypts string values.
 
@@ -120,7 +153,10 @@ class EncryptedString(TypeDecorator):
     """
 
     impl = Text
-    cache_ok = True  # safe to cache because encryption is deterministic per key
+    # cache_ok=True: the type's SQL shape (TEXT impl) is constant, so SQLAlchemy
+    # may cache the compiled type expression. Value-level caching is not involved
+    # (AES-GCM uses a random nonce, so ciphertext is non-deterministic per write).
+    cache_ok = True
 
     def __init__(self, field_name: Optional[str] = None, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -139,19 +175,26 @@ class EncryptedString(TypeDecorator):
             # precedence) — NOT a second raw os.environ read that can diverge
             # and default to "development" on a misconfigured deploy.
             if settings.app_env != "development":
+                # Per observability Rule 8, schema-revealing field names MUST
+                # NOT appear at WARN (log aggregators have broader access than
+                # the DB). Emit a hash so operators can grep without leaking the
+                # column name.
+                field_hash = hashlib.sha256((self._field_name or "default").encode()).hexdigest()[
+                    :8
+                ]
+                logger.warning(
+                    "encrypted.fail_closed",
+                    op="bind",
+                    field_hash=field_hash,
+                    app_env=settings.app_env,
+                )
                 raise RuntimeError(
                     "EncryptedString requires a tenant key. "
                     "Call set_tenant_key() before writing encrypted columns."
                 )
             return value  # store plaintext ONLY in development
 
-        field_name = self._field_name or "default"
-        field_key = derive_field_key(tenant_key, field_name)
-
-        nonce = os.urandom(_NONCE_LENGTH)
-        aesgcm = AESGCM(field_key)
-        ciphertext = aesgcm.encrypt(nonce, value.encode("utf-8"), None)
-        return b64encode(nonce + ciphertext).decode("ascii")
+        return encrypt_field(tenant_key, self._field_name, value)
 
     def process_result_value(self, value: Any, dialect: Any) -> Optional[str]:
         """Decrypt *value* after it is read from the database."""
@@ -163,18 +206,19 @@ class EncryptedString(TypeDecorator):
             # Fail-CLOSED outside development (see process_bind_param). Source
             # from settings.app_env, not a raw os.environ read.
             if settings.app_env != "development":
+                field_hash = hashlib.sha256((self._field_name or "default").encode()).hexdigest()[
+                    :8
+                ]
+                logger.warning(
+                    "encrypted.fail_closed",
+                    op="result",
+                    field_hash=field_hash,
+                    app_env=settings.app_env,
+                )
                 raise RuntimeError(
                     "EncryptedString requires a tenant key. "
                     "Call set_tenant_key() before reading encrypted columns."
                 )
             return value  # return plaintext as-is ONLY in development
 
-        field_name = self._field_name or "default"
-        field_key = derive_field_key(tenant_key, field_name)
-
-        raw = b64decode(value)
-        nonce = raw[:_NONCE_LENGTH]
-        ciphertext = raw[_NONCE_LENGTH:]
-        aesgcm = AESGCM(field_key)
-        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-        return plaintext.decode("utf-8")
+        return decrypt_field(tenant_key, self._field_name, value)

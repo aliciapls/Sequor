@@ -58,8 +58,10 @@ class _FakeSession:
         self.flushed = 0
         self._existing_account = existing_account
 
-    async def execute(self, stmt):
-        # Return mock result for the duplicate email check
+    async def execute(self, stmt, params=None):
+        # Mirror AsyncSession.execute(statement, params=None): the tenant-context
+        # boundary sets the RLS GUC via execute(text(...), {params}). Return the
+        # duplicate-email mock result for the signup path's select.
         return _FakeResult(first_val=self._existing_account)
 
     def add(self, obj):
@@ -166,33 +168,10 @@ class TestOnboardingEncryptionProvisioning:
         assert session.flushed >= 3  # tenant flush, account flush, backup flush
 
 
-class TestOnboardingSchemaProvisioning:
-    """Tests for tenant schema creation during signup."""
-
-    @patch("sequor.onboarding.service.send_verification_email", new_callable=AsyncMock)
-    @patch("sequor.db.encrypted_column.set_tenant_key")
-    @patch("sequor.db.encryption_keys.KeyManager")
-    @patch("sequor.config.settings")
-    async def test_signup_handles_schema_creation_failure(
-        self, mock_settings, MockKM, mock_set_key, mock_email
-    ):
-        """If create_tenant_schema fails, signup should still complete."""
-        from sequor.onboarding.service import signup
-
-        mock_settings.encryption_master_key = TEST_ENCRYPTION_KEY
-        mock_settings.sendgrid_api_key = None
-
-        mock_km_instance = MagicMock()
-        mock_km_instance.provision_tenant_key = AsyncMock(return_value=b"\x01" * 32)
-        MockKM.return_value = mock_km_instance
-
-        session = _FakeSession()
-        with patch("sequor.db.schema_manager.create_tenant_schema", new_callable=AsyncMock) as mock_create:
-            mock_create.side_effect = RuntimeError("Schema creation failed")
-            result = await signup(session, _valid_request())
-
-        assert result["tenant_id"] is not None
-        assert session.committed is True
+class TestOnboardingSignupValidation:
+    """Signup validation guards (the per-tenant-schema provisioning suite was
+    removed with the schema_manager machinery in shard 1c — isolation is now
+    DB-enforced via RLS, so signup no longer provisions a schema)."""
 
     @patch("sequor.onboarding.service.send_verification_email", new_callable=AsyncMock)
     @patch("sequor.config.settings")

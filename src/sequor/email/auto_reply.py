@@ -112,7 +112,11 @@ class AutoReplyService:
         Returns:
             AutoReplyResult with processing outcome
         """
-        threshold = confidence_threshold or self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        threshold = (
+            confidence_threshold
+            if confidence_threshold is not None
+            else self.CONFIDENCE_THRESHOLD_AUTO_REPLY
+        )
 
         logger.info(
             "auto_reply.process.start",
@@ -141,6 +145,7 @@ class AutoReplyService:
                 message_text=context.body_text,
                 classification=classification,
                 learned_answers=learned_answers,
+                confidence_threshold=threshold,
             )
 
             response_record = await self._record_response(
@@ -157,6 +162,7 @@ class AutoReplyService:
                     context=context,
                     response_id=response_record,
                     classification=classification,
+                    unified_confidence=response_result.confidence_score,
                 )
                 logger.info(
                     "auto_reply.escalated",
@@ -165,7 +171,7 @@ class AutoReplyService:
                     escalation_id=str(escalation_id),
                 )
 
-            elif response_result.was_auto_sent and classification.confidence >= threshold:
+            elif response_result.was_auto_sent:
                 email_sent = await self._send_auto_reply(
                     context=context,
                     response_result=response_result,
@@ -232,16 +238,22 @@ class AutoReplyService:
         badge = ConfidenceBadge(response_result.confidence_badge)
 
         async with AsyncSession(get_engine()) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
-            record = await crud.create("responses", {
-                "tenant_id": context.tenant_id,
-                "message_id": context.message_id,
-                "content": response_result.content,
-                "confidence_badge": badge.value,
-                "confidence_score": response_result.confidence_score,
-                "was_auto_sent": response_result.was_auto_sent,
-                "sent_at": now if response_result.was_auto_sent else None,
-            })
+            record = await crud.create(
+                "responses",
+                {
+                    "tenant_id": context.tenant_id,
+                    "message_id": context.message_id,
+                    "content": response_result.content,
+                    "confidence_badge": badge.value,
+                    "confidence_score": response_result.confidence_score,
+                    "was_auto_sent": response_result.was_auto_sent,
+                    "sent_at": now if response_result.was_auto_sent else None,
+                },
+            )
             await session.commit()
 
         resp_id = record.get("id")
@@ -252,6 +264,7 @@ class AutoReplyService:
         context: MessageContext,
         response_id: UUID,
         classification: ClassificationResult,
+        unified_confidence: float = 0.0,
     ) -> UUID:
         """Create an escalation via EscalationService (sends email, writes audit).
 
@@ -275,6 +288,9 @@ class AutoReplyService:
 
         engine = get_engine()
         async with AsyncSession(engine) as session:
+            from sequor.db.tenant_context import bind_tenant
+
+            await bind_tenant(session, context.tenant_id)
             crud = SessionCrud(session)
             svc = EscalationService(db_express=crud, email_sender=self._email)
 
@@ -284,9 +300,13 @@ class AutoReplyService:
                 account_id=context.account_id,
                 priority=priority,
                 ai_summary=classification.reasoning or "Classification-based escalation",
-                routing_reason=f"AI confidence {classification.confidence:.0%}, category {classification.category.value}",
+                routing_reason=(
+                    f"AI confidence {unified_confidence:.0%} "
+                    f"(classifier {classification.confidence:.0%}), "
+                    f"category {classification.category.value}"
+                ),
                 suggested_response=getattr(classification, "suggested_response", None),
-                confidence_score=classification.confidence,
+                confidence_score=unified_confidence,
             )
             await session.commit()
 

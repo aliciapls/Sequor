@@ -30,6 +30,15 @@ class FakeExpress:
     def __init__(self, storage: dict | None = None):
         self.storage: dict[str, dict[str, dict]] = storage or {}
 
+    async def bind_tenant(self, tenant_id) -> None:
+        """No-op stand-in for SessionCrud.bind_tenant (unit tests run without a master key)."""
+
+    async def commit(self) -> None:
+        """No-op stand-in for SessionCrud.commit (per-tenant boundary; in-memory fake has no txn)."""
+
+    async def rollback(self) -> None:
+        """No-op stand-in for SessionCrud.rollback (in-memory fake has no txn to roll back)."""
+
     def _ensure_model(self, model: str) -> None:
         if model not in self.storage:
             self.storage[model] = {}
@@ -198,9 +207,7 @@ class TestProcessBreachedEscalation:
         assert len(email.sent) == 0
 
     async def test_skips_already_processed(self):
-        storage, esc_id, _ = _setup_storage_with_breach(
-            status=EscalationStatus.resolved.value
-        )
+        storage, esc_id, _ = _setup_storage_with_breach(status=EscalationStatus.resolved.value)
         db = FakeExpress(storage)
         email = FakeEmailSender()
         service = EscalationService(db, email, config_sla_hours=4)
@@ -211,9 +218,7 @@ class TestProcessBreachedEscalation:
         assert len(email.sent) == 0
 
     async def test_tier1_breach_without_second_tier_backup(self):
-        storage, esc_id, _ = _setup_storage_with_breach(
-            tier=1, has_second_tier=False
-        )
+        storage, esc_id, _ = _setup_storage_with_breach(tier=1, has_second_tier=False)
         db = FakeExpress(storage)
         email = FakeEmailSender()
         service = EscalationService(db, email, config_sla_hours=4)

@@ -255,6 +255,20 @@ class Account(Base):
     email_address: Mapped[Optional[str]] = mapped_column(
         EncryptedString(field_name="email_address"), nullable=True
     )
+    # Blind indexes for inbound account resolution. owner_email/email_address are
+    # EncryptedString (random GCM nonce per write → equality on ciphertext never
+    # matches; ORM load fail-closes before the tenant key is known). The blind
+    # index is an HMAC under the GLOBAL master-key-derived lookup key (see
+    # compute_email_blind_index), so inbound webhooks resolve the tenant without
+    # a tenant key — mirrors BackupContact.email_blind_index.
+    owner_email_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    email_address_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Owner-login credential (R7-01): the account owner logs in with owner_email +
+    # this password hash. Previously the operator credential lived on BackupContact
+    # (which conflated the owner-login identity with the escalation backup person);
+    # shard 1e separates them — Account owns the login identity, BackupContact owns
+    # the backup person's contact details. verify via onboarding.service.verify_password.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     whatsapp_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     backup_contact_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid), nullable=True)
     routing_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -274,7 +288,16 @@ class Account(Base):
 
     __table_args__ = (
         Index("ix_accounts_tenant_id", "tenant_id"),
-        Index("ix_accounts_owner_email", "owner_email"),
+        # Blind-index lookups replace ix_accounts_owner_email, which indexed
+        # non-deterministic AES-GCM ciphertext and could never serve an equality
+        # lookup (dropped in migration add_account_email_blind_index). The
+        # indexes are UNIQUE so the inbound resolver's LIMIT 1 is provably
+        # correct (one account per inbox address) and a signup race / future
+        # Account-creation path can't silently create a colliding row that would
+        # route inbound to the wrong tenant. NULLs are distinct under PG UNIQUE,
+        # so pre-backfill rows (NULL index) don't conflict.
+        Index("ix_accounts_owner_email_blind_index", "owner_email_blind_index", unique=True),
+        Index("ix_accounts_email_address_blind_index", "email_address_blind_index", unique=True),
         Index("ix_accounts_status", "status"),
     )
 
@@ -294,7 +317,10 @@ class BackupContact(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(EncryptedString(field_name="backup_email"), nullable=False)
-    # Blind index for login lookups — HMAC of email with global lookup key
+    # Blind index of the BACKUP PERSON's email (HMAC under the global lookup key).
+    # R7-01: login no longer resolves BackupContact — it resolves the Account by
+    # owner_email_blind_index. This index is the backup person's own email index
+    # (kept for future backup-contact lookups / dedup), not the operator login key.
     email_blind_index: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(
         EncryptedString(field_name="backup_phone"), nullable=True
@@ -303,7 +329,6 @@ class BackupContact(Base):
         Enum(ContactTier, name="contact_tier", create_constraint=True), nullable=False
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="backup_contacts")
@@ -332,7 +357,7 @@ class Contact(Base):
     phone: Mapped[Optional[str]] = mapped_column(
         EncryptedString(field_name="contact_phone"), nullable=True
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(EncryptedString(field_name="contact_name"), nullable=False)
     company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     tags: Mapped[Optional[list]] = mapped_column(ARRAY(String(100)), nullable=True)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -411,9 +436,15 @@ class Message(Base):
     in_reply_to_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
-    subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    body_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    body_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subject: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="message_subject"), nullable=True
+    )
+    body_text: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="message_body_text"), nullable=True
+    )
+    body_raw: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="message_body_raw"), nullable=True
+    )
     attachments: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     whatsapp_session_expired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     received_at: Mapped[datetime] = mapped_column(
@@ -454,7 +485,9 @@ class Classification(Base):
         nullable=False,
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reasoning: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="classification_reasoning"), nullable=True
+    )
     classified_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
     )
@@ -577,8 +610,12 @@ class LearnedAnswer(Base):
     account_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
     )
-    question_text: Mapped[str] = mapped_column(Text, nullable=False)
-    answer_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_text: Mapped[str] = mapped_column(
+        EncryptedString(field_name="learned_question"), nullable=False
+    )
+    answer_text: Mapped[str] = mapped_column(
+        EncryptedString(field_name="learned_answer"), nullable=False
+    )
     source_type: Mapped[SourceType] = mapped_column(
         Enum(SourceType, name="source_type", create_constraint=True), nullable=False
     )
@@ -610,7 +647,9 @@ class Response(Base):
     rag_retrieval_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("rag_retrievals.id", ondelete="SET NULL"), nullable=True
     )
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(
+        EncryptedString(field_name="response_content"), nullable=False
+    )
     confidence_badge: Mapped[ConfidenceBadge] = mapped_column(
         Enum(ConfidenceBadge, name="confidence_badge", create_constraint=True), nullable=False
     )
@@ -666,7 +705,9 @@ class Escalation(Base):
         DateTime(timezone=True), nullable=True
     )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    resolution_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolution_summary: Mapped[Optional[str]] = mapped_column(
+        EncryptedString(field_name="escalation_resolution_summary"), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_escalations_tenant_id", "tenant_id"),

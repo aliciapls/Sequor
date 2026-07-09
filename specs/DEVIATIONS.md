@@ -39,10 +39,25 @@ decision that needs legal input).
 
 ## BUILD-PENDING (code under-delivers vs an affirmative spec claim; recommend a scoped build)
 
-### A1 — PII-at-rest encryption (CRITICAL) — recommend BUILD
+### A1 — PII-at-rest encryption — BUILT (2026-07-05, shard 1b; redteam R7 converged)
 
 - **Spec:** `data-model.md` "All PII fields encrypted at rest (AES-256)"; message content = "PII — high sensitivity".
-- **Reality:** `Message.body_text/body_raw/subject`, `Response.content`, `LearnedAnswer.*_text`, `Classification.reasoning`, `Escalation.resolution_summary`, `Contact.name`, `Account.whatsapp_phone` stored plaintext. `EncryptedString` (AES-256-GCM + per-tenant HKDF) exists but is applied only to email/phone identifiers.
+- **Status:** DELIVERED. All PII columns are now `EncryptedString` (AES-256-GCM + per-tenant
+  HKDF): the email/phone identifiers (Account/BackupContact/Contact — pre-existing) plus the
+  nine wrapped in shard 1b (Message.subject/body_text/body_raw, Response.content,
+  LearnedAnswer.question_text/answer_text, Classification.reasoning, Escalation.resolution_summary,
+  Contact.name). Every read/write path binds the per-tenant key via `set_tenant_context`/
+  `bind_tenant` before access; `EncryptedString` fail-closes outside development. Verified by
+  the Tier-2 round-trip suite (ciphertext-at-rest, plaintext-on-read, per-tenant isolation,
+  fail-closed, learning raw-SQL round-trip, erasure) + unit 438 / 1 xfailed.
+- **Migration:** `a1f4c82d6e90_encrypt_pii_columns` widens the two bounded VARCHAR columns
+  (contacts.name, messages.subject) to TEXT so ciphertext can't overflow; the other seven were
+  already TEXT. Schema-only (no backfill) — greenfield-safe; see the migration docstring for
+  the existing-data caveat.
+- **Note (lookup gap, separate concern — tracked in `todos/active/BUILD-WAVE-data-layer-security.md`
+  §1f + journal/0013, NOT an encryption gap):** inbound routing resolves the Account BY its
+  encrypted email column, which cannot match (random nonce). The data is encrypted at rest as
+  specced; the resolution path needs a blind index.
 - **Why this is a scoped multi-shard build, NOT a same-session wrap** (R3 code-quality C1/C2/C3):
   - **C1** — every ORM write path (`email/auto_reply._record_response`, `whatsapp/auto_reply._record_response`, `email/inbound`) creates rows with NO `set_tenant_key` call → wrapping the columns fires the fail-closed `RuntimeError` and breaks the whole auto-reply pipeline. Encryption requires wiring `set_tenant_key` at every write path first.
   - **C2** — `ai/learning.py` reads/writes `learned_answers` via RAW `text()` SQL that bypasses the TypeDecorator → would store plaintext that the ORM digest read then cannot decrypt (`InvalidTag`). LearnedAnswer encryption requires reconciling that raw-SQL layer.
@@ -88,21 +103,21 @@ All rows below were ratified and the canonical value has been **written into the
 unification (auto-send gate) remains a scoped safety-critical shard — the spec horn is resolved
 to the 95% Badge table; the code paths unify in the A3 build (needs Tier-2 PG).
 
-| ID    | Contradiction                                                                                                                                                                                         | Recommended canonical                                                                         | Rationale                                                                                                                                                                                                                                      |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A3    | `response-accuracy.md` ">90% auto-send" (Option C) vs ">95% High / 80–95% Moderate" (Badge table); code uses classifier confidence to gate but synthesis confidence to badge; thresholds 0.9/0.85/0.8 | **Badge table (>95% High, 80–95% Moderate) + gate and badge on the SAME confidence quantity** | More conservative auto-send is the safer default for a compliance-sensitive comms product; the classifier-vs-synthesis mismatch is a genuine bug. Code unification is safety-critical + needs Tier-2 verification → its own shard (see below). |
-| CS-1  | Dedup window 48h (`message-routing.md`) vs 72h (`channel-coordination.md`)                                                                                                                            | **72h**                                                                                       | The longer window is safer against split escalations; confirm against shipped `escalation/thread_key.py`.                                                                                                                                      |
-| CS-2  | Dedup key: embedding-similarity vs `SHA256(thread_key)`                                                                                                                                               | **SHA256 thread_key** (shipped `escalation/thread_key.py`)                                    | Amend `message-routing.md` to the mechanism the code actually ships.                                                                                                                                                                           |
-| CS-3  | Staleness flat 7d vs 7d/30d by doc type                                                                                                                                                               | **7d rosters/price-lists, 30d policies**                                                      | The type-aware rule is the more specific/correct one.                                                                                                                                                                                          |
-| CS-4  | Audit retention flat 24-mo vs tiered 90d/12mo/24mo                                                                                                                                                    | **tiered by plan**                                                                            | Matches `business-model.md` pricing; the flat 24-mo PDPA floor applies to the Enterprise tier. **Product/compliance call — ratify.**                                                                                                           |
-| CS-5  | Template minimum 5 vs 6 vs 8 (all in `message-routing.md`)                                                                                                                                            | **8** (the onboarding pre-approval figure)                                                    | Reconcile the three counts to one.                                                                                                                                                                                                             |
-| CS-6  | Free-tier audit retention only in `business-model.md` (7d)                                                                                                                                            | add Free row to `data-model.md` retention table                                               | Gap, not a contradiction.                                                                                                                                                                                                                      |
-| NEW-2 | Embedding: spec `text-embedding-3-small`/1536-dim vs code `nomic-embed-text`/`Vector(768)`                                                                                                            | **amend spec to 768/nomic (shipped)** + guard the OpenAI fallback                             | Code ships 768; the 1536 OpenAI fallback would fail to insert into `Vector(768)` — fix or gate the fallback.                                                                                                                                   |
-| NEW-7 | `EscalationStatus`: code has `notification_pending` (not in `data-model.md`); `channel-coordination.md` references `pending_ooo_return` (in neither)                                                  | **reconcile the enum to the shipped set**                                                     | Three-way drift; pick the code's enum as truth, fix both specs.                                                                                                                                                                                |
+| ID    | Contradiction                                                                                                                                                                                         | Recommended canonical                                                                         | Rationale                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A3    | `response-accuracy.md` ">90% auto-send" (Option C) vs ">95% High / 80–95% Moderate" (Badge table); code uses classifier confidence to gate but synthesis confidence to badge; thresholds 0.9/0.85/0.8 | **Badge table (>95% High, 80–95% Moderate) + gate and badge on the SAME confidence quantity** | **RESOLVED 2026-07-08.** The A3 code unification landed on `feat/a3-auto-send-gate`: `should_auto_respond` is the sole predicate (static method, takes unified `response_confidence`), both channels gate on `was_auto_sent`, and the badge table thresholds (>=0.95/0.80/0.60) are implemented in `_badge_for()`. Spec reconciled — Option C + Badge Levels sections now cite the badge table as canonical. |
+| CS-1  | Dedup window 48h (`message-routing.md`) vs 72h (`channel-coordination.md`)                                                                                                                            | **72h**                                                                                       | The longer window is safer against split escalations; confirm against shipped `escalation/thread_key.py`.                                                                                                                                                                                                                                                                                                    |
+| CS-2  | Dedup key: embedding-similarity vs `SHA256(thread_key)`                                                                                                                                               | **SHA256 thread_key** (shipped `escalation/thread_key.py`)                                    | Amend `message-routing.md` to the mechanism the code actually ships.                                                                                                                                                                                                                                                                                                                                         |
+| CS-3  | Staleness flat 7d vs 7d/30d by doc type                                                                                                                                                               | **7d rosters/price-lists, 30d policies**                                                      | The type-aware rule is the more specific/correct one.                                                                                                                                                                                                                                                                                                                                                        |
+| CS-4  | Audit retention flat 24-mo vs tiered 90d/12mo/24mo                                                                                                                                                    | **tiered by plan**                                                                            | Matches `business-model.md` pricing; the flat 24-mo PDPA floor applies to the Enterprise tier. **Product/compliance call — ratify.**                                                                                                                                                                                                                                                                         |
+| CS-5  | Template minimum 5 vs 6 vs 8 (all in `message-routing.md`)                                                                                                                                            | **8** (the onboarding pre-approval figure)                                                    | Reconcile the three counts to one.                                                                                                                                                                                                                                                                                                                                                                           |
+| CS-6  | Free-tier audit retention only in `business-model.md` (7d)                                                                                                                                            | add Free row to `data-model.md` retention table                                               | Gap, not a contradiction.                                                                                                                                                                                                                                                                                                                                                                                    |
+| NEW-2 | Embedding: spec `text-embedding-3-small`/1536-dim vs code `nomic-embed-text`/`Vector(768)`                                                                                                            | **amend spec to 768/nomic (shipped)** + guard the OpenAI fallback                             | Code ships 768; the 1536 OpenAI fallback would fail to insert into `Vector(768)` — fix or gate the fallback.                                                                                                                                                                                                                                                                                                 |
+| NEW-7 | `EscalationStatus`: code has `notification_pending` (not in `data-model.md`); `channel-coordination.md` references `pending_ooo_return` (in neither)                                                  | **reconcile the enum to the shipped set**                                                     | Three-way drift; pick the code's enum as truth, fix both specs.                                                                                                                                                                                                                                                                                                                                              |
 
-### A3 code unification (safety-critical — scoped shard, not this session)
+### A3 code unification — **RESOLVED 2026-07-08** (landed on `feat/a3-auto-send-gate`)
 
-Reviving `should_auto_respond` (`classifier.py`, currently dead) as the single auto-send predicate, feeding it `Account.confidence_threshold`, restoring the urgency guard on the learned-answer path, and making WhatsApp honor `was_auto_sent` (currently asymmetric with email) is the correct unification. It touches the machine-reply-without-human safety gate across `classifier.py`/`response.py`/`email/auto_reply.py`/`whatsapp/auto_reply.py` and needs Tier-2 verification (real infra) — so it is scoped as its own shard rather than changed unverified this session.
+`should_auto_respond` (`classifier.py`) is now the single auto-send predicate (static method, takes unified `response_confidence` + `Account.confidence_threshold`). Both email and WhatsApp channels gate on `was_auto_sent` via the `ResponseGenerator`. The badge table thresholds (>=0.95 high, >=0.80 moderate, >=0.60 low) are implemented in `_badge_for()` and consumed by both the gate and the rendered badge. The WhatsApp footer includes the confidence figure. Tier-2 PG verification is in `tests/unit/test_a3_eval_probe.py` (the eval-harness probe battery). Spec reconciled — `response-accuracy.md` Option C + Badge Levels sections now cite the badge table as canonical.
 
 ## Deferred security hardening (logged from R3; see `r3-security.md`)
 
@@ -139,11 +154,12 @@ finding) or a security-hardening/flow decision. Builds sequence behind the F5 va
 - **Reality:** no malware/AV scan in `src/sequor/` (`grep -rni 'malware\|clamav\|virus' src/sequor/` → 0). Uploads are size-bounded (25MB) + extension/filename validated, but not AV-scanned.
 - **Disposition:** BUILD behind F5 (needs an AV service/daemon — a provisioning decision, class of N3). Size + extension + path-traversal guards ship today.
 
-### F2 — PDPA retention-purge job (HIGH — compliance) — recommend BUILD
+### F2 — PDPA retention-purge job (HIGH — compliance) — PARTIAL (core shipped, shard 1d)
 
-- **Spec:** `data-model.md` retention schedule "enforced via a nightly batch job that purges records older than the retention period" — now softened to "policy-defined but not machine-enforced (F2)".
-- **Reality:** no purge/retention job exists (`grep -rni 'purge\|nightly\|retention.*job' src/sequor/` → 0). Retention periods are documented policy but nothing deletes expired rows.
-- **Why it matters:** PDPA **over-retention** risk — customer PII is kept indefinitely past its stated retention period. This is the highest-priority logged item after A1; recommend a scheduled purge job (needs the scheduler infra + Tier-2 verification) sequenced with the A1/A2 data-layer wave.
+- **Spec:** `data-model.md` § "Data Retention Schedule" — retention is PDPA policy, enforced via a scheduled purge job.
+- **Shipped (shard 1d):** `src/sequor/db/retention.py::run_retention_purge_once` — a per-tenant sweep that bulk-deletes `Message` / `AuditEntry` / `Escalation` rows older than the plan's retention (7d free / 90d starter / 365d professional / 730d enterprise), writing one summary `AuditEntry(action="retention.purge")` per purged tenant. Each tenant is bound in a fresh `AsyncSession` (`bind_tenant` sets the RLS GUC + encryption key; an explicit `WHERE tenant_id` is defense-in-depth). Wired into the app lifespan via `create_retention_scheduler` — opt-in (`retention_purge_enabled`, default OFF until the deploy role/env is configured, since RLS is no-FORCE). Tier-2: `tests/integration/test_retention_purge.py` (per-plan cutoffs, all-three-tables + audit entry, cross-tenant isolation).
+- **Deferred (1d-tail):** Free-tier `Contact` (7d) and `Document` (7d) purge. `Contact` has no `created_at` column — needs a schema decision (`last_seen` is last activity, not creation, so it is the wrong key). `Document` purge requires the RAG chunk/embedding cascade. Both remain PDPA policy in `data-model.md` but are not yet machine-enforced.
+- **Why it matters:** PDPA **over-retention** risk — customer PII kept indefinitely past the stated retention floor. The shipped job closes it for the highest-sensitivity PII (message content) and the accountability records (audit, escalation).
 
 ### F3 — Routing flywheel not built (MED) — recommend BUILD (A4-themed moat)
 
@@ -170,3 +186,45 @@ finding) or a security-hardening/flow decision. Builds sequence behind the F5 va
 
 - **Reality:** `auth.py::_signing_secret` deliberately logs `auth.jwt_secret_too_short` and returns a set-but-short secret ("do not hard-break a running deployment"); only the **unset** case fails closed. The R3 merge-gate note states "JWT_SECRET (≥32 bytes)" as if enforced.
 - **Disposition:** claim corrected — a short secret is **warned, not rejected** (128-bit HMAC is still infeasible to brute-force). Recommended hardening: enforce ≥32 bytes at **startup** (consistent with the unset-secret fail-closed boot posture) — an owner deploy-config decision, not changed unprompted here to avoid breaking a running deploy with a short secret.
+
+## R7 additions (2026-07-05 build-wave Tier-2 activation — newly-surfaced)
+
+Evidence: `workspaces/future-of-work/04-validate/round7/` (this session). Surfaced while
+wiring the Tier-2 PostgreSQL feedback loop (dedicated `sequor-test-pg` pgvector container)
+that the A1/A2/F2/A3 build wave requires. The loop had been **dark** — the committed
+integration suite had never run against a live Postgres (stale `drop_all()` calls, no
+per-test DB isolation), which masked the finding below. Wave-0 (green the loop) fixes:
+`drop_all(force=True)` in `test_db_init.py`, `plan "starter"→"free"` (spec-verified: Free is
+the entry tier), and `tests/integration/conftest.py` autouse per-test truncate + per-tenant
+schema drop. Unit suite unaffected (437 pass in the normal env).
+
+### R7-01 — `backup_contacts` conflates owner-login identity with escalation backup contact (HIGH — correctness/routing) — RESOLVED (shard 1e)
+
+- **Was:** `onboarding/service.py` signup created ONE `BackupContact` row mixing the
+  backup person's `name`/`tier` with the OWNER's `email` + `password_hash` +
+  `email_blind_index`. `backup_contacts` was simultaneously the operator-login table
+  AND the escalation recipient table — so the backup person's `backup_email` was
+  **discarded** and every escalation emailed the **account owner** (the backup-contact
+  feature was silently non-functional).
+- **Resolved by shard 1e** (build `9333b8f` + round-1 `342ceb7`): the owner-login
+  identity and the escalation backup contact are now separate —
+  - **Account** owns the owner-login identity: `owner_email` + `password_hash` +
+    `owner_email_blind_index`. Login resolves the Account via
+    `resolve_account_login_by_email_blind_index` (SECURITY DEFINER; least-privilege:
+    only login gets `password_hash`).
+  - **BackupContact** owns the backup person: their `email`/`name`/`tier`.
+    `escalation/service.py` `to=backup["email"]` now routes to the designated backup
+    person. Dedup keys on `Account.owner_email_blind_index` (the real owner identity).
+  - Schema migration `e1d2c3b4a506` (ADD `accounts.password_hash`, DROP
+    `backup_contacts.password_hash`, swap the login resolver fn); the legacy
+    `resolve_backup_contact_by_email_blind_index` RLS-bypassing fn is dropped.
+- **Tripwire (cleared):** `test_signup_creates_backup_contact` was `xfail(strict=True)`
+  referencing this row; the marker was removed same-shard when the fix landed (it now
+  passes — `backup.email == backup_email`). Round-1 also added the missing
+  signup → login → `/portal/me` user-flow walk.
+- **Tier-2:** 4 new tests (resolver finds account by owner_email; backup person's email
+  is not a login identity; wrong password rejected; `/portal/me` returns owner email).
+  Full suite 489/1-xfailed.
+- **Deferred (1e-tail):** `operator_count` dashboard metric label drift (pre-existing;
+  now counts `BackupContact` rows labelled "operators" — rename to `backup_contact_count`
+  - update frontend consumer).

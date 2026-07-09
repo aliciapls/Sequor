@@ -82,11 +82,18 @@ class InboundEmailProcessor:
 
         account = await self._resolve_account(inbound.to_email)
         if account is None:
-            logger.warning("inbound.no_account", to=inbound.to_email)
+            logger.warning("inbound.no_account", to=_mask_email(inbound.to_email))
             return {"status": "no_account", "from": inbound.from_email}
 
         tenant_id = account["tenant_id"]
         account_id = account["id"]
+
+        # Bind this session to the resolved tenant BEFORE any encrypted-column
+        # write/read (Contact.name, Message.subject/body_text/body_raw,
+        # Escalation.resolution_summary, LearnedAnswer.*). The session is shared
+        # across the whole request, so one bind covers every downstream CRUD
+        # call in this flow. No-op without ENCRYPTION_MASTER_KEY (dev fail-open).
+        await self._db.bind_tenant(tenant_id)
 
         contact = await self._resolve_or_create_contact(
             tenant_id=tenant_id,
@@ -261,9 +268,9 @@ class InboundEmailProcessor:
 
             loop = LearningLoop(engine=get_engine())
             await loop.capture_human_answer(
-                tenant_id=uuid.UUID(tenant_id),
-                account_id=uuid.UUID(account_id),
-                escalation_id=uuid.UUID(escalation_id),
+                tenant_id=uuid.UUID(str(tenant_id)),
+                account_id=uuid.UUID(str(account_id)),
+                escalation_id=uuid.UUID(str(escalation_id)),
                 original_query=parent["body_text"],
                 human_reply=human_reply or "",
             )
@@ -312,14 +319,43 @@ class InboundEmailProcessor:
             )
 
     async def _resolve_account(self, to_email: str) -> dict | None:
-        lower = to_email.lower()
-        by_email = await self._db.list("Account", {"email_address": lower})
-        if by_email:
-            return by_email[0]
-        by_owner = await self._db.list("Account", {"owner_email": lower})
-        if by_owner:
-            return by_owner[0]
-        return None
+        """Resolve the destination mailbox to an Account.
+
+        Production (ENCRYPTION_MASTER_KEY set): ``owner_email``/``email_address``
+        are ``EncryptedString`` (random AES-GCM nonce per write), so an equality
+        filter on the ciphertext never matches and an ORM load would call
+        ``process_result_value`` and fail-close before the tenant key is known.
+        Look up by the global email blind index via a raw projection of
+        non-encrypted columns — mirrors ``onboarding.app.auth_login``.
+
+        Dev (no master key): ``EncryptedString`` stores plaintext and no blind
+        index exists, so fall back to plaintext equality on the ORM path. This
+        mirrors ``bind_tenant``'s no-op-in-dev split.
+        """
+        from sequor.config import settings
+
+        if not settings.encryption_master_key:
+            lower = to_email.lower()
+            by_email = await self._db.list("Account", {"email_address": lower})
+            if by_email:
+                return by_email[0]
+            by_owner = await self._db.list("Account", {"owner_email": lower})
+            if by_owner:
+                return by_owner[0]
+            return None
+
+        from sequor.db.encrypted_column import compute_email_blind_index
+
+        idx = compute_email_blind_index(to_email)
+        # Route through the SECURITY DEFINER lookup function so the query bypasses
+        # RLS — this lookup IS the tenant discovery (it must cross tenants to find
+        # which tenant owns the address). A direct SELECT on accounts under RLS
+        # would see no rows (the inbound request has no tenant bound yet).
+        rows = await self._db.raw_execute(
+            "SELECT id, tenant_id, name, status " "FROM resolve_account_by_email_blind_index(:idx)",
+            {"idx": idx},
+        )
+        return rows[0] if rows else None
 
     async def _resolve_or_create_contact(
         self,

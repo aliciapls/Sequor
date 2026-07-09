@@ -50,7 +50,10 @@ async def test_signup_creates_tenant(db_session):
     assert tenant is not None
     assert tenant.name == "Integration Test Corp"
     assert tenant.email_domain == "integrationtest.com"
-    assert tenant.plan.value == "starter"
+    # New signups land on the Free entry tier (spec/onboarding.md: "Daily digest
+    # (Starter+)" — Starter is a paid upgrade above Free). Matches
+    # onboarding/service.py signup(plan="free") + Tenant model default.
+    assert tenant.plan.value == "free"
 
 
 @pytest.mark.asyncio
@@ -114,3 +117,146 @@ async def test_signup_with_all_to_backup_routing(db_session):
 
     account = await db_session.get(Account, result["account_id"])
     assert account.routing_rules["auto_respond"] is False
+
+
+# ---------------------------------------------------------------------------
+# R7-01 (shard 1e): login resolves the ACCOUNT (the owner-login identity), not
+# the backup contact. These exercise the new resolve_account_login_by_email_
+# blind_index SECURITY DEFINER function + the Account.password_hash credential.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_login_resolver_finds_account_by_owner_email(db_session):
+    """After signup, the login resolver finds the ACCOUNT by owner_email blind
+    index and returns its password_hash; verify_password succeeds for the owner's
+    password. The backup person's email is NOT a login identity (resolves to
+    nothing) — proving the owner-login / backup-contact separation."""
+    from sqlalchemy import text
+
+    from sequor.auth import verify_password
+    from sequor.db.encrypted_column import compute_email_blind_index
+
+    req = _valid_request()
+    await signup(db_session, req)
+    await db_session.commit()
+
+    owner_idx = compute_email_blind_index(req.owner_email)
+    row = (
+        (
+            await db_session.execute(
+                text(
+                    "SELECT id, tenant_id, password_hash, name "
+                    "FROM resolve_account_login_by_email_blind_index(:idx)"
+                ),
+                {"idx": owner_idx},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    assert row is not None, "login resolver must find the account by owner_email"
+    assert row["password_hash"], "Account.password_hash must be populated at signup"
+    assert verify_password(req.owner_password, row["password_hash"])
+
+    # The backup person's email must NOT be a login identity (the R7-01 split).
+    backup_idx = compute_email_blind_index(req.backup_email)
+    backup_row = (
+        (
+            await db_session.execute(
+                text("SELECT id FROM resolve_account_login_by_email_blind_index(:idx)"),
+                {"idx": backup_idx},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    assert backup_row is None, "the backup person's email must not resolve as a login"
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_wrong_password(db_session):
+    """verify_password fails for a wrong password and succeeds for the owner's."""
+    from sqlalchemy import text
+
+    from sequor.auth import verify_password
+    from sequor.db.encrypted_column import compute_email_blind_index
+
+    req = _valid_request()
+    await signup(db_session, req)
+    await db_session.commit()
+
+    owner_idx = compute_email_blind_index(req.owner_email)
+    row = (
+        (
+            await db_session.execute(
+                text("SELECT password_hash FROM resolve_account_login_by_email_blind_index(:idx)"),
+                {"idx": owner_idx},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    assert row is not None
+    assert not verify_password("wrong-password", row["password_hash"])
+    assert verify_password(req.owner_password, row["password_hash"])
+
+
+@pytest.mark.asyncio
+async def test_login_resolver_unknown_email_finds_nothing(db_session):
+    """An email no account owns resolves to nothing — login fails closed."""
+    from sqlalchemy import text
+
+    from sequor.db.encrypted_column import compute_email_blind_index
+
+    # Signup one account so the table is non-empty.
+    await signup(db_session, _valid_request())
+    await db_session.commit()
+
+    unknown_idx = compute_email_blind_index("nobody@nowhere.com")
+    row = (
+        (
+            await db_session.execute(
+                text("SELECT id FROM resolve_account_login_by_email_blind_index(:idx)"),
+                {"idx": unknown_idx},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    assert row is None, "unknown email must not resolve"
+
+
+@pytest.mark.asyncio
+async def test_portal_me_returns_owner_email_after_login(db_session):
+    """R7-01 regression (user-flow walk): signup → /auth/login → /portal/me must
+    return the OWNER's email. Post-1e ``operator_id`` is ``Account.id``; reading
+    ``BackupContact`` by that id returns None, so /me used to come back blank.
+    The fix reads the owner identity from Account. Walks the actual user-facing
+    surface (the resolver-level tests cannot see this sibling call-site)."""
+    import httpx
+
+    from sequor.onboarding.app import app
+
+    req = _valid_request()
+    await signup(db_session, req)
+    await db_session.commit()
+
+    # ASGITransport runs the app in-process in the same event loop (no nested
+    # loop); the AsyncClient persists the login cookie across the two requests.
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        login = await client.post(
+            "/api/v1/auth/login",
+            json={"email": req.owner_email, "password": req.owner_password},
+        )
+        assert login.status_code == 200, login.text
+
+        me = await client.get("/api/v1/portal/me")
+        assert me.status_code == 200, me.text
+        body = me.json()
+        assert body["email"] == req.owner_email, (
+            "/portal/me must read the owner email from Account (was blank when it "
+            "read BackupContact by the Account.id operator_id)"
+        )
+        assert body["role"] == "admin"

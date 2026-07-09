@@ -406,7 +406,7 @@ Erasure of a Contact proceeds as:
 - Role-based access: only the covered user + designated backup contacts can see message content
 - API access: authenticated via short-lived JWT tokens, not long-lived API keys
 - No raw PII in application logs — contact IDs and message hashes used instead
-- Tenant isolation enforced at the database schema level (separate schema per tenant, not just `tenant_id` column)
+- Tenant isolation enforced at the **database** level via PostgreSQL Row-Level Security: every tenant-scoped table carries a `tenant_isolation` policy (`USING (tenant_id = current_setting('app.current_tenant', true)::uuid)` with a matching `WITH CHECK`) so the DB refuses another tenant's rows even when the application forgets the `WHERE tenant_id` filter. The `app.current_tenant` GUC is set transaction-local (`set_config(..., true)`) at every connection checkout by the tenant-context boundary (`bind_tenant`), so it can never leak across pooled checkouts. Three cross-tenant _discovery_ lookups (inbound account resolution by email blind index / WhatsApp phone, and backup-contact login) bypass RLS via `SECURITY DEFINER` functions owned by the table owner — they are the intentional tenant-discovery path, not forgotten-filter leaks. (`tenant_encryption_keys` is exempt: the key row is read before the GUC is set.) Deploy requirement: the application connects as a non-owner, non-`BYPASSRLS` role so the policy constrains it; the owner/migrator role bypasses RLS by design, which is what lets the discovery functions operate.
 
 ---
 
@@ -422,7 +422,13 @@ Erasure of a Contact proceeds as:
 
 (Free-tier 7-day retention per `business-model.md`, resolving `DEVIATIONS.md` CS-6.)
 
-The retention periods above are the PDPA policy. Their **enforcement** — a scheduled purge job that auto-deletes records older than the retention period, logging each deletion to the audit entry — is a scoped build tracked in `DEVIATIONS.md` (F2 — retention-purge job) and is **not yet implemented**; until it ships, retention is policy-defined but not machine-enforced.
+The retention periods above are the PDPA policy. Their **enforcement** (shard 1d):
+`Message`, `AuditEntry`, and `Escalation` rows older than the bound plan's retention are
+auto-deleted by the scheduled purge job (`src/sequor/db/retention.py::run_retention_purge_once`),
+which writes one summary `AuditEntry(action="retention.purge")` per purged tenant. Free-tier
+`Contact` (7d) and `Document` (7d) enforcement is deferred to the 1d-tail follow-up — `Contact`
+has no `created_at` column (needs a schema decision), and `Document` purge requires the RAG
+chunk/embedding cascade; both remain PDPA policy here and are tracked in `DEVIATIONS.md` §F2.
 
 ---
 
