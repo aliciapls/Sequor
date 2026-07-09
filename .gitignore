@@ -66,6 +66,7 @@ secrets/
 **/scripts/data/
 **/scripts/outputs/
 **/scripts/*.log
+.vercel
 
 # COC multi-operator/per-clone runtime state (never versioned)
 .claude/operator-id

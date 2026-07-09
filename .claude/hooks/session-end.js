@@ -124,6 +124,13 @@ function saveSession(data) {
     // Clean up old sessions (keep last 20)
     cleanupOldSessions(sessionDir, 20);
 
+    // Notification: launch mascot (re-applied from local WIP onto the refreshed hook)
+    try {
+      require(
+        process.env.HOME + "/.claude/hooks/lib/notify-mascot.js",
+      ).launch();
+    } catch {}
+
     // User-visible summary (was DARK before; mitigates red-team session-end-DARK)
     const stats = sessionData.stats || {};
     const fileCount = Object.values(stats).reduce(
@@ -500,6 +507,10 @@ function appendJournalSkipLog(workspacePath, hash, skipReason, subject) {
 }
 
 function cleanupOldSessions(sessionDir, keepCount) {
+  // Notification: launch mascot
+  try {
+    require(process.env.HOME + "/.claude/hooks/lib/notify-mascot.js").launch();
+  } catch {}
   try {
     const files = fs
       .readdirSync(sessionDir)
