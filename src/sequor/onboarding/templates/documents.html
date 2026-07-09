@@ -6,6 +6,12 @@
     + Upload Document
 </button>
 {% endblock %}
+{% block page_style %}
+<style>
+.empty-upload-zone { transition: all 0.2s; }
+.empty-upload-zone:hover { border-color: var(--duck-500); background: var(--duck-50); }
+</style>
+{% endblock %}
 {% block page_content %}
 <div class="page-header">
     <div>
@@ -409,7 +415,12 @@ async function loadDocuments() {
         var data = await res.json();
         var docs = data.documents || [];
         if (docs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--slate-400);">No documents uploaded yet. Click "Upload Document" to add your first.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="padding:0;">' +
+                '<div class="empty-upload-zone" onclick="openUploadModal()" style="margin:20px;border:2px dashed var(--duck-300);border-radius:14px;padding:56px 24px;text-align:center;cursor:pointer;">' +
+                '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--duck-500)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:10px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>' +
+                '<div style="font-size:16px;font-weight:600;color:var(--slate-700);">Click to upload your first document</div>' +
+                '<div class="text-sm text-muted" style="margin-top:6px;">PDF, DOCX, or TXT — up to 25MB</div>' +
+                '</div></td></tr>';
             return;
         }
         tbody.innerHTML = docs.map(function(d) {
