@@ -283,8 +283,16 @@ document.getElementById('upload-form').onsubmit = async function(e) {
             progressBar.style.width = '100%';
             statusEl.textContent = 'Processing...';
             if (xhr.status >= 200 && xhr.status < 300) {
-                statusEl.textContent = 'Done!';
-                setTimeout(function() { closeUploadModal(); loadDocuments(); }, 500);
+                var data = {};
+                try { data = JSON.parse(xhr.responseText) || {}; } catch(e) {}
+                var suggested = data.suggested_key_phrases || [];
+                if (suggested.length > 0) {
+                    statusEl.textContent = 'Done! ' + suggested.length + ' key phrases suggested — open the document to review.';
+                    setTimeout(function() { closeUploadModal(); loadDocuments(); }, 1600);
+                } else {
+                    statusEl.textContent = 'Done!';
+                    setTimeout(function() { closeUploadModal(); loadDocuments(); }, 500);
+                }
             } else {
                 var err = 'Upload failed';
                 try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}

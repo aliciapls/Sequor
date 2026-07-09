@@ -1473,6 +1473,37 @@ async def portal_api_upload_document(
                 status=DocumentStatus.ready,
             )
 
+        # Best-effort: auto-suggest key phrases from the document's own text.
+        # The upload has already succeeded by this point, so any failure here
+        # is non-fatal — we log and return an empty suggestion list rather than
+        # turn a successful upload into a 500.
+        suggested_key_phrases: list[str] = []
+        try:
+            from sequor.ai.keyphrase_extractor import (
+                create_suggested_mappings,
+                extract_key_phrases,
+            )
+
+            doc_text = "\n".join(chunk.text for chunk in raw_chunks)
+            phrases = await extract_key_phrases(doc_text, ingester._llm)
+            if phrases:
+                async with AsyncSession(engine) as kp_session:
+                    from sequor.db.tenant_context import bind_tenant
+
+                    await bind_tenant(kp_session, tenant_id)  # RLS: bind before tenant-scoped write
+                    suggested_key_phrases = await create_suggested_mappings(
+                        session=kp_session,
+                        tenant_id=tenant_id,
+                        document_id=document_id,
+                        phrases=phrases,
+                    )
+        except Exception as e:
+            _logger.warning(
+                "keyphrase.autosuggest_failed",
+                document_id=str(document_id),
+                error=str(e),
+            )
+
         return JSONResponse(
             status_code=201,
             content={
@@ -1480,6 +1511,7 @@ async def portal_api_upload_document(
                 "document_id": str(document_id),
                 "filename": filename,
                 "document_type": document_type,
+                "suggested_key_phrases": suggested_key_phrases,
             },
         )
     except ValueError as e:
