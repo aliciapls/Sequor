@@ -31,13 +31,18 @@ class Settings(BaseSettings):
     llm_model: str = "llama3.1"
     embedding_model: str = "nomic-embed-text"
 
-    # LLM provider selection: "ollama" (local) or "minimax" (cloud)
+    # LLM provider selection: "ollama" (local), "minimax", or "deepseek" (cloud)
     llm_provider: str = "ollama"
 
     # MiniMax (cloud LLM — OpenAI-compatible API)
     minimax_api_key: str = ""
     minimax_model: str = "MiniMax-M1"
     minimax_base_url: str = "https://api.minimax.chat/v1"
+
+    # DeepSeek (cloud LLM — OpenAI-compatible API)
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
 
     # Embeddings fallback (OpenAI — used when Ollama is unavailable)
     openai_api_key: str = ""

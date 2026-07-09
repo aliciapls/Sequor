@@ -309,9 +309,21 @@ def get_llm_client() -> OllamaClient | MiniMaxClient:
     """Get or create the LLM client based on settings.llm_provider."""
     global _client
     if _client is None:
-        if settings.llm_provider == "minimax":
+        provider = settings.llm_provider
+        if provider == "minimax":
             logger.info("llm.client.init", provider="minimax", model=settings.minimax_model)
-            _client = MiniMaxClient()
+            _client = MiniMaxClient(
+                api_key=settings.minimax_api_key,
+                model=settings.minimax_model,
+                base_url=settings.minimax_base_url,
+            )
+        elif provider == "deepseek":
+            logger.info("llm.client.init", provider="deepseek", model=settings.deepseek_model)
+            _client = MiniMaxClient(
+                api_key=settings.deepseek_api_key,
+                model=settings.deepseek_model,
+                base_url=settings.deepseek_base_url,
+            )
         else:
             logger.info("llm.client.init", provider="ollama", model=settings.llm_model)
             _client = OllamaClient()
