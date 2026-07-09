@@ -81,7 +81,6 @@ TENANT_SCOPED_TABLES: list[str] = [
     "escalations",
     "audit_entries",
     "routing_outcomes",
-    "key_phrase_mappings",
 ]
 
 # A row is visible/writeable iff tenant_id matches the bound tenant GUC. NULL GUC

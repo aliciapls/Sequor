@@ -73,7 +73,6 @@ _TENANT_SCOPED_TABLES = [
     "escalations",
     "audit_entries",
     "routing_outcomes",
-    "key_phrase_mappings",
 ]
 
 _POLICY_EXPR = "(tenant_id = current_setting('app.current_tenant', true)::uuid)"
