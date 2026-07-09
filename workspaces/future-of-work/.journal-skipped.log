@@ -43,3 +43,10 @@
 2026-07-08T15:56:01.189Z <journal-skip>commit=42ba19d07676 reason=docs-routine subject="docs(wave-2): A3 /analyze + /todos — planning artifacts"</journal-skip>
 2026-07-08T15:56:11.674Z <journal-skip>commit=b7dbe8880d3a reason=docs-routine subject="docs(sweep): 2026-07-08 end-of-cycle audit (demo-driven)"</journal-skip>
 2026-07-08T15:56:11.675Z <journal-skip>commit=42ba19d07676 reason=docs-routine subject="docs(wave-2): A3 /analyze + /todos — planning artifacts"</journal-skip>
+2026-07-09T06:58:07.735Z <journal-skip>commit=f1cd034962f0 reason=merge-commit subject="Merge branch 'feat/a3-auto-send-gate'"</journal-skip>
+2026-07-09T06:58:07.735Z <journal-skip>commit=9ba920abf2a9 reason=chore-routine subject="chore: wrapup — session artifacts, MCP config, deployment fixes"</journal-skip>
+2026-07-09T06:58:07.736Z <journal-skip>commit=a5ea4a88fd3e reason=fix-routine subject="fix(prod): catch RLS UUID cast error in pre-tenant dup check"</journal-skip>
+2026-07-09T06:58:07.736Z <journal-skip>commit=73ebb0d98fe0 reason=fix-routine subject="fix(prod): remove init_db() call from signup handler"</journal-skip>
+2026-07-09T06:58:07.736Z <journal-skip>commit=83d8a67fa49d reason=fix-routine subject="fix(prod): catch init_db failures gracefully in lifespan"</journal-skip>
+2026-07-09T06:58:07.736Z <journal-skip>commit=f571dd794d4f reason=fix-routine subject="fix(db): update RLS lookup function for R7-01 schema"</journal-skip>
+2026-07-09T06:58:07.736Z <journal-skip>commit=69d5df403095 reason=fix-routine subject="fix(db): remove phantom key_phrase_mappings from RLS table list"</journal-skip>
