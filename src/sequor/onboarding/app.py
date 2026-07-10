@@ -7,6 +7,7 @@ Uses FastAPI (lightweight, async, Pydantic integration). Runs with:
 import hashlib
 import hmac
 import json as _json
+import math
 import re
 import structlog
 from contextlib import asynccontextmanager
@@ -434,7 +435,13 @@ async def email_inbound(request: Request):
                     _acct_stmt = select(_Account).where(_Account.id == _UUID(result["account_id"]))
                     _acct_result = await session.execute(_acct_stmt)
                     _account = _acct_result.scalar_one_or_none()
-                    _acct_threshold = _account.confidence_threshold if _account else 0.90
+                    _acct_threshold = (
+                        _account.confidence_threshold
+                        if _account
+                        and _account.confidence_threshold is not None
+                        and math.isfinite(_account.confidence_threshold)
+                        else 0.90
+                    )
 
                     ctx = MessageContext(
                         tenant_id=_UUID(result["tenant_id"]),
@@ -612,7 +619,13 @@ async def whatsapp_inbound(request: Request):
                         )
                         _wa_acct_result = await session.execute(_wa_acct_stmt)
                         _wa_account = _wa_acct_result.scalar_one_or_none()
-                        _wa_threshold = _wa_account.confidence_threshold if _wa_account else 0.90
+                        _wa_threshold = (
+                            _wa_account.confidence_threshold
+                            if _wa_account
+                            and _wa_account.confidence_threshold is not None
+                            and math.isfinite(_wa_account.confidence_threshold)
+                            else 0.90
+                        )
 
                         ai_result = await svc.process_message(
                             ctx, confidence_threshold=_wa_threshold

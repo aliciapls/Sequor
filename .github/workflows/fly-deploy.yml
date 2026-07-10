@@ -15,7 +15,10 @@ on:
 
 concurrency:
   group: fly-deploy
-  cancel-in-progress: false # never cancel a deploy mid-flight
+  # cancel-in-progress: true because fly deploy --remote-only is idempotent.
+  # Cancelling a mid-flight deploy leaves the prior deployment live; the
+  # superseding run rebuilds to the latest commit. No partial-state risk.
+  cancel-in-progress: true
 
 jobs:
   deploy:
