@@ -1,0 +1,46 @@
+name: Deploy to Fly.io
+
+# Auto-deploys `main` to the Fly app "sequor" (serves sequor.kailash.ai).
+#
+# Requires the `FLY_API_TOKEN` repo secret — a deploy-scoped token from
+# `fly tokens create deploy -a sequor`. Until that secret is added, the
+# workflow runs but SKIPS the deploy step cleanly (no noisy failures);
+# the moment the token is set, the next push (or a manual "Run workflow")
+# ships the merged `main` to kailash.ai.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false # never cancel a deploy mid-flight
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Fly token is configured
+        id: token
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::FLY_API_TOKEN secret not set — skipping deploy. Add it (deploy token from 'fly tokens create deploy -a sequor') to enable auto-deploy."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up flyctl
+        if: steps.token.outputs.skip != 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        if: steps.token.outputs.skip != 'true'
+        run: fly deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
