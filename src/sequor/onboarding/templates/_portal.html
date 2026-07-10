@@ -178,69 +178,7 @@
         }
         .nav-badge.visible { display: inline-block; }
 
-        .sidebar-footer {
-            padding: 12px;
-            border-top: 1px solid var(--duck-100);
-        }
-
-        .sidebar-user {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 12px;
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            transition: background 0.12s;
-            text-decoration: none;
-        }
-
-        .sidebar-user:hover { background: var(--slate-50); }
-
-        .sidebar-user-avatar {
-            width: 34px;
-            height: 34px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--duck-400), var(--duck-600));
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 13px;
-            font-weight: 700;
-            flex-shrink: 0;
-            box-shadow: 0 2px 6px rgba(95, 166, 197, 0.3);
-        }
-
-        .sidebar-user-info { flex: 1; min-width: 0; }
-        .sidebar-user-name {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--slate-800);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .sidebar-user-email {
-            font-size: 11px;
-            color: var(--slate-400);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .sidebar-logout {
-            padding: 8px;
-            border-radius: var(--radius-sm);
-            color: var(--slate-400);
-            transition: all 0.12s;
-            cursor: pointer;
-            background: none;
-            border: none;
-            font-family: inherit;
-        }
-
-        .sidebar-logout:hover { background: var(--red-50); color: var(--red-500); }
-        .sidebar-logout svg { width: 15px; height: 15px; display: block; }
+        /* Account info now lives in the topbar (.topbar-account). */
 
         /* ── Main Content ── */
         .main-content {
@@ -294,6 +232,65 @@
             display: flex;
             align-items: center;
             gap: 10px;
+        }
+
+        .topbar-right { display: flex; align-items: center; gap: 14px; }
+
+        .topbar-account {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-left: 14px;
+            border-left: 1px solid var(--slate-200);
+        }
+        .account-user {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 180px;
+            cursor: default;
+        }
+        .account-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--duck-400), var(--duck-600));
+            color: white;
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 2px 6px rgba(95, 166, 197, 0.3);
+        }
+        .account-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--slate-700);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .account-logout {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: none;
+            color: var(--slate-400);
+            cursor: pointer;
+            transition: all 0.12s;
+        }
+        .account-logout:hover { background: var(--red-50); color: var(--red-500); }
+        .account-logout svg { width: 16px; height: 16px; }
+
+        @media (max-width: 640px) {
+            .account-name { display: none; }
+            .account-user { max-width: none; }
         }
 
         .topbar-btn {
@@ -764,21 +761,6 @@
                 Settings
             </a>
         </div>
-
-        <div class="sidebar-footer">
-            <div style="display:flex;align-items:center;gap:8px;">
-                <div class="sidebar-user" style="flex:1;cursor:default;">
-                    <div class="sidebar-user-avatar" id="user-avatar">—</div>
-                    <div class="sidebar-user-info">
-                        <div class="sidebar-user-name" id="user-name">—</div>
-                        <div class="sidebar-user-email" id="user-email"></div>
-                    </div>
-                </div>
-                <button class="sidebar-logout" onclick="(async function(){try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}catch(_){}window.location.href='/portal/login';})();" title="Sign out">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                </button>
-            </div>
-        </div>
     </nav>
 
     <!-- Main -->
@@ -804,8 +786,19 @@
                 </button>
                 <span class="topbar-title">{% block topbar_title %}Dashboard{% endblock %}</span>
             </div>
-            <div class="topbar-actions">
-                {% block topbar_actions %}{% endblock %}
+            <div class="topbar-right">
+                <div class="topbar-actions">
+                    {% block topbar_actions %}{% endblock %}
+                </div>
+                <div class="topbar-account">
+                    <div class="account-user" title="">
+                        <div class="account-avatar" id="user-avatar">—</div>
+                        <span class="account-name" id="user-name">—</span>
+                    </div>
+                    <button class="account-logout" onclick="(async function(){try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}catch(_){}window.location.href='/portal/login';})();" title="Sign out">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    </button>
+                </div>
             </div>
         </div>
         <div class="page-content">
@@ -849,7 +842,7 @@
     // DEMO: static operator info, no /me call
     document.getElementById('user-name').textContent = 'Demo Operator';
     document.getElementById('user-avatar').textContent = 'D';
-    document.getElementById('user-email').textContent = 'demo@sequor.app';
+    var _au = document.querySelector('.account-user'); if (_au) _au.setAttribute('title', 'demo@sequor.app');
     var demoBadge = document.getElementById('escalation-count');
     demoBadge.textContent = '3';
     demoBadge.classList.add('visible');
@@ -865,7 +858,7 @@
                     document.getElementById('user-avatar').textContent = data.name.charAt(0).toUpperCase();
                 }
                 if (data.email) {
-                    document.getElementById('user-email').textContent = data.email;
+                    var _au = document.querySelector('.account-user'); if (_au) _au.setAttribute('title', data.email);
                 }
                 if (data.escalation_count !== undefined && data.escalation_count !== null) {
                     const badge = document.getElementById('escalation-count');
