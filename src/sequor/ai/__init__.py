@@ -1,7 +1,9 @@
 """AI module for Sequor.
 
 Exports:
-- OllamaClient: LLM and embedding generation
+- OllamaClient: Local LLM and embedding generation (Ollama)
+- DeepSeekClient: Cloud LLM generation (DeepSeek, OpenAI-compatible API)
+- get_llm_client: Provider-agnostic client factory (returns OllamaClient or DeepSeekClient)
 - DocumentParser: Document parsing for various formats
 - Chunking strategies: Line-item, section, sentence-overlap
 - VectorStore: Hybrid vector + BM25 retrieval

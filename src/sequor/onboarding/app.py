@@ -1593,7 +1593,7 @@ async def portal_api_keyphrase_create(request: Request):
     from sqlalchemy.ext.asyncio import AsyncSession
     from sequor.db.models import KeyPhraseMapping, Document, KeyPhraseMappingType
     from sqlalchemy import select
-    from pydantic import BaseModel
+    from pydantic import BaseModel, field_validator
 
     class CreateMappingRequest(BaseModel):
         phrase: str
@@ -1601,6 +1601,15 @@ async def portal_api_keyphrase_create(request: Request):
         document_id: str
         mapping_type: str = "auto_reply"
         confidence_boost: float = 1.0
+
+        @field_validator("confidence_boost")
+        @classmethod
+        def _validate_confidence_boost(cls, v: float) -> float:
+            import math
+
+            if not math.isfinite(v):
+                raise ValueError("confidence_boost must be finite")
+            return v
 
     try:
         body = await request.json()
@@ -1756,10 +1765,13 @@ async def portal_api_keyphrase_suggestions(request: Request):
             prompt=prompt, system=system_prompt, temperature=0.5, max_tokens=500
         )
 
-        # Parse the JSON response
-        import json
+        # Parse the JSON response — use lenient parser that handles markdown
+        # fences and trailing text, matching keyphrase_extractor.py's pattern.
+        from sequor.ai.keyphrase_extractor import _json_loads_lenient
 
-        suggestions = json.loads(suggestions_text)
+        suggestions = _json_loads_lenient(suggestions_text)
+        if not isinstance(suggestions, list):
+            suggestions = []
 
         # Filter out already-mapped phrases
         new_suggestions = [s for s in suggestions if s.lower() not in existing_mappings]

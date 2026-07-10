@@ -221,7 +221,7 @@ class DeepSeekClient:
         temperature: float = 0.3,
         max_tokens: int = 2048,
     ) -> str:
-        """Generate text via MiniMax chat completions API."""
+        """Generate text via DeepSeek chat completions API."""
         client = self._get_client()
 
         messages: list[dict[str, str]] = []
@@ -247,10 +247,10 @@ class DeepSeekClient:
             return content
         except Exception as e:
             logger.error("deepseek.generate.error", error=str(e))
-            raise RuntimeError(f"MiniMax generation failed: {e}") from e
+            raise RuntimeError(f"DeepSeek generation failed: {e}") from e
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings via OpenAI (MiniMax does not offer embeddings).
+        """Generate embeddings via OpenAI (DeepSeek does not offer embeddings).
 
         Falls back to Ollama if OpenAI is not configured.
         """
@@ -283,12 +283,12 @@ class DeepSeekClient:
             return embeddings
 
         # Fall back to Ollama for embeddings
-        logger.warning("minimax.embedding.fallback_to_ollama")
+        logger.warning("deepseek.embedding.fallback_to_ollama")
         ollama = OllamaClient(embedding_model=self.embedding_model)
         return await ollama._generate_ollama_embeddings(texts)
 
     async def is_available(self) -> bool:
-        """Check if MiniMax API is reachable."""
+        """Check if DeepSeek API is reachable."""
         try:
             client = self._get_client()
             # Lightweight probe — list models (or just check connectivity)
@@ -323,7 +323,11 @@ def get_llm_client() -> OllamaClient | DeepSeekClient:
     return _client
 
 
-# Backward-compatible alias — used throughout the codebase
+# Backward-compatible alias — used throughout the codebase.
+# NOTE: This alias is now provider-agnostic: it returns DeepSeekClient when
+# settings.llm_provider == "deepseek", not necessarily an OllamaClient.
+# New code should use get_llm_client() directly. This alias is kept for
+# backward compatibility; migrate call sites over a deprecation cycle.
 get_ollama_client = get_llm_client
 
 
