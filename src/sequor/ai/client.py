@@ -156,7 +156,7 @@ class OllamaClient:
                 embeddings.append(embedding)
             except Exception as e:
                 logger.warning("openai.embedding.failed", error=str(e))
-                raise RuntimeError(f"OpenAI embedding failed: {e}") from e
+                raise RuntimeError("OpenAI embedding failed") from e
         logger.info(
             "openai.embedding.ok", model=settings.openai_embedding_model, text_count=len(texts)
         )
@@ -247,7 +247,7 @@ class DeepSeekClient:
             return content
         except Exception as e:
             logger.error("deepseek.generate.error", error=str(e))
-            raise RuntimeError(f"DeepSeek generation failed: {e}") from e
+            raise RuntimeError("DeepSeek generation failed") from e
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings via OpenAI (DeepSeek does not offer embeddings).
@@ -274,7 +274,7 @@ class DeepSeekClient:
                     embeddings.append(resp.data[0].embedding)
                 except Exception as e:
                     logger.warning("openai.embedding.failed", error=str(e))
-                    raise RuntimeError(f"OpenAI embedding failed: {e}") from e
+                    raise RuntimeError("OpenAI embedding failed") from e
             logger.info(
                 "openai.embedding.ok",
                 model=settings.openai_embedding_model,
