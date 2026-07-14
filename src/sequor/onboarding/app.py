@@ -202,7 +202,11 @@ async def create_account(request: Request):
         result = await handle_signup(body)
         return JSONResponse(status_code=201, content=result)
     except ValueError as e:
-        return JSONResponse(status_code=422, content={"detail": str(e)})
+        _logger.warning("onboarding.signup.validation_error", error=str(e))
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Invalid signup request. Please check your input."},
+        )
     except Exception:
         # Do not leak internal exception detail to the caller; log server-side.
         _logger.exception("onboarding.signup.error")
@@ -240,7 +244,11 @@ async def upload_document(
             filename=file.filename or "",
         )
     except ValueError as e:
-        return JSONResponse(status_code=422, content={"detail": str(e)})
+        _logger.warning("onboarding.upload.validation_error", error=str(e))
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Invalid upload request. Please check your input."},
+        )
 
     try:
         tid = UUID(tenant_id)
@@ -293,7 +301,11 @@ async def upload_document(
             },
         )
     except ValueError as e:
-        return JSONResponse(status_code=422, content={"detail": str(e)})
+        _logger.warning("onboarding.upload.processing_error", error=str(e))
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Invalid document. Please check your input."},
+        )
     except Exception:
         _logger.exception("onboarding.upload.error")
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
@@ -339,7 +351,11 @@ async def stripe_webhook(request: Request):
 
         verify_webhook_signature(body, signature)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"detail": str(e)})
+        _logger.warning("billing.webhook.signature_error", error=str(e))
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Invalid webhook request."},
+        )
 
     try:
         parsed = _json.loads(body)
@@ -353,7 +369,11 @@ async def stripe_webhook(request: Request):
 
         return JSONResponse(status_code=200, content={"status": "ok"})
     except ValueError as e:
-        return JSONResponse(status_code=422, content={"detail": str(e)})
+        _logger.warning("billing.webhook.payload_error", error=str(e))
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Invalid webhook payload."},
+        )
     except Exception:
         _logger.exception("billing.webhook.error")
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
@@ -1518,7 +1538,11 @@ async def portal_api_upload_document(
             },
         )
     except ValueError as e:
-        return JSONResponse(status_code=422, content={"error": str(e)})
+        _logger.warning("portal.upload.validation_error", error=str(e))
+        return JSONResponse(
+            status_code=422,
+            content={"error": "Invalid document. Please check your input."},
+        )
     except Exception as e:
         _logger.exception("portal.upload.error", error=str(e), error_type=type(e).__name__)
         # Categorize for a helpful hint, but do NOT echo the raw exception
