@@ -23,11 +23,18 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
    - Known slugs: `kailash-coc-claude-{py,rs,rb,prism}` and the multi-CLI `kailash-coc-{py,rs}` all live under `terrene-foundation/`.
    - **NEVER use the legacy `scripts/resolve-template.js` shim** — added to manifest's `obsoleted:` list in v2.9.1; purged in step 3 below.
 
-2. **Read obsoleted list from the resolved template**: `cat "$RESOLVED_TEMPLATE_PATH/.claude/.coc-obsoleted"` (slim purpose-built file emitted by coc-sync Step 4.5). Each non-comment, non-blank line is a repo-relative path; trailing slash means directory. If missing, the template predates v2.9.1 — log a one-line warning, skip step 3, proceed; the obsoleted purge happens on the NEXT sync once the template upgrades.
+2. **Read obsoleted list from the resolved template**: `cat "$RESOLVED_TEMPLATE_PATH/.claude/.coc-obsoleted"` (slim purpose-built file emitted by the sync engine `sync-tier-aware.mjs` during the Step-4.5 sync flow). Each non-comment, non-blank line is a repo-relative path; trailing slash means directory. If missing, the template predates v2.9.1 — log a one-line warning, skip step 3, proceed; the obsoleted purge happens on the NEXT sync once the template upgrades.
 
 3. **Purge obsoleted paths in this consumer (MUST, before any merge)**:
 
    **HALT-on-dirty precondition (MUST — runs BEFORE the purge loop):** the purge below runs `rm -rf` against consumer paths. Before the loop, run `git status --porcelain` in the consumer. A non-empty result HALTS the downstream sync — the operator commits/stashes/cleans first, then re-runs. **HALT, never auto-stash** (stash is itself a loss vector — design red-team HIGH-1). An obsoleted-path directory may legitimately contain uncommitted operator work; deleting it via `rm -rf` while the tree is dirty risks unrecoverable loss of untracked-not-ignored files (the #401 class — no git object, no reflog). This is the second `rm`-without-porcelain-check instance the #401 analyst surfaced; it gets the same gate as Gate 2 step 0a.
+
+   **Path-containment guard (MUST — runs per line, BEFORE each `rm -rf`; #931):** the obsoleted list is emitter-authored, but the consumer purge MUST NOT trust it. A malformed or hostile line (`../sibling`, `/etc/passwd`, `.claude/../../etc`) would resolve OUTSIDE this consumer's tree and `rm -rf` a path the consumer never owned — containment closes that class regardless of whether the emitter is correct. Each line is validated with a pure-string check BEFORE deletion: reject absolute paths (leading `/`) and any `..` segment; the leftover set is repo-relative and therefore confined to the consumer's own tree (the deletion base is `./`). A rejected line is **skipped with a loud one-line warning to stderr — never silently dropped** (fail-loud: a silently-skipped orphan is a silently-un-purged orphan). This mirrors loom's emitter-side `rejectUnsafePurgeEntry` + `safeJoinUnder` (`.claude/bin/sync-tier-aware.mjs`). The check is intentionally a **pure-string case-glob** — `realpath` / `readlink -f` are not uniformly present on macOS's bash 3.2, and `mapfile`/associative arrays are bash-4 only (the loom#892 portability lesson), so neither is used. **Symlink caveat (honest limitation — partial coverage, one accepted residual):** because the guard is pure-string (no `realpath` / `readlink -f`), it does NOT resolve symlinks. The two backstops each close only PART of the symlink surface, and one vector stays open:
+   - **Backstop-1 — `rm -rf`'s own symlink semantics** (it removes the *link*, never recursing into the target's directory) closes ONLY the **TERMINAL** case: where the obsoleted path ITSELF is the symlink (e.g. obsoleted line `.claude/hooks/lib`, and `.claude/hooks/lib` is a link to `/etc`). `rm -rf "./.claude/hooks/lib"` unlinks the link and stops — nothing under `/etc` is touched.
+   - **Backstop-2 — the HALT-on-dirty gate** catches ONLY an **UNTRACKED** planted symlink: an uncommitted link dirties the tree, so HALT fires before the loop. A **committed** link leaves `git status --porcelain` empty, so HALT does NOT fire.
+   - **Residual NEITHER backstop closes (BOUNDED, ACCEPTED):** a **COMMITTED INTERMEDIATE symlink COMPONENT** — obsoleted line `a/b` where `a` is a committed symlink pointing out-of-tree. The pure-string guard sees no leading `/` and no `..`, so the line passes; the committed link leaves the tree clean, so HALT does not fire; and `rm -rf "./a/b"` traverses `a` and deletes `b` OUTSIDE the tree (Backstop-1 does not apply — the link `a` is an intermediate component, not the terminal path being unlinked). This is a BOUNDED, ACCEPTED residual, accepted on **rarity + low-impact** grounds (NOT because no portable fix exists): exploitation is effectively consumer self-sabotage — it requires the consumer to have *committed* an out-of-tree symlink into their OWN tree at a component some fixed loom-authored obsoleted entry happens to traverse, and an actor able to commit that already holds direct write access to the tree (a strictly stronger position than a purge-path race); the impact is nuisance-deletion of a path the sync-runner already writes. A portable per-component `[ -L ]` walk (test each `./`-prefixed path prefix, skip the line if any prefix is a symlink — POSIX `test -L`, bash-3.2-safe, no `realpath` needed) WOULD close it; it is deliberately OMITTED to keep this shipped snippet minimal for a LOW defense-in-depth layer. (A `realpath`-canonicalization guard would also close it but `realpath` / `readlink -f` are not uniformly present on macOS bash 3.2 — the loom#892 constraint — which is why the `[ -L ]` walk, not `realpath`, is the portable option here.)
+
+   The containment boundary is the **consumer repo root**, not `.claude/` alone: the obsoleted contract legitimately spans `.claude/**`, the multi-CLI overlays `.codex/**` + `.gemini/**`, and top-level `scripts/hooks/` + `scripts/resolve-template.js` (see `sync-manifest.yaml::obsoleted` + `cross-repo.md` Rule 3). Rejecting absolute + `..` confines every legitimate line to the repo root while blocking every escape.
 
    ```bash
    # HALT-on-dirty: refuse to purge into a tree with uncommitted work.
@@ -36,12 +43,49 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
      git status --porcelain >&2
      exit 1
    fi
-   for path in <obsoleted-paths>; do
+   # Read the SAME .coc-obsoleted file cat-read above, one line at a time.
+   # `while IFS= read -r` is the canonical safe form: it preserves leading/
+   # trailing whitespace and paths-with-spaces, and does NOT word-split or
+   # glob-expand the line (which a `for path in $(cat …)` would — a classic
+   # rm -rf footgun). bash-3.2-safe (no mapfile).
+   while IFS= read -r path; do
+     # Skip comment (^[[:space:]]*#) and blank / whitespace-only lines
+     # (prose contract: "Each non-comment, non-blank line is a repo-relative
+     # path"). Strip leading whitespace char-by-char (bash-3.2, no extglob),
+     # then classify the trimmed line — but keep purging the ORIGINAL $path.
+     trimmed="$path"
+     while case "$trimmed" in [[:space:]]*) true ;; *) false ;; esac; do
+       trimmed="${trimmed#?}"
+     done
+     case "$trimmed" in
+       ''|'#'*) continue ;;   # blank / whitespace-only, or comment → skip
+     esac
+     # Containment guard (#931): validate BEFORE rm. Pure-string, bash-3.2-safe
+     # (no realpath / readlink -f / mapfile). Fail-loud skip, never silent.
+     case "$path" in
+       ""|.|./|*/.)          echo "obsoleted: SKIP unsafe (empty / repo-root / trailing-dot) line: '$path'" >&2; continue ;;
+       /*)                   echo "obsoleted: SKIP unsafe (absolute path): '$path'" >&2; continue ;;
+       ..|../*|*/..|*/../*)  echo "obsoleted: SKIP unsafe ('..' segment): '$path'" >&2; continue ;;
+     esac
      if [ -e "./$path" ]; then
        rm -rf "./$path"
        echo "obsoleted: removed ./$path"
      fi
-   done
+   done < "$RESOLVED_TEMPLATE_PATH/.claude/.coc-obsoleted"
+   ```
+
+   ```bash
+   # DO — `while IFS= read -r`, skip comments/blanks, validate every line, then rm:
+   #   # a comment        → skipped (comment line)
+   #   .claude/hooks/lib   → removed ./.claude/hooks/lib
+   #   .claude/a b         → removed ./.claude/a b   (space preserved, not word-split)
+   #   ../sibling          → SKIP unsafe ('..' segment): '../sibling'   (nothing deleted)
+   #   /etc/passwd         → SKIP unsafe (absolute path): '/etc/passwd' (nothing deleted)
+   # DO NOT — `for path in $(cat .coc-obsoleted); do rm -rf "./$path"` — the
+   # unquoted `$(cat …)` word-splits on IFS and glob-expands each line (a path
+   # with a space becomes two rm targets; a line containing `*` expands), AND
+   # skipping the guard lets a single "../.." line escape the consumer tree and
+   # delete a sibling repo — no git object, no reflog.
    ```
 
    This is the ONLY mechanism by which downstream consumers purge stale orphan directories from former COC layouts. Skipping it leaves `require("./lib/...")` resolving against the wrong sibling and ships hooks that fail at every CC session start with `MODULE_NOT_FOUND`.
@@ -50,7 +94,7 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
    - `.claude/agents/**`, `.claude/commands/**`, `.claude/rules/**`, `.claude/skills/**`, `.claude/guides/**`
    - `.claude/hooks/**` — runtime enforcement scripts (canonical since v2.9.1)
    - `.claude/hooks/lib/**` — sibling helper modules loaded via `require("./lib/...")`
-   - `.claude/bin/**` — resolver + emitter binaries
+   - `.claude/bin/<allowlist>` — the FAIL-CLOSED consumer-runtime bin allowlist (F1030d/#1051): explicit entries only (`resolve-template.js`, `emit.mjs`, `validate-*`, `scan-synced-disclosure.mjs`, `mesh-*`, the example-JSON seeds, …), NOT a blanket `bin/**` glob
    - `.claude/.coc-obsoleted` — the obsoleted-purge contract file
    - Top-level `scripts/migrate.py` and other items declared in the manifest's `variant_only:` block
    - **NOT** `scripts/hooks/` or `.claude/scripts/` — obsoleted in v2.9.1, MUST NOT be re-emitted.
@@ -120,7 +164,7 @@ At a `coc-use-template` repo, `/sync-from-downstream` runs **inbox ingest** (the
 
 ## Gate 1: Review + Scrub (inbound — TWO proposal streams; loom does not originate)
 
-loom is the central splitter/distributor — it never authors an artifact change itself. Gate 1 ingests proposals from TWO upstream streams: the **BUILD stream** (kailash-py / kailash-rs — SDK-code proposals; cross-SDK considered first by the BUILD repo, Gate 1 records/flags it as an advisory alignment note per step 8, NOT a hard block) and the **USE-template stream** (`kailash-coc-*` — COC-artifact-improvement proposals from USE-template `/codify` origination; the originator schema is the **USE-Template Proposal Schema (Step 7b)** subsection below — self-contained here so it travels to USE templates; `guides/co-setup/09-proposal-protocol.md` Step 7b carries the same schema plus full rationale but is loom-only and MUST NOT be cited as the schema authority in USE-template context). Delegated to **sync-reviewer** agent. Runs automatically when `/sync-from-build` / `/sync-from-use` detects unreviewed changes; also runs on explicit `/sync-from-build review`.
+loom is the central splitter/distributor — it never authors an artifact change itself. Gate 1 ingests proposals from TWO upstream streams: the **BUILD stream** (kailash-py / the Rust SDK — SDK-code proposals; cross-SDK considered first by the BUILD repo, Gate 1 records/flags it as an advisory alignment note per step 8, NOT a hard block) and the **USE-template stream** (`kailash-coc-*` — COC-artifact-improvement proposals from USE-template `/codify` origination; the originator schema is the **USE-Template Proposal Schema (Step 7b)** subsection below — self-contained here so it travels to USE templates; `guides/co-setup/09-proposal-protocol.md` Step 7b carries the same schema plus full rationale but is loom-only and MUST NOT be cited as the schema authority in USE-template context). Delegated to **sync-reviewer** agent. Runs automatically when `/sync-from-build` / `/sync-from-use` detects unreviewed changes; also runs on explicit `/sync-from-build review`.
 
 ### USE-Template Proposal Schema (Step 7b — originator contract, self-contained)
 
@@ -244,27 +288,28 @@ Merges loom/ source + variant overlays into USE template repos. Delegated to **c
 
 **0. Synced-disclosure gate (MUST — runs BEFORE any emit step, the first action of Gate 2):** Gate 2 MUST run `node .claude/bin/scan-synced-disclosure.mjs --check` against loom/'s tree before computing or emitting any change. A non-zero exit is a **BLOCK-level finding**: /sync-to-use MUST HALT distribution, MUST surface the scanner's redacted report (path:line + `[SHAPE:<id>]` + «REDACTED» context — never the raw token) in the sync output, and MUST NOT emit a single file to any target until a human adjudicates. The scanner fences the now-closed #252 forest: any operator hostname, non-Foundation org slug, org-derived runner label, operator home path, or launchd/systemd service-label stem that reaches the synced surface propagates to 30+ downstream consumers and is correlatable across all of them. Resolve a finding by **genericizing** the disclosure + **relocating** the operator-specific value into the gitignored operator-local companion (per the #255 / #260 pattern), then re-run the scanner to confirm exit 0 before resuming Gate 2. The check is mechanical (positive-allowlist + structural shapes, zero secret tokens in the scanner itself), not semantic — same structural-defense shape as step-5a's canonical-divergence gate and coc-sync.md Step 8's "every obsoleted path is GONE" assertion. **BLOCKED rationalizations:** "the finding is in a comment, not user-visible" / "that token is the operator's own org, the consumers won't care" / "re-running the scanner every /sync-to-use is overhead" / "allowlist the token so the sync can proceed" (allowlisting a real operator/org token IS the #264 leak the scanner exists to prevent) / "the finding is pre-existing, not introduced this cycle" / "ship it, file a follow-up to genericize later". Why: a synced disclosure that escapes Gate 2 cannot be recalled — it is now in 30+ consumer repos' git history permanently; the one-time genericize-and-relocate cost is trivially smaller than the unrecoverable cross-consumer correlation it prevents. Detection is O(files) regex; resolution is human, scoped, and rare in a well-fenced tree (zero findings is the steady state once the residuals are remediated).
 
-**0a. HALT-on-dirty precondition (MUST — runs per target, BEFORE any write to that target), on MODIFIED-TRACKED files outside the never-synced set:** Downstream templates are perpetually WIP; a WHOLE-TREE halt makes /sync-to-use structurally impossible there. The #401 loss has exactly two sub-cases — (1) a modified **TRACKED** file overwritten (NO reflog when uncommitted), and (2) untracked work `rm -rf`'d (no git object). `sync-tier-aware.mjs` snapshots EVERY untracked-not-ignored file **surface-wide** (`git ls-files --others --exclude-standard`, lines 212–293) at the START of the per-target write — BEFORE its own copy/purge AND before the later Step-4.6 emit-cli `.codex/`/`.gemini/`/`.codex-mcp-guard/` writes — so sub-case (2) is ALWAYS recoverable regardless of path. Sub-case (1) is the ONLY one the snapshot does NOT cover. So the gate HALTs on exactly that — any modified-TRACKED entry, whole-tree, outside the never-synced/regenerated set — with **NO write-set allowlist to drift**:
+**0a. Worktree-from-remote-main distribution (MUST — supersedes the working-tree-overlay model + its #401 HALT-on-dirty machinery; journal/0403).** Gate-2 MUST NOT write into any target's LOCAL working tree — a developer may be live in that checkout, and an overlay silently collides with their uncommitted work (the stranded-overlay class: a prior working-tree sync left ~99 uncommitted `.claude/` files in a local BUILD checkout). Every target — BUILD (`/sync-to-build`) AND USE-template (`/sync-to-use`) — is distributed through `bin/sync-gate2-worktree.mjs`, which creates an ISOLATED worktree from the target's REMOTE main, applies Gate-2 THERE, and lands a PR; the dev's checkout is never touched (they pull the merge). This makes the prior HALT-on-dirty precondition + its surface-wide untracked-snapshot invariant MOOT: a worktree checked out at `origin/main` is clean by construction, so neither #401 loss sub-case (overwrite a modified-tracked file / `rm -rf` untracked work) can arise — there is no live-checkout state to lose. The disclosure gate (§0) still runs FIRST, on loom's OWN tree, before any emit.
+
+**Two-phase for the USE lane (enrichment runs IN the worktree, between engine apply and commit).** BUILD needs no enrichment → single-shot. USE runs the enrichment residue (steps 7–11 below) the deterministic engine does not do, so its worktree flow splits:
 
 ```bash
-git -C <target_dir> status --porcelain -- . \
-  ':(exclude).claude/VERSION'       ':(exclude).claude/.coc-sync-marker' \
-  ':(exclude).claude/learning/'     ':(exclude).claude/.proposals/' \
-  ':(exclude).claude/settings.local.json' \
-  | grep -vE '^\?\?'
+# 1. STAGE — worktree-from-origin/main + engine apply (overlays + obsoleted purge) + --verify; STOPS
+node .claude/bin/sync-gate2-worktree.mjs --lane use --target <slug> --stage-only --json   # prints worktree path + base SHA
+# 2. ENRICH in that worktree (coc-sync agent — Process steps 7–11 below)
+# 3. FINALIZE — re-capture manifest (incl. enrichment) → commit EXPLICIT paths → push → PR → receipt → remove worktree
+node .claude/bin/sync-gate2-worktree.mjs --lane use --target <slug> --finalize --worktree <path> --json
+#    abandon a staged worktree: --abort --worktree <path>
+# BUILD single-shot (no enrichment): omit --stage-only — the helper applies + commits + PRs in one call.
+node .claude/bin/sync-gate2-worktree.mjs --lane build --target <slug>
 ```
 
-A non-empty result (any non-untracked porcelain entry — `M`/`A`/`D`/`R`/`C`/`U`, the `^??` untracked lines filtered out — outside the never-synced set) is a **HALT-level finding**: STOP, surface it, the operator commits/cleans those TRACKED changes first, then re-runs. **HALT, never auto-stash** — `git stash` is itself a data-loss vector (the design red-team's HIGH-1).
+The engine call is `sync-tier-aware.mjs --<build|template> <slug> --out <scratch>` retargeted at the worktree; a non-zero `--verify` inside `--stage-only` ABORTS before any commit. FINALIZE stages EXPLICIT paths (`coc-sync-landing.md` MUST-2 — never `git add -A`) and emits the exact-tracking receipt (`sync-completeness.md` MUST-7 — every enumerated target's per-file `buildReceipt` manifest, scrubbed per `user-flow-validation.md` MUST-6 before the journal embed). Merge is gated: a bare `--finalize` (or single-shot) STOPS at the PR and prints the human-gated merge command; `--merge` runs the `git.md` § "CI-check and merge are SEPARATE steps" sequence. The throwaway worktree's `.venv`/`target` never touches the dev's.
 
-**Why HALT-on-modified-tracked is robust (closes the allowlist-drift hole a scoped-pathspec design opened):** halting on ALL modified-tracked needs NO enumeration of the write-set, so it CANNOT miss a write path — the earlier `.claude/ .codex/ .gemini/`-only pathspec MISSED `.gitignore` + `.codex-mcp-guard/` + `bin/coc` + the multi-CLI `sync-manifest.yaml` (security-reviewer CRIT+HIGH), re-opening the #401 hole; halting on every modified-tracked closes it structurally. Untracked WIP (`workspaces/`, `docs/`, `.session-notes`, `.claude/learning/` state) PROCEEDS — covered surface-wide by the snapshot that runs before every Gate-2 write. `VERSION`/`.coc-sync-marker` excluded (regenerated steps 7–9; a dirty `VERSION` is #407 auto-drift, not operator data — operators MUST NOT hand-edit a consumer's `.claude/VERSION`, it is tool-owned and Gate-2 overwrites it; corrections go through `/sync-from-template`, not a manual edit); `learning/`/`.proposals/`/`settings.local.json` excluded (never-synced per-repo state).
-
-**Snapshot-ordering invariant (security-reviewer MED — load-bearing):** the untracked-allow is safe ONLY because the surface-wide snapshot runs BEFORE every Gate-2 write — `sync-tier-aware.mjs` Step-4 snapshot precedes Step-4.6 emit-cli (`coc-sync.md` §Step 4.6). A future Gate-2 write path that runs WITHOUT a preceding surface-wide untracked snapshot would make the untracked-allow unsafe for that path; such a path MUST snapshot-first OR be added to a modified-tracked-equivalent halt. Durable fix (journal/0199 For-Discussion #1): each write tool asserts the snapshot ran before its first write, rather than two hand-maintained lists.
-
-**Still BLOCKED:** "auto-stash is safe enough" / "the snapshot covers it, just overwrite the modified rule" (snapshot is UNTRACKED-only — a modified TRACKED artifact has NO reflog, MUST HALT) / "porcelain-checking is overhead". **NOT blocked (the over-halt fix):** untracked WIP proceeds — snapshot-covered.
-
-**Serial same-lane orchestration (MUST):** `sync-tier-aware.mjs` is PER-LANE — one invocation writes BOTH templates in a lane unless scoped. When distributing to a multi-template lane, the orchestrator MUST sync each template SERIALLY (`node .claude/bin/sync-tier-aware.mjs --target <lane> --template <repo>` once per template), OR run a single `--all-templates` invocation — NEVER dispatch parallel same-lane sync agents. Parallel same-lane agents collide on the shared per-lane write (the #401 incident: concurrent same-lane dispatch destroyed a sibling consumer's untracked work). A bare `--target <lane>` write with neither `--template` nor `--all-templates` is REFUSED by the tool (exit 2) — pass one explicitly. Cross-LANE parallelism (py + rs + rb simultaneously) is fine — those resolve to disjoint template dirs. **BLOCKED rationalizations:** "parallel same-lane is faster" / "the two templates are different dirs so it's safe" (the per-lane tool writes both in one invocation regardless of dispatch) / "I'll just launch one agent per template in parallel" (still same-lane collision on the shared invocation path).
+**Serial same-lane orchestration (MUST):** enumerate targets from the manifest (`sync-completeness.md` MUST-1) and distribute each SERIALLY — one helper invocation per target slug — so the per-target exact-tracking receipts (and the `/sync-to-use` verification table) land in a deterministic row order. Each target gets its OWN isolated worktree, so the #401 shared-write collision is now structurally impossible (the worktree model eliminated it); the serial discipline is for receipt/table ordering, NOT collision avoidance. Cross-LANE parallelism (py + rs + rb) is fine — disjoint worktrees. **BLOCKED rationalizations:** "run the templates in parallel to save time" (breaks deterministic verification-table order) / "write straight into the target's checkout, it's faster" (the stranded-overlay class the worktree model exists to prevent).
 
 ### Process
+
+The steps below run INSIDE the isolated worktree (§0a), not the target's live checkout: steps 1–6 (compute + apply) ARE the deterministic engine's `--stage-only` apply (`sync-tier-aware.mjs` owns the file-set/overlay/purge — the coc-sync agent MUST NOT re-improvise it, `journal/0339`); steps 7–11 are the in-worktree enrichment the agent runs before `--finalize`; step 12 (mark distributed) runs POST-MERGE.
 
 1. **Read manifest** for tiers, variants, exclusions (`exclude:`, `use_exclude:`).
 2. **Inventory the template** — read what's currently there before computing changes.
@@ -274,8 +319,8 @@ A non-empty result (any non-untracked porcelain entry — `M`/`A`/`D`/`R`/`C`/`U
    - **Apply `use_exclude:`** — paths listed there are BUILD-only. USE-template emission MUST skip them. Symmetric with `build_exclude:` for `/sync-to-build`. `/sync-to-build` ignores `use_exclude:`.
    - **Global runtime infrastructure (MUST include — tier-independent)**:
      - `.claude/hooks/**` (canonical since v2.9.1) — every `*.js` plus the `lib/` sibling helpers
-     - `.claude/bin/**` — `resolve-template.js`, `emit.mjs`, other resolver/emitter binaries
-     - `.claude/.coc-obsoleted` — the obsoleted-purge contract file (regenerated by Step 4.5)
+     - `.claude/bin/<allowlist>` — the FAIL-CLOSED consumer-runtime bin allowlist (F1030d/#1051): explicit entries only (`resolve-template.js`, `emit.mjs`, `validate-*`, `scan-synced-disclosure.mjs`, `mesh-*`, the example-JSON seeds, …), NOT a blanket `bin/**` glob — a new loom tool defaults to STAY-HOME unless added to `sync-tier-aware.mjs::ALWAYS_INCLUDE`
+     - `.claude/.coc-obsoleted` — the obsoleted-purge contract file (regenerated by the sync engine `sync-tier-aware.mjs` during the Step-4.5 sync flow)
    - **Variant overlay** from `variants/{repos.<target>.variant}/` — replacements + additions, including any `variants/{variant}/hooks/*.js` declared in `variant_only:`. Variant slug is `repos.<target>.variant` (`py`, `rs`, `rb`, `base`) — not necessarily equal to target name; e.g., `repos.rb.variant: rb` but a future `repos.rb-pro.variant: rb` would re-use the same overlay.
    - Top-level non-`.claude/` files declared in `variant_only:` (e.g., `scripts/migrate.py`).
    - **NOT** `scripts/hooks/` or `.claude/scripts/` — obsoleted in v2.9.1, MUST NOT be re-emitted to any target.
@@ -310,7 +355,7 @@ A non-empty result (any non-untracked porcelain entry — `M`/`A`/`D`/`R`/`C`/`U
 
 11. **Verify hooks** — every hook in `settings.json` has a corresponding script on disk.
 
-12. **Mark proposal as distributed** — after Gate 2 completes, update BUILD repo's `.claude/.proposals/latest.yaml`:
+12. **Mark proposal as distributed (POST-MERGE)** — after the Gate-2 PR MERGES, update BUILD repo's `.claude/.proposals/latest.yaml`:
     - Set `status: distributed`
     - Add `distributed_date: YYYY-MM-DDTHH:MM:SSZ`
     - This signals to the next `/codify` run that it is safe to create a fresh proposal. Without this step, `/codify` would see `reviewed` and append rather than start fresh, accumulating stale entries indefinitely.
@@ -334,7 +379,7 @@ Dependencies: uv sync ✓ | Hooks: 11/11 | VERSION: 1.0.0→1.1.0
 The full annotated example for `commands/sync-to-build.md` Step 5 ("Present merge plan"). Group by decision type; for MODIFIED files show source-vs-BUILD line counts; end with the proceed/review gate:
 
 ```
-## Merge Plan: loom/ → kailash-rs/
+## Merge Plan: loom/ → <rust-sdk-repo>/
 
 ### Safe updates (shared artifacts, no BUILD-specific content)
 - rules/agents.md (+3 -1)

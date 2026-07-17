@@ -1,8 +1,12 @@
 ---
 name: project
-description: Sequor project skills — security patterns, AI client safety, error message hygiene, DeepSeek provider patterns.
+description: "Project Skills placeholder. Numbered skill directories carry the content; this slot is a redirect kept for parsers that require a project-named skill."
 ---
 
-# Sequor Project Skills
+# Project Skills
 
-- **Sequor Security & AI Patterns** → `sequor-patterns.md` — Error message hygiene (R8), DeepSeek client safety (R7), NaN guards, provider migration, CI deploy hardening.
+No project-specific skills. All skills have been moved to numbered directories:
+
+- Trust-plane store backends → `skills/26-eatp-reference/eatp-store-backends.md`
+- Trust-plane security patterns → `skills/26-eatp-reference/eatp-trust-plane-security.md`
+- Trust-plane enterprise features → `skills/26-eatp-reference/eatp-trust-plane-enterprise.md`

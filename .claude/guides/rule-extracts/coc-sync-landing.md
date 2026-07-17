@@ -94,13 +94,13 @@ The slim rule cuts the MUST NOT block to bullets only. Full text:
 
 ## Origin Post-Mortem (2026-05-02)
 
-A kailash-rs session opened with `/autonomize` unknown despite the command having been delivered to the working tree by the prior `/sync-to-build` cycle. The user response was emphatic: **"ALWAYS get the updated coc artifacts INTO MAIN BRANCH!!! Never leave them out! memory IS NOT ENOUGH"**.
+A Rust SDK session opened with `/autonomize` unknown despite the command having been delivered to the working tree by the prior `/sync-to-build` cycle. The user response was emphatic: **"ALWAYS get the updated coc artifacts INTO MAIN BRANCH!!! Never leave them out! memory IS NOT ENOUGH"**.
 
 The phrase "memory IS NOT ENOUGH" pinpoints the structural failure: an earlier attempt to enforce sync-landing via cross-session memory feedback was insufficient. Cross-session memories are loaded on session start, but they are passive — they describe a desired behavior without forcing the agent to act on it before doing other work. The agent reads the memory, acknowledges it, and proceeds with whatever the user asked next.
 
 Three-layer defense was authored at commit `91c81ac4`:
 
-1. **Hook layer** (`.claude/hooks/multi-operator-sessionstart.js`) — SessionStart hook that scans for working-tree drift under `.claude/**` and `scripts/hooks/**`, emits a loud "🚨 COC ARTIFACT DRIFT DETECTED" warning to the session's additional context (this drift-warner was previously the standalone `coc-drift-warn.js`, now subsumed per F13 closure). The hook is the structural enforcement: the warning fires every session start regardless of whether the agent reads any rule.
+1. **Hook layer** (`.claude/hooks/multi-operator-sessionstart.js`) — SessionStart hook that scans for working-tree drift under `.claude/**` and `scripts/hooks/**`, emits a `Working-tree drift: <n> own-WIP, <n> claimed-WIP` line (with a `⚠️  Claimed-WIP (cross-operator drift):` sub-list when a sibling's claimed path drifted) into the session's additional context (this drift-warner was previously the standalone `coc-drift-warn.js`, now subsumed per F13 closure; the prior `🚨 COC ARTIFACT DRIFT DETECTED` string was retired when drift-attribution landed). The hook is the structural enforcement: the drift line fires every session start regardless of whether the agent reads any rule.
 2. **Rule layer** (`.claude/rules/coc-sync-landing.md`) — this rule. Linguistic complement; prescribes the exact action sequence the agent MUST take when the hook fires. Three MUST clauses cover: drift lands as PR #1; explicit-path staging; admin-merge per owner workflow.
 3. **Memory layer** (cross-session feedback memory) — third backstop. Captures the user's directive in language the agent can recall in any subsequent session even if the rule and hook are accidentally disabled.
 
