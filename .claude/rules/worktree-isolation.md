@@ -75,7 +75,7 @@ cd "$WT" && git rev-parse --show-toplevel && <run-tests/apply-patch>
 
 **BLOCKED rationalizations:** "I cd'd at the start of the session" / "the prior command ran in the worktree, so this one will" / "the test passed, the patch must have applied".
 
-**Why:** The false-green is worse than a failure — it converts an unapplied patch into institutional "validated" state. Evidence: kailash-rs journal 0177 § Process note (2026-06-10) — a "3× green" validation had silently run in the main checkout after cwd reverted; the explicit `cd` + re-run produced the real 3/3 FAIL that exposed an O(n²) regression. Pairs with Rule 3a (checkout-bound tools): 3a covers tools rooted at the script's own location; this clause covers the invoking shell's cwd.
+**Why:** The false-green is worse than a failure — it converts an unapplied patch into institutional "validated" state. Evidence: the Rust SDK journal 0177 § Process note (2026-06-10) — a "3× green" validation had silently run in the main checkout after cwd reverted; the explicit `cd` + re-run produced the real 3/3 FAIL that exposed an O(n²) regression. Pairs with Rule 3a (checkout-bound tools): 3a covers tools rooted at the script's own location; this clause covers the invoking shell's cwd.
 
 ### 3. Parent MUST Verify Deliverables Exist After Agent Exit
 
@@ -171,6 +171,39 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 **Why:** Branch names are the primary `git log --grep` surface for tracing a shard back to its plan — `feat/w31-core-ml-nodes-observability` surfaces in history; `worktree-agent-aa7fb6a6` surfaces only as meaningless hash. Post-merge audits cannot enumerate "did every planned shard land?" via grep when half use harness defaults. Evidence: 2026-04-23 — 3 of 6 M10 shards got hash-default names; audit had to pull from working-memory table.
 
+### 7. Session/Operator Worktrees Live In A Sibling OUTSIDE The Repo — Never Nested Under `.claude/worktrees/`
+
+Rules 1–6 govern the TRANSIENT **agent-wave** worktree (`isolation: "worktree"` / `EnterWorktree({name})` → `.claude/worktrees/<hash>`, gitignored scratch, auto-cleaned). A DURABLE **session/operator** worktree — one a human or a session ROOTS INTO and works from across a task (parallel development alongside another operator on the same clone) — is a DIFFERENT artifact and MUST be created OUTSIDE the repo working tree, as a SIBLING (e.g. `~/repos/.<repo-slug>-wt/<name>`), NEVER nested under the repo's own `.claude/worktrees/` (or anywhere below the repo root). The canonical mechanism is the **`/worktree` command**; a hand-rolled `git worktree add` MUST still obey the placement rule. Root the session at the sibling by LAUNCHING the CLI with the sibling as cwd (robust — no caveats), OR — under Claude Code only — `EnterWorktree({path: <sibling>})` on FIRST entry from the launch directory (a worktree already in `git worktree list`). `EnterWorktree({name})` MUST NOT be used for durable session work (it creates under `.claude/worktrees/` — the nesting trap). Every task: branch off `origin/<default>`, PR to main, admin-merge, return.
+
+```bash
+# DO — sibling worktree, session rooted there, PR-to-main loop
+git worktree add -b feat/x ~/repos/.loom-wt/x origin/main   # sibling, OUTSIDE the repo
+cd ~/repos/.loom-wt/x && claude                              # launch rooted (or first-entry EnterWorktree({path:...}))
+# ...work... → gh pr merge <N> --admin --merge --delete-branch → return, re-cut off origin/main
+
+# DO NOT — nest a session-rooted worktree inside the repo
+git worktree add .claude/worktrees/x    ;  EnterWorktree({name: "x"})   # both land under .claude/worktrees/
+# → CC loads the worktree's .claude/rules/* as PROJECT rules AND walks up to the ancestor
+#   repo's .claude/rules/* → every loom rule loads TWICE (context bloat + prompt-cache thrash)
+```
+
+**BLOCKED rationalizations:** "`.claude/worktrees/` is the built-in worktree location" (that is for the TRANSIENT agent waves of Rules 1–6, not a session you root into) / "`EnterWorktree({name})` is the tool's intended path" (it creates under `.claude/worktrees/` → nested duplication) / "it's gitignored, so nesting is harmless" (gitignore does NOT stop CC's ancestor rule-loading; the nested checkout's rules still load, twice) / "I'll just launch the session in the nested dir" (the double-load is from directory nesting, not how the session enters) / "sibling paths clutter `~/repos`" (dot-prefixed `~/repos/.<repo>-wt/` stays out of the orchestration-root repo enumeration).
+
+**Why:** CC loads rules from the project root AND from every ANCESTOR `.claude/rules/` (verified: `~/repos/.claude/rules/cross-repo.md` loads from an ancestor of a loom-rooted session). A worktree nested under the repo is a full second checkout of the repo's rules INSIDE the repo, so a session rooted there loads the ruleset twice — once as project, once as ancestor — bloating context every turn and thrashing the prompt cache (`cc-artifacts.md` Rule 4a). A sibling has no repo in its ancestor chain, so the ruleset loads once. The distinction is PLACEMENT; `/worktree` encodes it so it is reliable rather than reconstructed each session.
+
+#### Trust Posture Wiring (Rule 7 — clause-scoped)
+
+Rule 7 lands post-`trust-posture.md`-MUST-8-cutoff, so it ships canonical-8-field-compliant; Rules 1–6 remain grandfathered until each is itself `/codify`-touched (the clause-scoped precedent set by `rule-authoring.md`/`security.md`/`git.md`).
+
+- **Severity:** `halt-and-report` at gate-review (reviewer / cc-architect confirm a session-rooted worktree is a sibling outside the repo, never nested under `.claude/worktrees/`); `advisory` at the hook layer (placement is judgment-bearing over session setup, no structural tool-call signal — `hook-output-discipline.md` MUST-2).
+- **Grace period:** 7 days from clause landing (2026-07-11 → 2026-07-18).
+- **Cumulative posture impact:** same-class violations (a durable session worktree nested under `.claude/worktrees/` or below the repo root) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a worktree-placement property is review-layer setup judgment; the universal trigger covers it). Named deviation from the key-per-clause shape, recorded per `trust-posture.md` Rule 8 — the same disposition `security.md` § Enforcement-Surface Parity took.
+- **Receipt requirement:** SessionStart soft-gate `[ack: worktree-isolation]` IFF `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer / cc-architect inspect any session that created a session-rooted worktree and confirm sibling placement (path NOT under the repo top-level; NOT under `.claude/worktrees/`) + no `EnterWorktree({name})` for durable work. Phase 2 (deferred) — no hook detector; audit fixtures land with it at `.claude/audit-fixtures/worktree-session-placement/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** Rule 7 (session/operator sibling-placement) ONLY; Rules 1–6 stay grandfathered until each is itself `/codify`-touched.
+- **Origin:** co-owner-directed origination 2026-07-11 (`journal/0463`); tested evidence (ancestor rule-loading; `EnterWorktree({path})` sibling re-root) in that receipt.
+
 ## MUST NOT
 
 - Launch an agent with `isolation: "worktree"` without passing the absolute worktree path in the prompt
@@ -185,4 +218,4 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 **Why:** `process.cwd()` resolves to whatever the Claude Code process was launched with (the main checkout), not the worktree; relative paths inherit the same problem.
 
-Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6) + Rule 2a 2026-06-11 (kailash-rs journal 0177 § Process note — cwd silently reverted to main mid-session, a "3× green" validation had run against unpatched main code). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).
+Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6) + Rule 2a 2026-06-11 (the Rust SDK journal 0177 § Process note — cwd silently reverted to main mid-session, a "3× green" validation had run against unpatched main code). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).
